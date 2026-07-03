@@ -357,16 +357,18 @@ async function renderEntry() {
 
   const today = new Date().toISOString().slice(0, 10);
   main.innerHTML = `
-    <div class="entry-wrap panel">
+    <div class="entry-wrap panel" style="max-width:100%;">
       <h3>일자별 실적 직접입력</h3>
       <div class="entry-row">
         <label>보고일자</label>
         <input type="date" id="manualDate" value="${today}">
       </div>
-      <p style="font-size:13px;color:#5b6472;margin-bottom:8px;">엑셀에서 해당 날짜 행을 그대로 복사해서 붙여넣으세요 (Ctrl+V)</p>
+
+      <div id="templateArea"><p class="empty">양식 불러오는 중...</p></div>
+
+      <p style="font-size:13px;color:#5b6472;margin:14px 0 8px;">엑셀에서 해당 날짜 행을 그대로 복사해서 붙여넣으세요 (Ctrl+V) → 위 양식에 자동으로 채워집니다</p>
       <textarea class="paste-box" id="pasteBox" placeholder="예: 171.5	33	91.5	29.5	89.4%	..."></textarea>
-      <button class="btn-secondary" onclick="previewPaste()">미리보기</button>
-      <div id="previewArea"></div>
+      <button class="btn-secondary" onclick="previewPaste()">양식에 반영</button>
       <button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveManualEntry()">저장</button>
       <div class="status-msg" id="manualStatus"></div>
     </div>
@@ -378,34 +380,81 @@ async function renderEntry() {
     });
     const data = await res.json();
     rowSchema = data.success ? (data.row_schema || []) : [];
-    if (rowSchema.length === 0) {
-      document.querySelector('.entry-wrap').innerHTML += `<p style="color:#c94040;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>`;
-    }
-  } catch (e) { /* 무시 */ }
+    renderTemplate();
+  } catch (e) {
+    document.getElementById('templateArea').innerHTML = `<p class="empty">양식을 불러오지 못했습니다.</p>`;
+  }
+}
+
+// row_schema의 key 접두어(예: "제휴상담_인입호" -> "제휴상담")를 그룹으로 묶어
+// 원본 엑셀과 같은 2단 헤더 틀을 생성한다.
+function parseGroups() {
+  return rowSchema.map(col => {
+    const idx = col.key.indexOf('_');
+    const dispGroup = idx > -1 ? col.key.slice(0, idx) : (col.group === 'attendance' ? '근태' : '실적');
+    const label = idx > -1 ? col.key.slice(idx + 1) : col.key;
+    return { key: col.key, origGroup: col.group, dispGroup, label };
+  });
+}
+
+function renderTemplate() {
+  const area = document.getElementById('templateArea');
+  if (!rowSchema || rowSchema.length === 0) {
+    area.innerHTML = `<p style="color:#c94040;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>`;
+    return;
+  }
+
+  const cols = parseGroups();
+
+  const groupCells = [];
+  let i = 0;
+  while (i < cols.length) {
+    let span = 1;
+    while (i + span < cols.length && cols[i + span].dispGroup === cols[i].dispGroup) span++;
+    groupCells.push(`<th colspan="${span}" style="text-align:center;background:#eef2ff;color:#3b6ef6;">${cols[i].dispGroup}</th>`);
+    i += span;
+  }
+
+  const labelCells = cols.map((c, idx) => `<th data-col="${idx}" style="text-align:center;">${c.label}</th>`).join('');
+  const inputCells = cols.map((c, idx) =>
+    `<td><input type="text" class="template-input" data-idx="${idx}" data-key="${c.key}" data-group="${c.origGroup}" style="width:64px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>`
+  ).join('');
+
+  area.innerHTML = `
+    <div class="table-scroll">
+      <table>
+        <thead>
+          <tr>${groupCells.join('')}</tr>
+          <tr>${labelCells}</tr>
+        </thead>
+        <tbody>
+          <tr>${inputCells}</tr>
+        </tbody>
+      </table>
+    </div>
+    <p style="font-size:12px;color:#9aa1ac;margin-top:6px;">총 ${cols.length}개 항목 · 빈 칸을 직접 클릭해 수정할 수도 있습니다</p>
+  `;
 }
 
 function previewPaste() {
   const raw = document.getElementById('pasteBox').value.trim();
-  const previewArea = document.getElementById('previewArea');
-  if (!raw) { previewArea.innerHTML = ''; return; }
+  if (!raw) return;
 
   const values = raw.split('\t').map(v => v.trim());
+  const statusEl = document.getElementById('manualStatus');
+
   if (values.length !== rowSchema.length) {
-    previewArea.innerHTML = `<p style="color:#c94040;font-size:13px;">입력 항목 수(${values.length}개)가 양식 항목 수(${rowSchema.length}개)와 다릅니다. 총원부터 마지막 칸까지 정확히 복사했는지 확인해 주세요.</p>`;
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = `입력 항목 수(${values.length}개)가 양식 항목 수(${rowSchema.length}개)와 다릅니다. 총원부터 마지막 칸까지 정확히 복사했는지 확인해 주세요.`;
     return;
   }
+  statusEl.textContent = '';
 
-  const rowsHtml = rowSchema.map((col, i) => `
-    <tr>
-      <td style="color:#5b6472;padding:5px 8px;">${col.key}</td>
-      <td style="padding:5px 8px;"><input type="text" data-key="${col.key}" data-group="${col.group}" value="${values[i] !== undefined ? values[i] : ''}"></td>
-    </tr>`).join('');
+  document.querySelectorAll('.template-input').forEach(inp => {
+    const idx = Number(inp.dataset.idx);
+    inp.value = values[idx] !== undefined ? values[idx] : '';
+  });
 
-  previewArea.innerHTML = `
-    <table class="preview-table" style="margin:12px 0;">
-      <thead><tr><th style="padding:6px 8px;">항목</th><th style="padding:6px 8px;">값 (직접 수정 가능)</th></tr></thead>
-      <tbody>${rowsHtml}</tbody>
-    </table>`;
   document.getElementById('manualSaveBtn').style.display = 'inline-block';
 }
 
@@ -413,7 +462,7 @@ async function saveManualEntry() {
   const statusEl = document.getElementById('manualStatus');
   const reportDate = document.getElementById('manualDate').value;
   const token = CENTER_TOKENS[currentCenter];
-  const inputs = document.querySelectorAll('#previewArea input');
+  const inputs = document.querySelectorAll('.template-input');
 
   const values = {};
   inputs.forEach(inp => { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
@@ -433,7 +482,7 @@ async function saveManualEntry() {
     statusEl.className = 'status-msg ok';
     statusEl.textContent = `${reportDate} 자료가 저장되었습니다.`;
     document.getElementById('pasteBox').value = '';
-    document.getElementById('previewArea').innerHTML = '';
+    document.querySelectorAll('.template-input').forEach(inp => inp.value = '');
     document.getElementById('manualSaveBtn').style.display = 'none';
     await loadOverview();
   } catch (e) {
