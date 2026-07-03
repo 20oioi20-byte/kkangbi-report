@@ -57,7 +57,7 @@
 <script>
 // ====== 설정 (실제 값으로 교체) ======
 const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/center-report-upload';
-const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
+const SB_ANON_KEY = 'YOUR_SUPABASE_ANON_KEY';
 // =====================================
 
 function getToken() {
@@ -123,6 +123,7 @@ function renderForm() {
     <div class="filelist" id="fileList"></div>
     <button class="submit" id="submitBtn" disabled>업로드</button>
     <div class="status" id="status"></div>
+    <div id="historySection"></div>
   `;
 
   const dropzone = document.getElementById('dropzone');
@@ -138,6 +139,68 @@ function renderForm() {
   });
   fileInput.addEventListener('change', e => addFiles(e.target.files));
   document.getElementById('submitBtn').addEventListener('click', submitFiles);
+
+  loadHistory(); // 페이지 진입 시에도 기존 누적 현황을 바로 보여줌
+}
+
+async function loadHistory() {
+  const section = document.getElementById('historySection');
+  if (!section) return;
+  section.innerHTML = `<p style="text-align:center;color:#9aa1ac;font-size:13px;margin-top:20px;">누적 현황 불러오는 중...</p>`;
+
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=history&token=' + encodeURIComponent(token), {
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }
+    });
+    const data = await res.json();
+    if (!data.success) {
+      section.innerHTML = '';
+      return;
+    }
+    renderHistory(data.rows);
+  } catch (e) {
+    section.innerHTML = '';
+  }
+}
+
+function renderHistory(rows) {
+  const section = document.getElementById('historySection');
+  if (!rows || rows.length === 0) {
+    section.innerHTML = `<p style="text-align:center;color:#9aa1ac;font-size:13px;margin-top:20px;">아직 등록된 실적이 없습니다.</p>`;
+    return;
+  }
+
+  const statusLabel = { success: '완료', pending: '분석중', needs_review: '확인필요', failed: '실패' };
+  const statusColor = { success: '#1a8f4c', pending: '#9aa1ac', needs_review: '#c98a20', failed: '#c94040' };
+
+  const rowsHtml = rows.map(r => {
+    const summary = summarizeData(r.performance_data) || summarizeData(r.attendance_data) || '-';
+    const label = statusLabel[r.parsed_status] || r.parsed_status;
+    const color = statusColor[r.parsed_status] || '#5b6472';
+    return `
+      <tr>
+        <td style="padding:8px 6px;border-bottom:1px solid #eee;">${r.report_date}</td>
+        <td style="padding:8px 6px;border-bottom:1px solid #eee;color:${color};font-weight:600;">${label}</td>
+        <td style="padding:8px 6px;border-bottom:1px solid #eee;font-size:12px;color:#5b6472;">${summary}</td>
+      </tr>`;
+  }).join('');
+
+  section.innerHTML = `
+    <h2 style="font-size:15px;margin:24px 0 10px;">누적 업로드 현황 (최근 ${rows.length}건)</h2>
+    <table style="width:100%;border-collapse:collapse;font-size:13px;">
+      <thead>
+        <tr style="text-align:left;color:#9aa1ac;font-size:12px;">
+          <th style="padding:6px;">보고일자</th><th style="padding:6px;">상태</th><th style="padding:6px;">주요 실적</th>
+        </tr>
+      </thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
+}
+
+function summarizeData(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  const entries = Object.entries(obj).slice(0, 3);
+  return entries.map(([k, v]) => `${k} ${v}`).join(' · ');
 }
 
 function addFiles(fileListObj) {
@@ -185,9 +248,10 @@ async function submitFiles() {
       if (!data.success) throw new Error(data.error || '업로드 실패');
     }
     statusEl.className = 'status ok';
-    statusEl.textContent = `${selectedFiles.length}개 파일 업로드 완료. 자동 분석 중입니다.`;
+    statusEl.textContent = `${selectedFiles.length}개 파일 업로드 완료.`;
     selectedFiles = [];
     renderFileList();
+    await loadHistory();
   } catch (e) {
     statusEl.className = 'status err';
     statusEl.textContent = '업로드 실패: ' + e.message;
