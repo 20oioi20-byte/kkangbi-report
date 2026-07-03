@@ -345,6 +345,8 @@ function collectKeys(records, field) {
 function fmt(v) { return (v === undefined || v === null || v === '') ? '-' : v; }
 function statusLabel(s) { return { success: '완료', pending: '분석중', needs_review: '확인필요' }[s] || s; }
 
+let parsedRows = [];
+
 async function renderEntry() {
   const main = document.getElementById('main');
   if (!currentCenter) { main.innerHTML = `<div class="empty">센터를 선택해 주세요.</div>`; return; }
@@ -355,22 +357,26 @@ async function renderEntry() {
     return;
   }
 
-  const today = new Date().toISOString().slice(0, 10);
+  const thisYear = new Date().getFullYear();
   main.innerHTML = `
     <div class="entry-wrap panel" style="max-width:100%;">
-      <h3>일자별 실적 직접입력</h3>
+      <h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>
       <div class="entry-row">
-        <label>보고일자</label>
-        <input type="date" id="manualDate" value="${today}">
+        <label>기준 연도</label>
+        <input type="number" id="entryYear" value="${thisYear}" style="width:90px;padding:8px 10px;border:1px solid #d9dce1;border-radius:6px;font-size:13px;">
+        <span style="font-size:12px;color:#9aa1ac;">날짜가 "6/1"처럼 연도 없이 있을 때 사용됩니다</span>
       </div>
 
-      <div id="templateArea"><p class="empty">양식 불러오는 중...</p></div>
-
-      <p style="font-size:13px;color:#5b6472;margin:14px 0 8px;">엑셀에서 해당 날짜 행을 그대로 복사해서 붙여넣으세요 (Ctrl+V) → 위 양식에 자동으로 채워집니다</p>
-      <textarea class="paste-box" id="pasteBox" placeholder="예: 171.5	33	91.5	29.5	89.4%	..."></textarea>
-      <button class="btn-secondary" onclick="previewPaste()">양식에 반영</button>
-      <button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveManualEntry()">저장</button>
+      <p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">
+        엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)
+      </p>
+      <textarea class="paste-box" id="pasteBox" style="min-height:110px;" placeholder="6/1	165.5	34	90.5	...
+6/2	164.5	34	89.5	..."></textarea>
+      <button class="btn-secondary" onclick="parseMultiPaste()">양식에 반영</button>
+      <button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>
       <div class="status-msg" id="manualStatus"></div>
+
+      <div id="templateArea" style="margin-top:16px;"></div>
     </div>
   `;
 
@@ -380,27 +386,73 @@ async function renderEntry() {
     });
     const data = await res.json();
     rowSchema = data.success ? (data.row_schema || []) : [];
-    renderTemplate();
+    if (rowSchema.length === 0) {
+      document.getElementById('templateArea').innerHTML = `<p style="color:#c94040;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>`;
+    }
   } catch (e) {
     document.getElementById('templateArea').innerHTML = `<p class="empty">양식을 불러오지 못했습니다.</p>`;
   }
 }
 
-// row_schema의 key 접두어(예: "제휴상담_인입호" -> "제휴상담")를 그룹으로 묶어
-// 원본 엑셀과 같은 2단 헤더 틀을 생성한다.
-function parseGroups() {
-  return rowSchema.map(col => {
-    const idx = col.key.indexOf('_');
-    const dispGroup = idx > -1 ? col.key.slice(0, idx) : (col.group === 'attendance' ? '근태' : '실적');
-    const label = idx > -1 ? col.key.slice(idx + 1) : col.key;
-    return { key: col.key, origGroup: col.group, dispGroup, label };
+function parseMultiPaste() {
+  const raw = document.getElementById('pasteBox').value;
+  const statusEl = document.getElementById('manualStatus');
+  const year = document.getElementById('entryYear').value;
+  const lines = raw.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim() !== '');
+
+  if (lines.length === 0) return;
+  if (!rowSchema || rowSchema.length === 0) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '입력양식이 아직 로드되지 않았습니다.';
+    return;
+  }
+
+  const errors = [];
+  parsedRows = [];
+
+  lines.forEach((line, li) => {
+    const tokens = line.split('\t').map(t => t.trim());
+    const dateToken = tokens[0];
+    const values = tokens.slice(1);
+
+    if (values.length !== rowSchema.length) {
+      errors.push(`줄 ${li + 1} (${dateToken || '날짜없음'}): 항목 수 ${values.length}개 / 필요 ${rowSchema.length}개 — 이 줄은 제외됩니다.`);
+      return;
+    }
+
+    const isoDate = toIsoDate(dateToken, year);
+    if (!isoDate) {
+      errors.push(`줄 ${li + 1}: 날짜 인식 실패("${dateToken}") — 이 줄은 제외됩니다.`);
+      return;
+    }
+
+    parsedRows.push({ date: isoDate, dateLabel: dateToken, values });
   });
+
+  statusEl.className = errors.length ? 'status-msg err' : 'status-msg';
+  statusEl.innerHTML = errors.length ? errors.join('<br>') : '';
+
+  renderPreviewTable();
+  document.getElementById('manualSaveBtn').style.display = parsedRows.length ? 'inline-block' : 'none';
 }
 
-function renderTemplate() {
+// "6/1", "6-1", "2026-06-01" 등을 YYYY-MM-DD로 변환
+function toIsoDate(token, fallbackYear) {
+  if (!token) return null;
+  token = token.trim();
+  if (/^\d{4}-\d{2}-\d{2}$/.test(token)) return token;
+  const m = token.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
+  if (m) {
+    const [, mm, dd] = m;
+    return `${fallbackYear}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
+  }
+  return null;
+}
+
+function renderPreviewTable() {
   const area = document.getElementById('templateArea');
-  if (!rowSchema || rowSchema.length === 0) {
-    area.innerHTML = `<p style="color:#c94040;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>`;
+  if (parsedRows.length === 0) {
+    area.innerHTML = `<p class="empty">반영할 데이터가 없습니다.</p>`;
     return;
   }
 
@@ -414,81 +466,75 @@ function renderTemplate() {
     groupCells.push(`<th colspan="${span}" style="text-align:center;background:#eef2ff;color:#3b6ef6;">${cols[i].dispGroup}</th>`);
     i += span;
   }
+  const labelCells = cols.map(c => `<th style="text-align:center;">${c.label}</th>`).join('');
 
-  const labelCells = cols.map((c, idx) => `<th data-col="${idx}" style="text-align:center;">${c.label}</th>`).join('');
-  const inputCells = cols.map((c, idx) =>
-    `<td><input type="text" class="template-input" data-idx="${idx}" data-key="${c.key}" data-group="${c.origGroup}" style="width:64px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>`
-  ).join('');
+  const bodyRows = parsedRows.map((row, ri) => {
+    const cells = row.values.map((v, ci) =>
+      `<td><input type="text" class="template-input" data-row="${ri}" data-idx="${ci}" data-key="${cols[ci].key}" data-group="${cols[ci].origGroup}" value="${v}" style="width:64px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>`
+    ).join('');
+    return `<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">${row.date}</td>${cells}</tr>`;
+  }).join('');
 
   area.innerHTML = `
     <div class="table-scroll">
       <table>
         <thead>
-          <tr>${groupCells.join('')}</tr>
-          <tr>${labelCells}</tr>
+          <tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>${groupCells.join('')}</tr>
+          <tr><th style="position:sticky;left:0;background:#f8f9fb;"></th>${labelCells}</tr>
         </thead>
-        <tbody>
-          <tr>${inputCells}</tr>
-        </tbody>
+        <tbody>${bodyRows}</tbody>
       </table>
     </div>
-    <p style="font-size:12px;color:#9aa1ac;margin-top:6px;">총 ${cols.length}개 항목 · 빈 칸을 직접 클릭해 수정할 수도 있습니다</p>
+    <p style="font-size:12px;color:#9aa1ac;margin-top:6px;">${parsedRows.length}개 날짜 · 값은 직접 클릭해 수정할 수 있습니다</p>
   `;
 }
 
-function previewPaste() {
-  const raw = document.getElementById('pasteBox').value.trim();
-  if (!raw) return;
-
-  const values = raw.split('\t').map(v => v.trim());
-  const statusEl = document.getElementById('manualStatus');
-
-  if (values.length !== rowSchema.length) {
-    statusEl.className = 'status-msg err';
-    statusEl.textContent = `입력 항목 수(${values.length}개)가 양식 항목 수(${rowSchema.length}개)와 다릅니다. 총원부터 마지막 칸까지 정확히 복사했는지 확인해 주세요.`;
-    return;
-  }
-  statusEl.textContent = '';
-
-  document.querySelectorAll('.template-input').forEach(inp => {
-    const idx = Number(inp.dataset.idx);
-    inp.value = values[idx] !== undefined ? values[idx] : '';
+function parseGroups() {
+  return rowSchema.map(col => {
+    const idx = col.key.indexOf('_');
+    const dispGroup = idx > -1 ? col.key.slice(0, idx) : (col.group === 'attendance' ? '근태' : '실적');
+    const label = idx > -1 ? col.key.slice(idx + 1) : col.key;
+    return { key: col.key, origGroup: col.group, dispGroup, label };
   });
-
-  document.getElementById('manualSaveBtn').style.display = 'inline-block';
 }
 
-async function saveManualEntry() {
+async function saveAllRows() {
   const statusEl = document.getElementById('manualStatus');
-  const reportDate = document.getElementById('manualDate').value;
   const token = CENTER_TOKENS[currentCenter];
-  const inputs = document.querySelectorAll('.template-input');
-
-  const values = {};
-  inputs.forEach(inp => { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+  let success = 0, fail = 0;
+  const failDates = [];
 
   statusEl.className = 'status-msg';
-  statusEl.textContent = '저장 중...';
 
-  try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
-      method: 'POST',
-      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token, report_date: reportDate, values })
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error || '저장 실패');
+  for (const row of parsedRows) {
+    const inputs = document.querySelectorAll(`.template-input[data-row="${parsedRows.indexOf(row)}"]`);
+    const values = {};
+    inputs.forEach(inp => { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
 
-    statusEl.className = 'status-msg ok';
-    statusEl.textContent = `${reportDate} 자료가 저장되었습니다.`;
-    document.getElementById('pasteBox').value = '';
-    document.querySelectorAll('.template-input').forEach(inp => inp.value = '');
-    document.getElementById('manualSaveBtn').style.display = 'none';
-    await loadOverview();
-  } catch (e) {
-    statusEl.className = 'status-msg err';
-    statusEl.textContent = '저장 실패: ' + e.message;
+    statusEl.textContent = `저장 중... (${success + fail + 1}/${parsedRows.length})`;
+    try {
+      const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token, report_date: row.date, values })
+      });
+      const data = await res.json();
+      if (data.success) success++; else { fail++; failDates.push(row.date); }
+    } catch (e) {
+      fail++; failDates.push(row.date);
+    }
   }
+
+  statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
+  statusEl.textContent = fail
+    ? `${success}건 저장 완료, ${fail}건 실패 (${failDates.join(', ')})`
+    : `${success}건 모두 저장 완료되었습니다.`;
+
+  document.getElementById('pasteBox').value = '';
+  document.getElementById('manualSaveBtn').style.display = 'none';
+  parsedRows = [];
+  document.getElementById('templateArea').innerHTML = '';
+  await loadOverview();
 }
 
 init();
