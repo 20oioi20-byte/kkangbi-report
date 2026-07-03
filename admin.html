@@ -3,182 +3,334 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>센터 실적 관리자 현황</title>
+<title>깡비 실적 관리</title>
 <style>
   * { box-sizing: border-box; }
   body {
     margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif;
-    background: #f4f5f7; color: #1c1f26; padding: 24px;
+    background: #f4f5f7; color: #1c1f26;
   }
-  .wrap { max-width: 1100px; margin: 0 auto; }
-  h1 { font-size: 22px; margin: 0 0 4px; }
-  .sub { color: #5b6472; font-size: 14px; margin-bottom: 24px; }
+  .topbar {
+    display: flex; align-items: center; justify-content: space-between;
+    background: #fff; padding: 14px 24px; border-bottom: 1px solid #e7e8ec;
+  }
+  .topbar h1 { font-size: 18px; margin: 0; }
+  .btn-primary {
+    background: #3b6ef6; color: #fff; border: none; border-radius: 8px;
+    padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
+  }
+  .maintabs {
+    display: flex; gap: 4px; background: #fff; padding: 0 24px; border-bottom: 1px solid #e7e8ec;
+  }
+  .maintab {
+    padding: 12px 16px; font-size: 14px; color: #5b6472; cursor: pointer;
+    border-bottom: 2px solid transparent;
+  }
+  .maintab.active { color: #3b6ef6; border-bottom-color: #3b6ef6; font-weight: 600; }
 
-  .summary-grid {
-    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
-    gap: 12px; margin-bottom: 28px;
+  .layout { display: flex; min-height: calc(100vh - 96px); }
+  .sidebar {
+    width: 220px; background: #fff; border-right: 1px solid #e7e8ec; padding: 16px 0; flex-shrink: 0;
   }
-  .summary-card {
-    background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  .sidebar .section-label { padding: 6px 20px; font-size: 12px; color: #9aa1ac; }
+  .center-item {
+    padding: 10px 20px; font-size: 14px; cursor: pointer; color: #3c4250;
+    display: flex; justify-content: space-between; align-items: center;
   }
-  .summary-card .label { font-size: 12px; color: #9aa1ac; margin-bottom: 4px; }
-  .summary-card .value { font-size: 22px; font-weight: 700; }
-  .summary-card .value.ok { color: #1a8f4c; }
-  .summary-card .value.warn { color: #c98a20; }
-  .summary-card .value.err { color: #c94040; }
+  .center-item.active { background: #eef2ff; color: #3b6ef6; font-weight: 600; border-right: 3px solid #3b6ef6; }
+  .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7cbd3; }
+  .center-item.active .dot { background: #3b6ef6; }
+  .add-center { padding: 10px 20px; font-size: 13px; color: #9aa1ac; }
 
-  .center-block {
-    background: #fff; border-radius: 10px; padding: 18px 20px; margin-bottom: 14px;
-    box-shadow: 0 1px 4px rgba(0,0,0,.05);
-  }
-  .center-header {
-    display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
-    cursor: pointer;
-  }
-  .center-header h3 { margin: 0; font-size: 16px; }
-  .badge {
-    font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 600;
-  }
-  .badge.ok { background: #e6f6ec; color: #1a8f4c; }
-  .badge.warn { background: #fdf1de; color: #c98a20; }
-  .badge.err { background: #fbe9e9; color: #c94040; }
-  .badge.none { background: #eee; color: #9aa1ac; }
+  main { flex: 1; padding: 22px 26px; }
 
-  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
-  th { text-align: left; padding: 6px; color: #9aa1ac; font-size: 12px; font-weight: 500; }
-  td { padding: 7px 6px; border-top: 1px solid #f0f1f3; }
-  .status-tag { font-weight: 600; }
-  .status-tag.success { color: #1a8f4c; }
-  .status-tag.needs_review { color: #c98a20; }
-  .status-tag.pending { color: #9aa1ac; }
-  .status-tag.failed { color: #c94040; }
-  .empty { color: #9aa1ac; font-size: 13px; padding: 8px 0; }
+  .month-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
+  .month-bar button.nav { border: 1px solid #d9dce1; background: #fff; border-radius: 6px; width: 30px; height: 30px; cursor: pointer; }
+  .month-label { font-size: 15px; font-weight: 700; min-width: 90px; text-align: center; }
+  .toggle-group { display: flex; border: 1px solid #d9dce1; border-radius: 8px; overflow: hidden; margin-left: 8px; }
+  .toggle-group button { border: none; background: #fff; padding: 6px 14px; font-size: 13px; cursor: pointer; color: #5b6472; }
+  .toggle-group button.active { background: #3b6ef6; color: #fff; }
 
-  .collapsed .history { display: none; }
-  .toggle-icon { font-size: 12px; color: #9aa1ac; }
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }
+  .kpi-card { background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .kpi-card .label { font-size: 12px; color: #9aa1ac; margin-bottom: 6px; }
+  .kpi-card .value { font-size: 22px; font-weight: 700; }
+  .kpi-card .sub { font-size: 12px; color: #9aa1ac; margin-top: 4px; }
+  .kpi-card .value.warn { color: #c98a20; }
+  .kpi-card .value.ok { color: #1a8f4c; }
 
-  .loading { text-align: center; color: #9aa1ac; padding: 60px 0; }
+  .alert-card {
+    background: #fdf1de; border: 1px solid #f3dfb2; border-radius: 10px;
+    padding: 14px 18px; margin-bottom: 18px; font-size: 13px; color: #8a6414;
+  }
+  .alert-card.none { background: #eef7f0; border-color: #cfe9d4; color: #2f7a45; }
+  .alert-card b { display: block; margin-bottom: 4px; font-size: 13px; }
+
+  .panel { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .panel h3 { font-size: 15px; margin: 0 0 12px; }
+  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
+  th { background: #f8f9fb; padding: 7px 8px; text-align: left; color: #5b6472; font-weight: 600; white-space: nowrap; }
+  td { padding: 6px 8px; border-top: 1px solid #f0f1f3; white-space: nowrap; }
+  .table-scroll { overflow-x: auto; }
+  .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
+  .status-dot.success { background: #1a8f4c; }
+  .status-dot.needs_review { background: #c98a20; }
+  .status-dot.pending { background: #9aa1ac; }
+
+  .entry-wrap { max-width: 720px; }
+  .entry-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
+  .entry-row label { font-size: 13px; color: #5b6472; width: 70px; }
+  input[type="date"] { padding: 8px 10px; border: 1px solid #d9dce1; border-radius: 6px; font-size: 13px; }
+  textarea.paste-box {
+    width: 100%; min-height: 70px; padding: 10px 12px; border: 1px solid #d9dce1;
+    border-radius: 8px; font-size: 13px; font-family: monospace; margin-bottom: 10px;
+  }
+  .btn-secondary {
+    border: 1px solid #3b6ef6; background: #fff; color: #3b6ef6; border-radius: 8px;
+    padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px;
+  }
+  .preview-table th { background: #f4f5f7; }
+  .preview-table input { width: 90px; padding: 5px 7px; border: 1px solid #d9dce1; border-radius: 4px; font-size: 12px; }
+  .status-msg { font-size: 13px; margin-top: 10px; }
+  .status-msg.ok { color: #1a8f4c; }
+  .status-msg.err { color: #c94040; }
+
+  .empty { color: #9aa1ac; font-size: 13px; padding: 30px 0; text-align: center; }
+  .loading { color: #9aa1ac; font-size: 13px; padding: 60px 0; text-align: center; }
 </style>
 </head>
 <body>
-<div class="wrap">
-  <h1>센터 실적 관리자 현황</h1>
-  <div class="sub">전체 센터 업로드/파싱 현황 (최근 300건 기준)</div>
-  <div id="app"><div class="loading">불러오는 중...</div></div>
+
+<div class="topbar">
+  <h1>깡비 실적 관리</h1>
+  <button class="btn-primary" disabled title="추후 지원 예정">+ 센터 추가</button>
+</div>
+
+<div class="maintabs">
+  <div class="maintab active" data-tab="dashboard" onclick="switchMainTab('dashboard')">대시보드</div>
+  <div class="maintab" data-tab="entry" onclick="switchMainTab('entry')">데이터입력</div>
+</div>
+
+<div class="layout">
+  <aside class="sidebar">
+    <div class="section-label">센터 목록</div>
+    <div id="centerList"></div>
+    <div class="add-center">+ 센터 관리는 추후 지원</div>
+  </aside>
+  <main id="main"><div class="loading">불러오는 중...</div></main>
 </div>
 
 <script>
-// ====== 설정 ======
 const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/center-report-upload';
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
-// ==================
 
-async function load() {
-  const app = document.getElementById('app');
+// 센터별 upload_token 매핑 (직접입력 API 호출 시 센터 식별용)
+const CENTER_TOKENS = {
+  'kbsonhae': '61263f6c-eeb7-46f1-a956-9e573513d60d'
+};
+
+let allCenters = [];
+let allRows = [];
+let currentCenter = null;
+let currentMonth = new Date().toISOString().slice(0, 7);
+let viewMode = 'cumulative';
+let currentMainTab = 'dashboard';
+let rowSchema = [];
+
+async function init() {
+  await loadOverview();
+  if (allCenters.length > 0) currentCenter = allCenters[0].center_code;
+  renderSidebar();
+  renderMain();
+}
+
+async function loadOverview() {
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview', {
       headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }
     });
     const data = await res.json();
-    if (!data.success) {
-      app.innerHTML = `<div class="empty">조회 실패: ${data.error}</div>`;
-      return;
+    if (data.success) {
+      allCenters = data.centers || [];
+      allRows = data.rows || [];
     }
-    render(data.centers, data.rows);
   } catch (e) {
-    app.innerHTML = `<div class="empty">불러오기 오류: ${e.message}</div>`;
+    document.getElementById('main').innerHTML = `<div class="empty">데이터 로드 실패: ${e.message}</div>`;
   }
 }
 
-function render(centers, rows) {
-  const app = document.getElementById('app');
-  const today = new Date().toISOString().slice(0, 10);
-
-  // 센터별로 그룹핑
-  const byCenter = {};
-  centers.forEach(c => { byCenter[c.center_code] = { info: c, records: [] }; });
-  rows.forEach(r => {
-    if (!byCenter[r.center_code]) byCenter[r.center_code] = { info: { center_code: r.center_code, center_name: r.center_code }, records: [] };
-    byCenter[r.center_code].records.push(r);
-  });
-
-  // 요약 카드
-  const total = centers.length;
-  const uploadedToday = rows.filter(r => r.report_date === today).length;
-  const needsReview = rows.filter(r => r.parsed_status === 'needs_review').length;
-  const notUploadedToday = total - new Set(rows.filter(r => r.report_date === today).map(r => r.center_code)).size;
-
-  const summaryHtml = `
-    <div class="summary-grid">
-      <div class="summary-card"><div class="label">전체 센터</div><div class="value">${total}</div></div>
-      <div class="summary-card"><div class="label">오늘(${today}) 업로드</div><div class="value ok">${uploadedToday}</div></div>
-      <div class="summary-card"><div class="label">오늘 미업로드 센터</div><div class="value ${notUploadedToday > 0 ? 'warn' : 'ok'}">${notUploadedToday}</div></div>
-      <div class="summary-card"><div class="label">확인 필요</div><div class="value ${needsReview > 0 ? 'err' : 'ok'}">${needsReview}</div></div>
-    </div>`;
-
-  const blocksHtml = Object.values(byCenter).map(({ info, records }) => {
-    records.sort((a, b) => b.report_date.localeCompare(a.report_date));
-    const latest = records[0];
-    const badge = latest
-      ? badgeHtml(latest.parsed_status, latest.report_date === today)
-      : `<span class="badge none">업로드 없음</span>`;
-
-    const rowsHtml = records.slice(0, 10).map(r => `
-      <tr>
-        <td>${r.report_date}</td>
-        <td class="status-tag ${r.parsed_status}">${statusLabel(r.parsed_status)}</td>
-        <td>${summarize(r.performance_data) || summarize(r.attendance_data) || '-'}</td>
-        <td style="color:#9aa1ac;font-size:12px;">${r.raw_file_name || ''}</td>
-      </tr>`).join('');
-
-    return `
-      <div class="center-block collapsed">
-        <div class="center-header" onclick="this.parentElement.classList.toggle('collapsed')">
-          <h3>${info.center_name}</h3>
-          <div style="display:flex;align-items:center;gap:10px;">
-            ${badge}
-            <span class="toggle-icon">▾</span>
-          </div>
-        </div>
-        <div class="history">
-          ${records.length === 0 ? '<div class="empty">등록된 실적이 없습니다.</div>' : buildMatrix(records)}
-        </div>
-      </div>`;
-  }).join('');
-
-  app.innerHTML = summaryHtml + blocksHtml;
+function renderSidebar() {
+  const list = document.getElementById('centerList');
+  if (allCenters.length === 0) {
+    list.innerHTML = `<div class="empty">등록된 센터가 없습니다.</div>`;
+    return;
+  }
+  list.innerHTML = allCenters.map(c => `
+    <div class="center-item ${c.center_code === currentCenter ? 'active' : ''}" onclick="selectCenter('${c.center_code}')">
+      <span><span class="dot"></span> ${c.center_name}</span>
+    </div>`).join('');
 }
 
-// 날짜(행) x 지표(열) 동적 행렬 표 생성. 센터마다 지표 구성이 달라 컬럼을 고정하지 않고
-// 실제 데이터에 등장한 key들을 모아 컬럼으로 사용한다.
-function buildMatrix(records) {
-  const sorted = [...records].sort((a, b) => b.report_date.localeCompare(a.report_date)).slice(0, 31);
+function selectCenter(code) {
+  currentCenter = code;
+  renderSidebar();
+  renderMain();
+}
 
-  const attKeys = collectKeys(sorted, 'attendance_data');
-  const perfKeys = collectKeys(sorted, 'performance_data');
+function switchMainTab(tab) {
+  currentMainTab = tab;
+  document.querySelectorAll('.maintab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+  renderMain();
+}
+
+function renderMain() {
+  if (currentMainTab === 'dashboard') renderDashboard();
+  else renderEntry();
+}
+
+function renderDashboard() {
+  const main = document.getElementById('main');
+  if (!currentCenter) { main.innerHTML = `<div class="empty">센터를 선택해 주세요.</div>`; return; }
+
+  const centerInfo = allCenters.find(c => c.center_code === currentCenter);
+  const centerRows = allRows.filter(r => r.center_code === currentCenter);
+
+  const [y, m] = currentMonth.split('-').map(Number);
+  const monthRows = centerRows.filter(r => r.report_date.startsWith(currentMonth));
+  const cumulativeRows = centerRows.filter(r => {
+    const d = new Date(r.report_date);
+    return d.getFullYear() === y && (d.getMonth() + 1) <= m;
+  });
+  const targetRows = viewMode === 'single' ? monthRows : cumulativeRows;
+  const sortedTarget = [...targetRows].sort((a, b) => a.report_date.localeCompare(b.report_date));
+
+  const kpis = computeKpis(sortedTarget);
+  const alertInfo = computeAlert(centerRows);
+
+  main.innerHTML = `
+    <div class="month-bar">
+      <button class="nav" onclick="shiftMonth(-1)">‹</button>
+      <div class="month-label">${currentMonth}</div>
+      <button class="nav" onclick="shiftMonth(1)">›</button>
+      <div class="toggle-group">
+        <button class="${viewMode === 'single' ? 'active' : ''}" onclick="setViewMode('single')">단월</button>
+        <button class="${viewMode === 'cumulative' ? 'active' : ''}" onclick="setViewMode('cumulative')">연초누적</button>
+      </div>
+    </div>
+
+    <div class="kpi-grid">
+      ${kpis.map(k => `
+        <div class="kpi-card">
+          <div class="label">${k.label}</div>
+          <div class="value ${k.cls || ''}">${k.value}</div>
+          ${k.sub ? `<div class="sub">${k.sub}</div>` : ''}
+        </div>`).join('')}
+    </div>
+
+    ${alertInfo.html}
+
+    <div class="panel">
+      <h3>${centerInfo ? centerInfo.center_name : ''} · 일자별 현황 (${targetRows.length}건)</h3>
+      ${sortedTarget.length === 0 ? '<div class="empty">해당 기간에 등록된 실적이 없습니다.</div>' : buildMatrix(sortedTarget)}
+    </div>
+  `;
+}
+
+function shiftMonth(delta) {
+  const [y, m] = currentMonth.split('-').map(Number);
+  const d = new Date(y, m - 1 + delta, 1);
+  currentMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  renderDashboard();
+}
+
+function setViewMode(mode) {
+  viewMode = mode;
+  renderDashboard();
+}
+
+function computeKpis(rows) {
+  if (rows.length === 0) {
+    return [
+      { label: '등록 일수', value: '0일' },
+      { label: '평균 응답율', value: '-' },
+      { label: '누적 인입호', value: '-' },
+    ];
+  }
+
+  const latest = rows[rows.length - 1];
+  const totalStaff = latest.attendance_data ? latest.attendance_data['총원'] : undefined;
+
+  const responseRates = [];
+  const callCounts = [];
+  rows.forEach(r => {
+    const perf = r.performance_data || {};
+    Object.entries(perf).forEach(([k, v]) => {
+      if (k.includes('응답율')) {
+        const n = parseFloat(String(v).replace('%', ''));
+        if (!isNaN(n)) responseRates.push(n);
+      }
+      if (k.includes('인입호')) {
+        const n = parseFloat(String(v).replace(/,/g, ''));
+        if (!isNaN(n)) callCounts.push(n);
+      }
+    });
+  });
+
+  const avgResponse = responseRates.length ? (responseRates.reduce((a, b) => a + b, 0) / responseRates.length).toFixed(1) : null;
+  const totalCalls = callCounts.length ? callCounts.reduce((a, b) => a + b, 0).toLocaleString() : null;
+
+  return [
+    { label: '최근 총원', value: totalStaff ? `${totalStaff}명` : '-' },
+    { label: '등록 일수', value: `${rows.length}일`, sub: `${rows[0].report_date} ~ ${latest.report_date}` },
+    { label: '평균 응답율', value: avgResponse ? `${avgResponse}%` : '-', cls: (avgResponse && Number(avgResponse) < 90) ? 'warn' : 'ok' },
+    { label: '누적 인입호', value: totalCalls ? `${totalCalls}건` : '-' },
+  ];
+}
+
+function computeAlert(centerRows) {
+  const sorted = [...centerRows].sort((a, b) => b.report_date.localeCompare(a.report_date));
+  if (sorted.length < 2) {
+    return { html: `<div class="alert-card none"><b>이상징후</b>비교할 데이터가 충분하지 않습니다.</div>` };
+  }
+  const [latest, prev] = sorted;
+  const keys = Object.keys(latest.performance_data || {}).filter(k => k.includes('응답율'));
+  const issues = [];
+  keys.forEach(k => {
+    const cur = parseFloat(String(latest.performance_data[k]).replace('%', ''));
+    const prevVal = prev.performance_data ? prev.performance_data[k] : undefined;
+    if (prevVal === undefined) return;
+    const before = parseFloat(String(prevVal).replace('%', ''));
+    if (!isNaN(cur) && !isNaN(before) && before - cur >= 5) {
+      issues.push(`${k} ${before}% → ${cur}% (▼${(before - cur).toFixed(1)}p)`);
+    }
+  });
+
+  if (issues.length === 0) {
+    return { html: `<div class="alert-card none"><b>이상징후 없음</b>최근 대비 응답율 급락 항목이 없습니다.</div>` };
+  }
+  return { html: `<div class="alert-card"><b>이상징후 감지 (${latest.report_date} 기준)</b>${issues.join(' · ')}</div>` };
+}
+
+function buildMatrix(records) {
+  const attKeys = collectKeys(records, 'attendance_data');
+  const perfKeys = collectKeys(records, 'performance_data');
 
   const headHtml = `
-    <th style="position:sticky;left:0;background:#fff;">날짜</th>
+    <th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>
     <th>상태</th>
     ${attKeys.map(k => `<th>근태·${k}</th>`).join('')}
     ${perfKeys.map(k => `<th>실적·${k}</th>`).join('')}
   `;
 
-  const bodyHtml = sorted.map(r => `
+  const bodyHtml = [...records].reverse().map(r => `
     <tr>
       <td style="position:sticky;left:0;background:#fff;font-weight:600;">${r.report_date}</td>
-      <td class="status-tag ${r.parsed_status}">${statusLabel(r.parsed_status)}</td>
-      ${attKeys.map(k => `<td>${fmt(r.attendance_data?.[k])}</td>`).join('')}
-      ${perfKeys.map(k => `<td>${fmt(r.performance_data?.[k])}</td>`).join('')}
+      <td><span class="status-dot ${r.parsed_status}"></span>${statusLabel(r.parsed_status)}</td>
+      ${attKeys.map(k => `<td>${fmt(r.attendance_data ? r.attendance_data[k] : undefined)}</td>`).join('')}
+      ${perfKeys.map(k => `<td>${fmt(r.performance_data ? r.performance_data[k] : undefined)}</td>`).join('')}
     </tr>`).join('');
 
-  return `
-    <div style="overflow-x:auto;">
-      <table style="min-width:600px;white-space:nowrap;">
-        <thead><tr>${headHtml}</tr></thead>
-        <tbody>${bodyHtml}</tbody>
-      </table>
-    </div>`;
+  return `<div class="table-scroll"><table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
 }
 
 function collectKeys(records, field) {
@@ -187,31 +339,110 @@ function collectKeys(records, field) {
     const obj = r[field];
     if (obj && typeof obj === 'object') Object.keys(obj).forEach(k => keys.add(k));
   });
-  return Array.from(keys).slice(0, 15); // 컬럼 과다 방지
+  return Array.from(keys).slice(0, 20);
 }
 
-function fmt(v) {
-  if (v === undefined || v === null || v === '') return '-';
-  return v;
+function fmt(v) { return (v === undefined || v === null || v === '') ? '-' : v; }
+function statusLabel(s) { return { success: '완료', pending: '분석중', needs_review: '확인필요' }[s] || s; }
+
+async function renderEntry() {
+  const main = document.getElementById('main');
+  if (!currentCenter) { main.innerHTML = `<div class="empty">센터를 선택해 주세요.</div>`; return; }
+
+  const token = CENTER_TOKENS[currentCenter];
+  if (!token) {
+    main.innerHTML = `<div class="empty">이 센터는 아직 데이터입력 토큰이 등록되지 않았습니다.<br>CENTER_TOKENS 설정에 추가해 주세요.</div>`;
+    return;
+  }
+
+  const today = new Date().toISOString().slice(0, 10);
+  main.innerHTML = `
+    <div class="entry-wrap panel">
+      <h3>일자별 실적 직접입력</h3>
+      <div class="entry-row">
+        <label>보고일자</label>
+        <input type="date" id="manualDate" value="${today}">
+      </div>
+      <p style="font-size:13px;color:#5b6472;margin-bottom:8px;">엑셀에서 해당 날짜 행을 그대로 복사해서 붙여넣으세요 (Ctrl+V)</p>
+      <textarea class="paste-box" id="pasteBox" placeholder="예: 171.5	33	91.5	29.5	89.4%	..."></textarea>
+      <button class="btn-secondary" onclick="previewPaste()">미리보기</button>
+      <div id="previewArea"></div>
+      <button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveManualEntry()">저장</button>
+      <div class="status-msg" id="manualStatus"></div>
+    </div>
+  `;
+
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(token), {
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }
+    });
+    const data = await res.json();
+    rowSchema = data.success ? (data.row_schema || []) : [];
+    if (rowSchema.length === 0) {
+      document.querySelector('.entry-wrap').innerHTML += `<p style="color:#c94040;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>`;
+    }
+  } catch (e) { /* 무시 */ }
 }
 
-function badgeHtml(status, isToday) {
-  if (status === 'success') return `<span class="badge ${isToday ? 'ok' : 'none'}">${isToday ? '오늘 완료' : '최근 완료'}</span>`;
-  if (status === 'needs_review') return `<span class="badge warn">확인 필요</span>`;
-  if (status === 'pending') return `<span class="badge none">분석중</span>`;
-  return `<span class="badge err">실패</span>`;
+function previewPaste() {
+  const raw = document.getElementById('pasteBox').value.trim();
+  const previewArea = document.getElementById('previewArea');
+  if (!raw) { previewArea.innerHTML = ''; return; }
+
+  const values = raw.split('\t').map(v => v.trim());
+  if (values.length !== rowSchema.length) {
+    previewArea.innerHTML = `<p style="color:#c94040;font-size:13px;">입력 항목 수(${values.length}개)가 양식 항목 수(${rowSchema.length}개)와 다릅니다. 총원부터 마지막 칸까지 정확히 복사했는지 확인해 주세요.</p>`;
+    return;
+  }
+
+  const rowsHtml = rowSchema.map((col, i) => `
+    <tr>
+      <td style="color:#5b6472;padding:5px 8px;">${col.key}</td>
+      <td style="padding:5px 8px;"><input type="text" data-key="${col.key}" data-group="${col.group}" value="${values[i] !== undefined ? values[i] : ''}"></td>
+    </tr>`).join('');
+
+  previewArea.innerHTML = `
+    <table class="preview-table" style="margin:12px 0;">
+      <thead><tr><th style="padding:6px 8px;">항목</th><th style="padding:6px 8px;">값 (직접 수정 가능)</th></tr></thead>
+      <tbody>${rowsHtml}</tbody>
+    </table>`;
+  document.getElementById('manualSaveBtn').style.display = 'inline-block';
 }
 
-function statusLabel(s) {
-  return { success: '완료', pending: '분석중', needs_review: '확인필요', failed: '실패' }[s] || s;
+async function saveManualEntry() {
+  const statusEl = document.getElementById('manualStatus');
+  const reportDate = document.getElementById('manualDate').value;
+  const token = CENTER_TOKENS[currentCenter];
+  const inputs = document.querySelectorAll('#previewArea input');
+
+  const values = {};
+  inputs.forEach(inp => { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '저장 중...';
+
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token, report_date: reportDate, values })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '저장 실패');
+
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = `${reportDate} 자료가 저장되었습니다.`;
+    document.getElementById('pasteBox').value = '';
+    document.getElementById('previewArea').innerHTML = '';
+    document.getElementById('manualSaveBtn').style.display = 'none';
+    await loadOverview();
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '저장 실패: ' + e.message;
+  }
 }
 
-function summarize(obj) {
-  if (!obj || typeof obj !== 'object') return '';
-  return Object.entries(obj).slice(0, 3).map(([k, v]) => `${k} ${v}`).join(' · ');
-}
-
-load();
+init();
 </script>
 </body>
 </html>
