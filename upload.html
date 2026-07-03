@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>센터 실적/근태 업로드</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif;
+    background: #f4f5f7; color: #1c1f26; min-height: 100vh;
+    display: flex; align-items: center; justify-content: center; padding: 24px;
+  }
+  .card {
+    background: #fff; border-radius: 12px; padding: 32px 28px;
+    max-width: 480px; width: 100%; box-shadow: 0 2px 12px rgba(0,0,0,.06);
+  }
+  h1 { font-size: 20px; margin: 0 0 4px; }
+  .center-name { font-size: 15px; color: #5b6472; margin-bottom: 24px; }
+  .date-row { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
+  .date-row label { font-size: 14px; color: #5b6472; }
+  input[type="date"] {
+    flex: 1; padding: 10px 12px; border: 1px solid #d9dce1; border-radius: 8px; font-size: 14px;
+  }
+  .dropzone {
+    border: 2px dashed #c7cbd3; border-radius: 10px; padding: 32px 16px;
+    text-align: center; cursor: pointer; transition: all .15s; margin-bottom: 16px;
+  }
+  .dropzone.drag { border-color: #3b6ef6; background: #f0f4ff; }
+  .dropzone p { margin: 4px 0; color: #5b6472; font-size: 14px; }
+  .dropzone .hint { font-size: 12px; color: #9aa1ac; }
+  #fileInput { display: none; }
+  .filelist { margin-bottom: 16px; }
+  .fileitem {
+    display: flex; justify-content: space-between; align-items: center;
+    background: #f4f5f7; border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+  }
+  .fileitem button { border: none; background: none; color: #c94040; cursor: pointer; font-size: 13px; }
+  button.submit {
+    width: 100%; padding: 13px; border: none; border-radius: 8px;
+    background: #3b6ef6; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+  }
+  button.submit:disabled { background: #c7cbd3; cursor: not-allowed; }
+  .status { margin-top: 14px; font-size: 13px; text-align: center; min-height: 18px; }
+  .status.ok { color: #1a8f4c; }
+  .status.err { color: #c94040; }
+  .invalid { text-align: center; padding: 40px 20px; }
+  .invalid h2 { color: #c94040; }
+</style>
+</head>
+<body>
+
+<div class="card" id="app">
+  <p style="text-align:center;color:#9aa1ac;">확인 중...</p>
+</div>
+
+<script>
+// ====== 설정 (실제 값으로 교체) ======
+const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/center-report-upload';
+const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
+// =====================================
+
+function getToken() {
+  const path = window.location.pathname; // /upload/{token}
+  const parts = path.split('/').filter(Boolean);
+  return parts[parts.length - 1] || new URLSearchParams(location.search).get('token');
+}
+
+const token = getToken();
+const app = document.getElementById('app');
+let selectedFiles = [];
+
+async function init() {
+  if (!token) {
+    renderInvalid();
+    return;
+  }
+  // 토큰 유효성은 실제 업로드 시점에 서버(Edge Function)에서 검증.
+  // 여기서는 UI만 우선 렌더링 (센터명은 업로드 시 응답으로 확인해도 되고,
+  // 별도 verify 엔드포인트를 두면 더 매끄러움 - 아래 verify 시도)
+  renderForm('실적/근태 자료 업로드');
+  tryVerify();
+}
+
+async function tryVerify() {
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=verify&token=' + encodeURIComponent(token), {
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }
+    });
+    const data = await res.json();
+    if (data.valid) {
+      document.getElementById('centerName').textContent = data.center_name;
+    } else {
+      renderInvalid();
+    }
+  } catch (e) {
+    // verify 실패해도 업로드 자체는 시도 가능하도록 둠 (네트워크 문제일 수 있음)
+  }
+}
+
+function renderInvalid() {
+  app.innerHTML = `
+    <div class="invalid">
+      <h2>유효하지 않은 링크입니다</h2>
+      <p style="color:#5b6472;font-size:14px;">관리자에게 새 업로드 링크를 요청해 주세요.</p>
+    </div>`;
+}
+
+function renderForm() {
+  const today = new Date().toISOString().slice(0, 10);
+  app.innerHTML = `
+    <h1>실적/근태 자료 업로드</h1>
+    <div class="center-name" id="centerName">센터 확인 중...</div>
+    <div class="date-row">
+      <label>보고일자</label>
+      <input type="date" id="reportDate" value="${today}">
+    </div>
+    <div class="dropzone" id="dropzone">
+      <p><strong>파일을 끌어다 놓거나 클릭하여 선택</strong></p>
+      <p class="hint">엑셀, 워드, PDF, 이미지, 텍스트 파일 가능</p>
+    </div>
+    <input type="file" id="fileInput" multiple>
+    <div class="filelist" id="fileList"></div>
+    <button class="submit" id="submitBtn" disabled>업로드</button>
+    <div class="status" id="status"></div>
+  `;
+
+  const dropzone = document.getElementById('dropzone');
+  const fileInput = document.getElementById('fileInput');
+
+  dropzone.addEventListener('click', () => fileInput.click());
+  dropzone.addEventListener('dragover', e => { e.preventDefault(); dropzone.classList.add('drag'); });
+  dropzone.addEventListener('dragleave', () => dropzone.classList.remove('drag'));
+  dropzone.addEventListener('drop', e => {
+    e.preventDefault();
+    dropzone.classList.remove('drag');
+    addFiles(e.dataTransfer.files);
+  });
+  fileInput.addEventListener('change', e => addFiles(e.target.files));
+  document.getElementById('submitBtn').addEventListener('click', submitFiles);
+}
+
+function addFiles(fileListObj) {
+  for (const f of fileListObj) selectedFiles.push(f);
+  renderFileList();
+}
+
+function renderFileList() {
+  const el = document.getElementById('fileList');
+  el.innerHTML = selectedFiles.map((f, i) => `
+    <div class="fileitem">
+      <span>${f.name} (${(f.size/1024).toFixed(0)}KB)</span>
+      <button onclick="removeFile(${i})">삭제</button>
+    </div>`).join('');
+  document.getElementById('submitBtn').disabled = selectedFiles.length === 0;
+}
+
+function removeFile(i) {
+  selectedFiles.splice(i, 1);
+  renderFileList();
+}
+
+async function submitFiles() {
+  const statusEl = document.getElementById('status');
+  const btn = document.getElementById('submitBtn');
+  const reportDate = document.getElementById('reportDate').value;
+
+  btn.disabled = true;
+  statusEl.className = 'status';
+  statusEl.textContent = '업로드 중...';
+
+  try {
+    for (const file of selectedFiles) {
+      const formData = new FormData();
+      formData.append('file', file);
+      formData.append('token', token);
+      formData.append('report_date', reportDate);
+
+      const res = await fetch(SB_FUNCTION_URL + '?action=upload', {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY },
+        body: formData
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '업로드 실패');
+    }
+    statusEl.className = 'status ok';
+    statusEl.textContent = `${selectedFiles.length}개 파일 업로드 완료. 자동 분석 중입니다.`;
+    selectedFiles = [];
+    renderFileList();
+  } catch (e) {
+    statusEl.className = 'status err';
+    statusEl.textContent = '업로드 실패: ' + e.message;
+    btn.disabled = false;
+  }
+}
+
+init();
+</script>
+</body>
+</html>
