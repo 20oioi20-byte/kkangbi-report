@@ -132,7 +132,7 @@ function render(centers, rows) {
       </tr>`).join('');
 
     return `
-      <div class="center-block">
+      <div class="center-block collapsed">
         <div class="center-header" onclick="this.parentElement.classList.toggle('collapsed')">
           <h3>${info.center_name}</h3>
           <div style="display:flex;align-items:center;gap:10px;">
@@ -141,16 +141,58 @@ function render(centers, rows) {
           </div>
         </div>
         <div class="history">
-          ${records.length === 0 ? '<div class="empty">등록된 실적이 없습니다.</div>' : `
-          <table>
-            <thead><tr><th>보고일자</th><th>상태</th><th>주요 실적</th><th>파일명</th></tr></thead>
-            <tbody>${rowsHtml}</tbody>
-          </table>`}
+          ${records.length === 0 ? '<div class="empty">등록된 실적이 없습니다.</div>' : buildMatrix(records)}
         </div>
       </div>`;
   }).join('');
 
   app.innerHTML = summaryHtml + blocksHtml;
+}
+
+// 날짜(행) x 지표(열) 동적 행렬 표 생성. 센터마다 지표 구성이 달라 컬럼을 고정하지 않고
+// 실제 데이터에 등장한 key들을 모아 컬럼으로 사용한다.
+function buildMatrix(records) {
+  const sorted = [...records].sort((a, b) => b.report_date.localeCompare(a.report_date)).slice(0, 31);
+
+  const attKeys = collectKeys(sorted, 'attendance_data');
+  const perfKeys = collectKeys(sorted, 'performance_data');
+
+  const headHtml = `
+    <th style="position:sticky;left:0;background:#fff;">날짜</th>
+    <th>상태</th>
+    ${attKeys.map(k => `<th>근태·${k}</th>`).join('')}
+    ${perfKeys.map(k => `<th>실적·${k}</th>`).join('')}
+  `;
+
+  const bodyHtml = sorted.map(r => `
+    <tr>
+      <td style="position:sticky;left:0;background:#fff;font-weight:600;">${r.report_date}</td>
+      <td class="status-tag ${r.parsed_status}">${statusLabel(r.parsed_status)}</td>
+      ${attKeys.map(k => `<td>${fmt(r.attendance_data?.[k])}</td>`).join('')}
+      ${perfKeys.map(k => `<td>${fmt(r.performance_data?.[k])}</td>`).join('')}
+    </tr>`).join('');
+
+  return `
+    <div style="overflow-x:auto;">
+      <table style="min-width:600px;white-space:nowrap;">
+        <thead><tr>${headHtml}</tr></thead>
+        <tbody>${bodyHtml}</tbody>
+      </table>
+    </div>`;
+}
+
+function collectKeys(records, field) {
+  const keys = new Set();
+  records.forEach(r => {
+    const obj = r[field];
+    if (obj && typeof obj === 'object') Object.keys(obj).forEach(k => keys.add(k));
+  });
+  return Array.from(keys).slice(0, 15); // 컬럼 과다 방지
+}
+
+function fmt(v) {
+  if (v === undefined || v === null || v === '') return '-';
+  return v;
 }
 
 function badgeHtml(status, isToday) {
