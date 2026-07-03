@@ -1,0 +1,175 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>센터 실적 관리자 현황</title>
+<style>
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif;
+    background: #f4f5f7; color: #1c1f26; padding: 24px;
+  }
+  .wrap { max-width: 1100px; margin: 0 auto; }
+  h1 { font-size: 22px; margin: 0 0 4px; }
+  .sub { color: #5b6472; font-size: 14px; margin-bottom: 24px; }
+
+  .summary-grid {
+    display: grid; grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+    gap: 12px; margin-bottom: 28px;
+  }
+  .summary-card {
+    background: #fff; border-radius: 10px; padding: 16px; box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  }
+  .summary-card .label { font-size: 12px; color: #9aa1ac; margin-bottom: 4px; }
+  .summary-card .value { font-size: 22px; font-weight: 700; }
+  .summary-card .value.ok { color: #1a8f4c; }
+  .summary-card .value.warn { color: #c98a20; }
+  .summary-card .value.err { color: #c94040; }
+
+  .center-block {
+    background: #fff; border-radius: 10px; padding: 18px 20px; margin-bottom: 14px;
+    box-shadow: 0 1px 4px rgba(0,0,0,.05);
+  }
+  .center-header {
+    display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px;
+    cursor: pointer;
+  }
+  .center-header h3 { margin: 0; font-size: 16px; }
+  .badge {
+    font-size: 12px; padding: 3px 10px; border-radius: 999px; font-weight: 600;
+  }
+  .badge.ok { background: #e6f6ec; color: #1a8f4c; }
+  .badge.warn { background: #fdf1de; color: #c98a20; }
+  .badge.err { background: #fbe9e9; color: #c94040; }
+  .badge.none { background: #eee; color: #9aa1ac; }
+
+  table { width: 100%; border-collapse: collapse; font-size: 13px; margin-top: 8px; }
+  th { text-align: left; padding: 6px; color: #9aa1ac; font-size: 12px; font-weight: 500; }
+  td { padding: 7px 6px; border-top: 1px solid #f0f1f3; }
+  .status-tag { font-weight: 600; }
+  .status-tag.success { color: #1a8f4c; }
+  .status-tag.needs_review { color: #c98a20; }
+  .status-tag.pending { color: #9aa1ac; }
+  .status-tag.failed { color: #c94040; }
+  .empty { color: #9aa1ac; font-size: 13px; padding: 8px 0; }
+
+  .collapsed .history { display: none; }
+  .toggle-icon { font-size: 12px; color: #9aa1ac; }
+
+  .loading { text-align: center; color: #9aa1ac; padding: 60px 0; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <h1>센터 실적 관리자 현황</h1>
+  <div class="sub">전체 센터 업로드/파싱 현황 (최근 300건 기준)</div>
+  <div id="app"><div class="loading">불러오는 중...</div></div>
+</div>
+
+<script>
+// ====== 설정 ======
+const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/center-report-upload';
+const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
+// ==================
+
+async function load() {
+  const app = document.getElementById('app');
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview', {
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }
+    });
+    const data = await res.json();
+    if (!data.success) {
+      app.innerHTML = `<div class="empty">조회 실패: ${data.error}</div>`;
+      return;
+    }
+    render(data.centers, data.rows);
+  } catch (e) {
+    app.innerHTML = `<div class="empty">불러오기 오류: ${e.message}</div>`;
+  }
+}
+
+function render(centers, rows) {
+  const app = document.getElementById('app');
+  const today = new Date().toISOString().slice(0, 10);
+
+  // 센터별로 그룹핑
+  const byCenter = {};
+  centers.forEach(c => { byCenter[c.center_code] = { info: c, records: [] }; });
+  rows.forEach(r => {
+    if (!byCenter[r.center_code]) byCenter[r.center_code] = { info: { center_code: r.center_code, center_name: r.center_code }, records: [] };
+    byCenter[r.center_code].records.push(r);
+  });
+
+  // 요약 카드
+  const total = centers.length;
+  const uploadedToday = rows.filter(r => r.report_date === today).length;
+  const needsReview = rows.filter(r => r.parsed_status === 'needs_review').length;
+  const notUploadedToday = total - new Set(rows.filter(r => r.report_date === today).map(r => r.center_code)).size;
+
+  const summaryHtml = `
+    <div class="summary-grid">
+      <div class="summary-card"><div class="label">전체 센터</div><div class="value">${total}</div></div>
+      <div class="summary-card"><div class="label">오늘(${today}) 업로드</div><div class="value ok">${uploadedToday}</div></div>
+      <div class="summary-card"><div class="label">오늘 미업로드 센터</div><div class="value ${notUploadedToday > 0 ? 'warn' : 'ok'}">${notUploadedToday}</div></div>
+      <div class="summary-card"><div class="label">확인 필요</div><div class="value ${needsReview > 0 ? 'err' : 'ok'}">${needsReview}</div></div>
+    </div>`;
+
+  const blocksHtml = Object.values(byCenter).map(({ info, records }) => {
+    records.sort((a, b) => b.report_date.localeCompare(a.report_date));
+    const latest = records[0];
+    const badge = latest
+      ? badgeHtml(latest.parsed_status, latest.report_date === today)
+      : `<span class="badge none">업로드 없음</span>`;
+
+    const rowsHtml = records.slice(0, 10).map(r => `
+      <tr>
+        <td>${r.report_date}</td>
+        <td class="status-tag ${r.parsed_status}">${statusLabel(r.parsed_status)}</td>
+        <td>${summarize(r.performance_data) || summarize(r.attendance_data) || '-'}</td>
+        <td style="color:#9aa1ac;font-size:12px;">${r.raw_file_name || ''}</td>
+      </tr>`).join('');
+
+    return `
+      <div class="center-block">
+        <div class="center-header" onclick="this.parentElement.classList.toggle('collapsed')">
+          <h3>${info.center_name}</h3>
+          <div style="display:flex;align-items:center;gap:10px;">
+            ${badge}
+            <span class="toggle-icon">▾</span>
+          </div>
+        </div>
+        <div class="history">
+          ${records.length === 0 ? '<div class="empty">등록된 실적이 없습니다.</div>' : `
+          <table>
+            <thead><tr><th>보고일자</th><th>상태</th><th>주요 실적</th><th>파일명</th></tr></thead>
+            <tbody>${rowsHtml}</tbody>
+          </table>`}
+        </div>
+      </div>`;
+  }).join('');
+
+  app.innerHTML = summaryHtml + blocksHtml;
+}
+
+function badgeHtml(status, isToday) {
+  if (status === 'success') return `<span class="badge ${isToday ? 'ok' : 'none'}">${isToday ? '오늘 완료' : '최근 완료'}</span>`;
+  if (status === 'needs_review') return `<span class="badge warn">확인 필요</span>`;
+  if (status === 'pending') return `<span class="badge none">분석중</span>`;
+  return `<span class="badge err">실패</span>`;
+}
+
+function statusLabel(s) {
+  return { success: '완료', pending: '분석중', needs_review: '확인필요', failed: '실패' }[s] || s;
+}
+
+function summarize(obj) {
+  if (!obj || typeof obj !== 'object') return '';
+  return Object.entries(obj).slice(0, 3).map(([k, v]) => `${k} ${v}`).join(' · ');
+}
+
+load();
+</script>
+</body>
+</html>
