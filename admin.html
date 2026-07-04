@@ -50,6 +50,12 @@
   .panel h3 { font-size: 15px; margin: 0 0 12px; }
 
   .mini-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .mini-charts.vertical { grid-template-columns: 1fr; }
+  .chart-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+  .chart-summary .stat { text-align: center; }
+  .chart-summary .stat .l { font-size: 10px; color: #9aa1ac; }
+  .chart-summary .stat .v { font-size: 13px; font-weight: 700; }
+  .chart-summary .stat .v.warn { color: #c94040; }
   .mini-chart-box { background: #fafbfc; border-radius: 8px; padding: 10px; }
   .mini-chart-box .title { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
   .mini-chart-box .canvas-wrap { position: relative; height: 220px; }
@@ -347,13 +353,21 @@ function renderDashboard() {
   const targetRows = viewMode === 'single' ? monthRows : cumulativeRows;
   const sortedTarget = targetRows.slice().sort(function(a, b) { return a.report_date.localeCompare(b.report_date); });
 
-  const alertInfo = computeAlert(centerRows);
-  const trendHtml = renderTrendList(monthRows, cumulativeRows);
+  const prevYearMonth = (y - 1) + '-' + String(m).padStart(2, '0');
+  const prevYearMonthRows = centerRows.filter(function(r) { return r.report_date.startsWith(prevYearMonth); });
 
+  const alertInfo = computeAlert(centerRows);
+  const trendHtml = renderTrendList(monthRows, cumulativeRows, prevYearMonthRows);
+
+  const includeAnswered = aggView !== 'monthly';
   let chartBoxes = '';
   for (let i = 0; i < CHART_CENTERS.length; i++) {
-    chartBoxes += '<div class="mini-chart-box"><div class="title">' + CHART_CENTERS[i].title + ' · 인입호/응대호(막대) · 응답율/SL(선, 기준 92)</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div></div>';
+    const center = CHART_CENTERS[i];
+    const titleSuffix = includeAnswered ? '인입호/응대호(막대)' : '인입호(막대)';
+    const summaryHtml = aggView === 'daily' ? '' : renderChartSummary(center.prefix, sortedTarget, includeAnswered);
+    chartBoxes += '<div class="mini-chart-box"><div class="title">' + center.title + ' · ' + titleSuffix + ' · 응답율/SL(선, 기준 92)</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div>' + summaryHtml + '</div>';
   }
+  const chartsClass = aggView === 'daily' ? 'mini-charts vertical' : 'mini-charts';
 
   main.innerHTML = ''
     + '<div class="month-bar">'
@@ -368,7 +382,7 @@ function renderDashboard() {
     + '</div>'
     + alertInfo.html
     + '<div class="split">'
-    + '<div class="panel"><h3>지표 추이</h3><div class="mini-charts">' + chartBoxes + '</div></div>'
+    + '<div class="panel"><h3>지표 추이</h3><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><h3>' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><div class="trend-list">' + trendHtml + '</div></div>'
     + '</div>'
     + '<div class="agg-tabs">'
@@ -403,6 +417,35 @@ function setViewMode(mode) { viewMode = mode; renderDashboard(); }
 function setAggView(v) { aggView = v; renderDashboard(); }
 function aggLabel(v) { return { daily: '일자별', weekly: '주별', dow: '요일별', monthly: '월별' }[v]; }
 
+function renderChartSummary(prefix, records, includeAnswered) {
+  const inboundKey = prefix + '_인입호';
+  const answeredKey = prefix + '_응답호';
+  const rateKey = prefix + '_응답율';
+  const slKey = prefix + '_SL';
+
+  const inboundAvg = avgExcludingHolidays(records, function(r) { return extractNum(r, 'performance_data', inboundKey); });
+  const answeredAvg = includeAnswered ? avgExcludingHolidays(records, function(r) { return extractNum(r, 'performance_data', answeredKey); }) : null;
+  const rateAvg = avgExcludingHolidays(records, function(r) { return extractNum(r, 'performance_data', rateKey); });
+
+  const slVals = records.filter(function(r) { return !isWeekendOrHoliday(r.report_date); })
+    .map(function(r) { return extractNum(r, 'performance_data', slKey); })
+    .filter(function(n) { return n !== null && !isNaN(n); });
+  const slAvg = slVals.length ? slVals.reduce(function(a, b) { return a + b; }, 0) / slVals.length : null;
+  const belowCount = slVals.filter(function(v) { return v < SL_THRESHOLD; }).length;
+
+  const stats = [
+    { l: '평균 인입호', v: inboundAvg !== null ? Math.round(inboundAvg).toLocaleString() : '-' }
+  ];
+  if (includeAnswered) stats.push({ l: '평균 응대호', v: answeredAvg !== null ? Math.round(answeredAvg).toLocaleString() : '-' });
+  stats.push({ l: '평균 응답율', v: rateAvg !== null ? rateAvg.toFixed(1) + '%' : '-' });
+  stats.push({ l: '평균 SL', v: slAvg !== null ? slAvg.toFixed(1) : '-' });
+  stats.push({ l: 'SL 미달일수', v: slVals.length ? belowCount + '/' + slVals.length + '일' : '-', warn: belowCount > 0 });
+
+  return '<div class="chart-summary">' + stats.map(function(s) {
+    return '<div class="stat"><div class="l">' + s.l + '</div><div class="v' + (s.warn ? ' warn' : '') + '">' + s.v + '</div></div>';
+  }).join('') + '</div>';
+}
+
 function avgExcludingHolidays(rows, getVal) {
   const filtered = rows.filter(function(r) { return !isWeekendOrHoliday(r.report_date); });
   const nums = filtered.map(getVal).filter(function(n) { return n !== null && !isNaN(n); });
@@ -416,29 +459,34 @@ function extractNum(row, field, key) {
   return parseFloat(String(obj[key]).replace(/[%,]/g, ''));
 }
 
-function renderTrendList(monthRows, cumulativeRows) {
-  return KPI_DEFS.map(function(def) {
-    let dailyAvg, cumAvg, dailyDisplay, cumDisplay;
+function getAvgForDef(def, rows) {
+  if (def.type === 'staff') return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
+  if (def.type === 'count') {
+    const field = def.attKey ? 'attendance_data' : 'performance_data';
+    const key = def.attKey || def.perfKey;
+    return avgExcludingHolidays(rows, function(r) { return extractNum(r, field, key); });
+  }
+  return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'performance_data', def.perfKey); });
+}
 
-    if (def.type === 'staff') {
-      dailyAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
-      cumAvg = avgExcludingHolidays(cumulativeRows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
-      const to = TO_TARGET[currentCenter] || null;
-      dailyDisplay = dailyAvg !== null ? (dailyAvg.toFixed(1) + '명' + (to ? ' (' + (dailyAvg / to * 100).toFixed(0) + '%)' : '')) : '-';
-      cumDisplay = cumAvg !== null ? (cumAvg.toFixed(1) + '명' + (to ? ' (' + (cumAvg / to * 100).toFixed(0) + '%)' : '')) : '-';
-    } else if (def.type === 'count') {
-      const field = def.attKey ? 'attendance_data' : 'performance_data';
-      const key = def.attKey || def.perfKey;
-      dailyAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, field, key); });
-      cumAvg = avgExcludingHolidays(cumulativeRows, function(r) { return extractNum(r, field, key); });
-      dailyDisplay = dailyAvg !== null ? (Math.round(dailyAvg).toLocaleString() + '건') : '-';
-      cumDisplay = cumAvg !== null ? (Math.round(cumAvg).toLocaleString() + '건') : '-';
-    } else {
-      dailyAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', def.perfKey); });
-      cumAvg = avgExcludingHolidays(cumulativeRows, function(r) { return extractNum(r, 'performance_data', def.perfKey); });
-      dailyDisplay = dailyAvg !== null ? (dailyAvg.toFixed(1) + '%') : '-';
-      cumDisplay = cumAvg !== null ? (cumAvg.toFixed(1) + '%') : '-';
-    }
+function formatKpiValue(def, avg) {
+  if (avg === null) return '-';
+  if (def.type === 'staff') {
+    const to = TO_TARGET[currentCenter] || null;
+    return avg.toFixed(1) + '명' + (to ? ' (' + (avg / to * 100).toFixed(0) + '%)' : '');
+  }
+  if (def.type === 'count') return Math.round(avg).toLocaleString() + '건';
+  return avg.toFixed(1) + '%';
+}
+
+function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows) {
+  return KPI_DEFS.map(function(def) {
+    const dailyAvg = getAvgForDef(def, monthRows);
+    const cumAvg = getAvgForDef(def, cumulativeRows);
+    const prevYearAvg = prevYearMonthRows && prevYearMonthRows.length ? getAvgForDef(def, prevYearMonthRows) : null;
+
+    const dailyDisplay = formatKpiValue(def, dailyAvg);
+    const cumDisplay = formatKpiValue(def, cumAvg);
 
     let arrowHtml = '';
     if (dailyAvg !== null && cumAvg !== null) {
@@ -446,9 +494,16 @@ function renderTrendList(monthRows, cumulativeRows) {
       arrowHtml = '<span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</span>';
     }
 
+    let yoyHtml = '';
+    if (dailyAvg !== null && prevYearAvg !== null && prevYearAvg !== 0) {
+      const pct = ((dailyAvg - prevYearAvg) / prevYearAvg * 100);
+      const up = pct >= 0;
+      yoyHtml = '<span class="sub" style="margin-left:6px;">전년比 <span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + Math.abs(pct).toFixed(1) + '%</span></span>';
+    }
+
     return '<div class="trend-row"><span class="label">' + def.label + '</span>'
       + '<span class="vals"><span class="main">' + dailyDisplay + '</span> ' + arrowHtml
-      + '<span class="sub">누적 ' + cumDisplay + '</span></span></div>';
+      + '<span class="sub">누적 ' + cumDisplay + '</span>' + yoyHtml + '</span></div>';
   }).join('');
 }
 
@@ -512,16 +567,23 @@ function drawMiniCharts(records) {
     function avgSeries(key) {
       return bucketKeys.map(function(bk) { return avgExcludingHolidays(buckets[bk], function(r) { return extractNum(r, 'performance_data', key); }); });
     }
+    // 일별은 막대가 하루 실측치이므로 합계=평균과 동일하나, 주/요일/월별 집계 막대는
+    // 합계가 아닌 평균값으로 표기 (요청사항 반영)
+    const countSeries = aggView === 'daily' ? sumSeries : avgSeries;
 
-    const inboundData = sumSeries(inboundKey);
-    const answeredData = sumSeries(answeredKey);
+    const inboundData = countSeries(inboundKey);
+    const answeredData = aggView === 'monthly' ? null : countSeries(answeredKey);
     const rateData = avgSeries(rateKey);
     const slData = avgSeries(slKey);
     const slLineData = labels.map(function() { return SL_THRESHOLD; });
 
     const datasets = [
-      { type: 'bar', label: '인입호', data: inboundData, backgroundColor: '#c7d7fb', yAxisID: 'yCount', order: 3 },
-      { type: 'bar', label: '응대호', data: answeredData, backgroundColor: '#3b6ef6', yAxisID: 'yCount', order: 3 },
+      { type: 'bar', label: '인입호', data: inboundData, backgroundColor: '#c7d7fb', yAxisID: 'yCount', order: 3 }
+    ];
+    if (aggView !== 'monthly') {
+      datasets.push({ type: 'bar', label: '응대호', data: answeredData, backgroundColor: '#3b6ef6', yAxisID: 'yCount', order: 3 });
+    }
+    datasets.push(
       {
         type: 'line', label: '응답율(%)', data: rateData, borderColor: '#1a8f4c', backgroundColor: 'transparent',
         yAxisID: 'yRate', tension: 0.25, pointRadius: 2, order: 1
@@ -544,7 +606,7 @@ function drawMiniCharts(records) {
         type: 'line', label: 'SL기준(' + SL_THRESHOLD + ')', data: slLineData, borderColor: '#c94040',
         borderDash: [4, 4], borderWidth: 1, pointRadius: 0, yAxisID: 'yRate', order: 2
       }
-    ];
+    );
 
     miniCharts[i] = new Chart(canvas, {
       data: { labels: labels, datasets: datasets },
@@ -554,7 +616,7 @@ function drawMiniCharts(records) {
         plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 8, font: { size: 10 } } } },
         scales: {
           yCount: { position: 'left', beginAtZero: true, ticks: { font: { size: 9 } } },
-          yRate: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 } } },
+          yRate: { position: 'right', min: 0, max: 110, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 } } },
           x: { ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true } }
         }
       }
@@ -591,17 +653,17 @@ function renderColToggleButton(records) {
   return '<div class="col-toggle-wrap">'
     + '<button class="col-toggle-btn" type="button">표시 항목 ▾</button>'
     + '<div class="col-popover' + (colPopoverOpen ? ' open' : '') + '" id="colPopover">'
+    + '<div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid #eee;">'
+    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;font-weight:600;">저장된 설정</div>'
+    + presetListHtml
+    + '<div style="display:flex;gap:4px;margin-top:8px;">'
+    + '<input type="text" id="presetNameInput" placeholder="설정 이름" style="flex:1;font-size:12px;padding:5px 7px;border:1px solid #d9dce1;border-radius:5px;">'
+    + '<button style="font-size:11px;padding:5px 10px;border:1px solid #3b6ef6;background:#3b6ef6;color:#fff;border-radius:5px;cursor:pointer;" onclick="saveCurrentAsPreset()">현재설정 저장</button>'
+    + '</div>'
+    + '</div>'
     + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;">체크 해제 시 표에서 숨겨집니다. ▲▼로 순서 변경 (주별·요일별·월별에도 동일 적용)</div>'
     + itemsHtml
     + '<div class="actions"><button onclick="setAllColsVisible(true)">전체 표시</button><button onclick="setAllColsVisible(false)">전체 숨김</button></div>'
-    + '<div style="border-top:1px solid #eee;margin-top:10px;padding-top:10px;">'
-    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;">현재 설정을 이름 붙여 저장</div>'
-    + '<div style="display:flex;gap:4px;margin-bottom:8px;">'
-    + '<input type="text" id="presetNameInput" placeholder="설정 이름" style="flex:1;font-size:12px;padding:5px 7px;border:1px solid #d9dce1;border-radius:5px;">'
-    + '<button style="font-size:11px;padding:5px 10px;border:1px solid #3b6ef6;background:#3b6ef6;color:#fff;border-radius:5px;cursor:pointer;" onclick="saveCurrentAsPreset()">저장</button>'
-    + '</div>'
-    + presetListHtml
-    + '</div>'
     + '</div></div>';
 }
 
