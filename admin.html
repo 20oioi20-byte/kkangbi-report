@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>깡비 실적 관리</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body {
@@ -97,6 +98,31 @@
 
   .empty { color: #9aa1ac; font-size: 13px; padding: 30px 0; text-align: center; }
   .loading { color: #9aa1ac; font-size: 13px; padding: 60px 0; text-align: center; }
+
+  .agg-tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+  .agg-tab { padding: 7px 14px; font-size: 13px; border: 1px solid #d9dce1; background: #fff; border-radius: 20px; cursor: pointer; color: #5b6472; }
+  .agg-tab.active { background: #1c1f26; color: #fff; border-color: #1c1f26; }
+
+  .chart-panel { position: relative; margin-bottom: 6px; }
+  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  select.metric-select { padding: 7px 10px; border: 1px solid #d9dce1; border-radius: 6px; font-size: 13px; }
+  .chart-box { height: 260px; }
+
+  .col-toggle-wrap { position: relative; display: inline-block; }
+  .col-toggle-btn {
+    border: 1px solid #d9dce1; background: #fff; border-radius: 6px; padding: 6px 12px;
+    font-size: 12px; cursor: pointer; color: #5b6472;
+  }
+  .col-popover {
+    display: none; position: absolute; right: 0; top: 34px; background: #fff; border: 1px solid #e7e8ec;
+    border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.1); padding: 10px; z-index: 20;
+    max-height: 320px; overflow-y: auto; width: 220px;
+  }
+  .col-popover.open { display: block; }
+  .col-popover label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 3px 0; cursor: pointer; }
+  .col-popover .grp-title { font-size: 11px; color: #9aa1ac; margin: 6px 0 2px; }
+  .col-popover .actions { display: flex; gap: 6px; margin-top: 8px; }
+  .col-popover .actions button { flex: 1; font-size: 11px; padding: 5px; border: 1px solid #d9dce1; background: #f8f9fb; border-radius: 5px; cursor: pointer; }
 </style>
 </head>
 <body>
@@ -188,6 +214,11 @@ function renderMain() {
   else renderEntry();
 }
 
+let aggView = 'daily'; // 'daily' | 'weekly' | 'dow' | 'monthly'
+let hiddenCols = new Set();
+let chartMetric = null;
+let chartInstance = null;
+
 function renderDashboard() {
   const main = document.getElementById('main');
   if (!currentCenter) { main.innerHTML = `<div class="empty">센터를 선택해 주세요.</div>`; return; }
@@ -229,11 +260,245 @@ function renderDashboard() {
 
     ${alertInfo.html}
 
-    <div class="panel">
-      <h3>${centerInfo ? centerInfo.center_name : ''} · 일자별 현황 (${targetRows.length}건)</h3>
-      ${sortedTarget.length === 0 ? '<div class="empty">해당 기간에 등록된 실적이 없습니다.</div>' : buildMatrix(sortedTarget)}
+    <div class="agg-tabs">
+      <div class="agg-tab ${aggView === 'daily' ? 'active' : ''}" onclick="setAggView('daily')">일별</div>
+      <div class="agg-tab ${aggView === 'weekly' ? 'active' : ''}" onclick="setAggView('weekly')">주별</div>
+      <div class="agg-tab ${aggView === 'dow' ? 'active' : ''}" onclick="setAggView('dow')">요일별</div>
+      <div class="agg-tab ${aggView === 'monthly' ? 'active' : ''}" onclick="setAggView('monthly')">월별</div>
+    </div>
+
+    <div class="panel chart-panel">
+      <div class="chart-header">
+        <h3 style="margin:0;">지표 추이</h3>
+        <select class="metric-select" id="metricSelect" onchange="onMetricChange()"></select>
+      </div>
+      <div class="chart-box"><canvas id="metricChart"></canvas></div>
+    </div>
+
+    <div class="panel" style="margin-top:14px;">
+      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+        <h3 style="margin:0;">${centerInfo ? centerInfo.center_name : ''} · ${aggLabel(aggView)} 현황 (${sortedTarget.length}건 기준)</h3>
+        ${aggView === 'daily' ? renderColToggleButton(sortedTarget) : ''}
+      </div>
+      <div id="tableArea">${sortedTarget.length === 0 ? '<div class="empty">해당 기간에 등록된 실적이 없습니다.</div>' : renderAggTable(sortedTarget, aggView)}</div>
     </div>
   `;
+
+  setupMetricSelect(sortedTarget);
+  drawChart(sortedTarget);
+
+  if (aggView === 'daily') {
+    document.querySelectorAll('.col-toggle-btn').forEach(btn => {
+      btn.addEventListener('click', () => document.getElementById('colPopover').classList.toggle('open'));
+    });
+  }
+}
+
+function setAggView(v) { aggView = v; renderDashboard(); }
+function aggLabel(v) { return { daily: '일자별', weekly: '주별', dow: '요일별', monthly: '월별' }[v]; }
+
+// ============================================
+// 컬럼 표시/숨김 (일별 표 전용)
+// ============================================
+function renderColToggleButton(records) {
+  const attKeys = collectKeys(records, 'attendance_data');
+  const perfKeys = collectKeys(records, 'performance_data');
+  const allKeys = [...attKeys.map(k => ({ k, g: '근태' })), ...perfKeys.map(k => ({ k, g: '실적' }))];
+
+  const itemsHtml = allKeys.map(({ k, g }) => `
+    <label><input type="checkbox" data-colkey="${k}" ${hiddenCols.has(k) ? '' : 'checked'} onchange="toggleCol('${k}')"> ${g}·${k}</label>
+  `).join('');
+
+  return `
+    <div class="col-toggle-wrap">
+      <button class="col-toggle-btn" type="button">표시 항목 ▾</button>
+      <div class="col-popover" id="colPopover">
+        <div class="grp-title">표시할 항목을 선택하세요</div>
+        ${itemsHtml}
+        <div class="actions">
+          <button onclick="setAllCols(true)">전체 표시</button>
+          <button onclick="setAllCols(false)">전체 숨김</button>
+        </div>
+      </div>
+    </div>`;
+}
+
+function toggleCol(key) {
+  if (hiddenCols.has(key)) hiddenCols.delete(key); else hiddenCols.add(key);
+  refreshTableOnly();
+}
+
+function setAllCols(showAll) {
+  const centerRows = allRows.filter(r => r.center_code === currentCenter);
+  const attKeys = collectKeys(centerRows, 'attendance_data');
+  const perfKeys = collectKeys(centerRows, 'performance_data');
+  hiddenCols = showAll ? new Set() : new Set([...attKeys, ...perfKeys]);
+  renderDashboard();
+}
+
+function refreshTableOnly() {
+  // 팝업 체크 상태 유지한 채 표만 다시 그림
+  const centerRows = allRows.filter(r => r.center_code === currentCenter);
+  const [y, m] = currentMonth.split('-').map(Number);
+  const monthRows = centerRows.filter(r => r.report_date.startsWith(currentMonth));
+  const cumulativeRows = centerRows.filter(r => {
+    const d = new Date(r.report_date);
+    return d.getFullYear() === y && (d.getMonth() + 1) <= m;
+  });
+  const targetRows = viewMode === 'single' ? monthRows : cumulativeRows;
+  const sortedTarget = [...targetRows].sort((a, b) => a.report_date.localeCompare(b.report_date));
+  document.getElementById('tableArea').innerHTML = renderAggTable(sortedTarget, aggView);
+}
+
+// ============================================
+// 집계 표 (일별 / 주별 / 요일별 / 월별)
+// ============================================
+function renderAggTable(records, view) {
+  if (view === 'daily') return buildMatrix(records);
+
+  const buckets = groupByBucket(records, view);
+  const attKeys = collectKeys(records, 'attendance_data');
+  const perfKeys = collectKeys(records, 'performance_data');
+
+  const headHtml = `
+    <th style="position:sticky;left:0;background:#f8f9fb;">${aggLabel(view)}</th>
+    <th>일수</th>
+    ${attKeys.map(k => `<th>근태·${k}</th>`).join('')}
+    ${perfKeys.map(k => `<th>실적·${k}</th>`).join('')}
+  `;
+
+  const bodyHtml = Object.entries(buckets).map(([label, rows]) => {
+    const attAgg = aggregateKeys(rows, 'attendance_data', attKeys);
+    const perfAgg = aggregateKeys(rows, 'performance_data', perfKeys);
+    return `
+      <tr>
+        <td style="position:sticky;left:0;background:#fff;font-weight:600;">${label}</td>
+        <td>${rows.length}</td>
+        ${attKeys.map(k => `<td>${fmt(attAgg[k])}</td>`).join('')}
+        ${perfKeys.map(k => `<td>${fmt(perfAgg[k])}</td>`).join('')}
+      </tr>`;
+  }).join('');
+
+  return `<div class="table-scroll"><table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+}
+
+function groupByBucket(records, view) {
+  const buckets = {};
+  const dowNames = ['일', '월', '화', '수', '목', '금', '토'];
+
+  records.forEach(r => {
+    const d = new Date(r.report_date + 'T00:00:00');
+    let label;
+    if (view === 'weekly') {
+      const week = Math.ceil(d.getDate() / 7);
+      label = `${d.getMonth() + 1}월 ${week}주`;
+    } else if (view === 'dow') {
+      label = dowNames[d.getDay()] + '요일';
+    } else if (view === 'monthly') {
+      label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    }
+    if (!buckets[label]) buckets[label] = [];
+    buckets[label].push(r);
+  });
+
+  // 요일별은 일~토 고정 순서로 정렬
+  if (view === 'dow') {
+    const ordered = {};
+    dowNames.forEach(n => { const key = n + '요일'; if (buckets[key]) ordered[key] = buckets[key]; });
+    return ordered;
+  }
+  return buckets;
+}
+
+// 비율(응답율/CPD/S.L)은 평균, 건수(인입호/응답호 등)는 합계
+function aggregateKeys(rows, field, keys) {
+  const result = {};
+  keys.forEach(key => {
+    const vals = rows.map(r => r[field] ? r[field][key] : undefined).filter(v => v !== undefined && v !== null && v !== '');
+    if (vals.length === 0) { result[key] = null; return; }
+
+    const isRate = /응답율|CPD|S\.?L/i.test(key);
+    const nums = vals.map(v => parseFloat(String(v).replace(/[%,]/g, ''))).filter(n => !isNaN(n));
+    if (nums.length === 0) { result[key] = vals[vals.length - 1]; return; }
+
+    if (isRate) {
+      const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
+      result[key] = key.includes('응답율') ? `${avg.toFixed(1)}%` : avg.toFixed(1);
+    } else {
+      const sum = nums.reduce((a, b) => a + b, 0);
+      result[key] = sum.toLocaleString();
+    }
+  });
+  return result;
+}
+
+// ============================================
+// 지표 선택 그래프
+// ============================================
+function setupMetricSelect(records) {
+  const select = document.getElementById('metricSelect');
+  const perfKeys = collectKeys(records, 'performance_data');
+  if (perfKeys.length === 0) { select.innerHTML = '<option>표시할 지표 없음</option>'; return; }
+
+  if (!chartMetric || !perfKeys.includes(chartMetric)) {
+    chartMetric = perfKeys.find(k => k.includes('응답율')) || perfKeys[0];
+  }
+  select.innerHTML = perfKeys.map(k => `<option value="${k}" ${k === chartMetric ? 'selected' : ''}>${k}</option>`).join('');
+}
+
+function onMetricChange() {
+  chartMetric = document.getElementById('metricSelect').value;
+  const centerRows = allRows.filter(r => r.center_code === currentCenter);
+  const [y, m] = currentMonth.split('-').map(Number);
+  const monthRows = centerRows.filter(r => r.report_date.startsWith(currentMonth));
+  const cumulativeRows = centerRows.filter(r => {
+    const d = new Date(r.report_date);
+    return d.getFullYear() === y && (d.getMonth() + 1) <= m;
+  });
+  const targetRows = viewMode === 'single' ? monthRows : cumulativeRows;
+  drawChart([...targetRows].sort((a, b) => a.report_date.localeCompare(b.report_date)));
+}
+
+function drawChart(records) {
+  const canvas = document.getElementById('metricChart');
+  if (!canvas || !chartMetric || records.length === 0) return;
+
+  const buckets = aggView === 'daily'
+    ? Object.fromEntries(records.map(r => [r.report_date, [r]]))
+    : groupByBucket(records, aggView);
+
+  const labels = Object.keys(buckets);
+  const isRate = /응답율|CPD|S\.?L/i.test(chartMetric);
+  const values = labels.map(label => {
+    const rows = buckets[label];
+    const nums = rows.map(r => {
+      const v = r.performance_data ? r.performance_data[chartMetric] : undefined;
+      return v !== undefined ? parseFloat(String(v).replace(/[%,]/g, '')) : NaN;
+    }).filter(n => !isNaN(n));
+    if (nums.length === 0) return null;
+    return isRate ? (nums.reduce((a, b) => a + b, 0) / nums.length) : nums.reduce((a, b) => a + b, 0);
+  });
+
+  if (chartInstance) chartInstance.destroy();
+  chartInstance = new Chart(canvas, {
+    type: isRate ? 'line' : 'bar',
+    data: {
+      labels,
+      datasets: [{
+        label: chartMetric,
+        data: values,
+        borderColor: '#3b6ef6',
+        backgroundColor: isRate ? 'rgba(59,110,246,.1)' : '#3b6ef6',
+        tension: 0.3,
+        fill: isRate,
+      }]
+    },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } },
+      scales: { y: { beginAtZero: !isRate } }
+    }
+  });
 }
 
 function shiftMonth(delta) {
@@ -312,8 +577,8 @@ function computeAlert(centerRows) {
 }
 
 function buildMatrix(records) {
-  const attKeys = collectKeys(records, 'attendance_data');
-  const perfKeys = collectKeys(records, 'performance_data');
+  const attKeys = collectKeys(records, 'attendance_data').filter(k => !hiddenCols.has(k));
+  const perfKeys = collectKeys(records, 'performance_data').filter(k => !hiddenCols.has(k));
 
   const headHtml = `
     <th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>
