@@ -7,41 +7,30 @@
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
 <style>
   * { box-sizing: border-box; }
-  body {
-    margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif;
-    background: #f4f5f7; color: #1c1f26;
-  }
-  .topbar {
-    display: flex; align-items: center; justify-content: space-between;
-    background: #fff; padding: 14px 24px; border-bottom: 1px solid #e7e8ec;
-  }
+  body { margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif; background: #f4f5f7; color: #1c1f26; }
+
+  .topbar { display: flex; align-items: center; justify-content: space-between; background: #fff; padding: 14px 24px; border-bottom: 1px solid #e7e8ec; }
   .topbar h1 { font-size: 18px; margin: 0; }
-  .btn-primary {
-    background: #3b6ef6; color: #fff; border: none; border-radius: 8px;
-    padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer;
-  }
-  .maintabs {
-    display: flex; gap: 4px; background: #fff; padding: 0 24px; border-bottom: 1px solid #e7e8ec;
-  }
-  .maintab {
-    padding: 12px 16px; font-size: 14px; color: #5b6472; cursor: pointer;
-    border-bottom: 2px solid transparent;
-  }
+  .topbar .actions { display: flex; gap: 8px; }
+  .btn-primary { background: #3b6ef6; color: #fff; border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-outline { background: #fff; color: #3b6ef6; border: 1px solid #3b6ef6; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-ghost { background: #fff; color: #5b6472; border: 1px solid #d9dce1; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+
+  .backup-panel { display: none; background: #fff; border-bottom: 1px solid #e7e8ec; padding: 14px 24px; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .backup-panel.open { display: flex; }
+  .backup-panel .msg { font-size: 12px; color: #5b6472; }
+
+  .maintabs { display: flex; gap: 4px; background: #fff; padding: 0 24px; border-bottom: 1px solid #e7e8ec; }
+  .maintab { padding: 12px 16px; font-size: 14px; color: #5b6472; cursor: pointer; border-bottom: 2px solid transparent; }
   .maintab.active { color: #3b6ef6; border-bottom-color: #3b6ef6; font-weight: 600; }
 
   .layout { display: flex; min-height: calc(100vh - 96px); }
-  .sidebar {
-    width: 220px; background: #fff; border-right: 1px solid #e7e8ec; padding: 16px 0; flex-shrink: 0;
-  }
+  .sidebar { width: 200px; background: #fff; border-right: 1px solid #e7e8ec; padding: 16px 0; flex-shrink: 0; }
   .sidebar .section-label { padding: 6px 20px; font-size: 12px; color: #9aa1ac; }
-  .center-item {
-    padding: 10px 20px; font-size: 14px; cursor: pointer; color: #3c4250;
-    display: flex; justify-content: space-between; align-items: center;
-  }
+  .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: #3c4250; display: flex; align-items: center; gap: 8px; }
   .center-item.active { background: #eef2ff; color: #3b6ef6; font-weight: 600; border-right: 3px solid #3b6ef6; }
-  .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7cbd3; }
+  .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7cbd3; flex-shrink: 0; }
   .center-item.active .dot { background: #3b6ef6; }
-  .add-center { padding: 10px 20px; font-size: 13px; color: #9aa1ac; }
 
   main { flex: 1; padding: 22px 26px; }
 
@@ -52,84 +41,86 @@
   .toggle-group button { border: none; background: #fff; padding: 6px 14px; font-size: 13px; cursor: pointer; color: #5b6472; }
   .toggle-group button.active { background: #3b6ef6; color: #fff; }
 
-  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 12px; margin-bottom: 18px; }
-  .kpi-card { background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
-  .kpi-card .label { font-size: 12px; color: #9aa1ac; margin-bottom: 6px; }
-  .kpi-card .value { font-size: 22px; font-weight: 700; }
-  .kpi-card .sub { font-size: 12px; color: #9aa1ac; margin-top: 4px; }
-  .kpi-card .value.warn { color: #c98a20; }
-  .kpi-card .value.ok { color: #1a8f4c; }
-
-  .alert-card {
-    background: #fdf1de; border: 1px solid #f3dfb2; border-radius: 10px;
-    padding: 14px 18px; margin-bottom: 18px; font-size: 13px; color: #8a6414;
-  }
+  .alert-card { background: #fdf1de; border: 1px solid #f3dfb2; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; font-size: 13px; color: #8a6414; }
   .alert-card.none { background: #eef7f0; border-color: #cfe9d4; color: #2f7a45; }
   .alert-card b { display: block; margin-bottom: 4px; font-size: 13px; }
 
+  .split { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 18px; align-items: start; }
   .panel { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
   .panel h3 { font-size: 15px; margin: 0 0 12px; }
-  table { border-collapse: collapse; width: 100%; font-size: 12.5px; }
-  th { background: #f8f9fb; padding: 7px 8px; text-align: left; color: #5b6472; font-weight: 600; white-space: nowrap; }
-  td { padding: 6px 8px; border-top: 1px solid #f0f1f3; white-space: nowrap; }
+
+  .mini-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+  .mini-chart-box { background: #fafbfc; border-radius: 8px; padding: 10px; }
+  .mini-chart-box .title { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
+  .mini-chart-box .canvas-wrap { position: relative; height: 140px; }
+
+  .trend-list { display: flex; flex-direction: column; gap: 2px; }
+  .trend-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px; border-bottom: 1px solid #f0f1f3; font-size: 12.5px; }
+  .trend-row .label { color: #3c4250; }
+  .trend-row .vals { text-align: right; }
+  .trend-row .vals .main { font-weight: 700; }
+  .trend-row .vals .sub { color: #9aa1ac; font-size: 11px; }
+  .trend-row .arrow.up { color: #1a8f4c; }
+  .trend-row .arrow.down { color: #c94040; }
+
+  table { border-collapse: collapse; width: 100%; font-size: 12px; }
+  th { background: #f8f9fb; padding: 6px 7px; text-align: left; color: #5b6472; font-weight: 600; white-space: nowrap; }
+  td { padding: 5px 7px; border-top: 1px solid #f0f1f3; white-space: nowrap; }
   .table-scroll { overflow-x: auto; }
   .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
   .status-dot.success { background: #1a8f4c; }
   .status-dot.needs_review { background: #c98a20; }
   .status-dot.pending { background: #9aa1ac; }
 
-  .entry-wrap { max-width: 720px; }
+  .agg-tabs { display: flex; gap: 4px; margin-bottom: 14px; }
+  .agg-tab { padding: 7px 14px; font-size: 13px; border: 1px solid #d9dce1; background: #fff; border-radius: 20px; cursor: pointer; color: #5b6472; }
+  .agg-tab.active { background: #1c1f26; color: #fff; border-color: #1c1f26; }
+
+  .col-toggle-wrap { position: relative; display: inline-block; }
+  .col-toggle-btn { border: 1px solid #d9dce1; background: #fff; border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; color: #5b6472; }
+  .col-popover { display: none; position: absolute; right: 0; top: 34px; background: #fff; border: 1px solid #e7e8ec; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.1); padding: 10px; z-index: 20; max-height: 380px; overflow-y: auto; width: 260px; }
+  .col-popover.open { display: block; }
+  .col-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 2px; }
+  .col-item label { flex: 1; display: flex; align-items: center; gap: 6px; cursor: pointer; }
+  .col-item .mv { border: none; background: #f0f1f3; border-radius: 4px; width: 20px; height: 20px; font-size: 11px; cursor: pointer; }
+  .col-popover .actions { display: flex; gap: 6px; margin-top: 8px; }
+  .col-popover .actions button { flex: 1; font-size: 11px; padding: 5px; border: 1px solid #d9dce1; background: #f8f9fb; border-radius: 5px; cursor: pointer; }
+  .hidden-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
+  .hidden-chip { background: #f0f1f3; color: #5b6472; font-size: 11px; padding: 4px 8px; border-radius: 12px; cursor: pointer; }
+  .hidden-chip:hover { background: #e2e4e8; }
+
+  .entry-wrap { max-width: 100%; }
   .entry-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-  .entry-row label { font-size: 13px; color: #5b6472; width: 70px; }
-  input[type="date"] { padding: 8px 10px; border: 1px solid #d9dce1; border-radius: 6px; font-size: 13px; }
-  textarea.paste-box {
-    width: 100%; min-height: 70px; padding: 10px 12px; border: 1px solid #d9dce1;
-    border-radius: 8px; font-size: 13px; font-family: monospace; margin-bottom: 10px;
-  }
-  .btn-secondary {
-    border: 1px solid #3b6ef6; background: #fff; color: #3b6ef6; border-radius: 8px;
-    padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px;
-  }
-  .preview-table th { background: #f4f5f7; }
-  .preview-table input { width: 90px; padding: 5px 7px; border: 1px solid #d9dce1; border-radius: 4px; font-size: 12px; }
+  .entry-row label { font-size: 13px; color: #5b6472; }
+  input[type="date"], input[type="number"] { padding: 8px 10px; border: 1px solid #d9dce1; border-radius: 6px; font-size: 13px; }
+  textarea.paste-box { width: 100%; min-height: 90px; padding: 10px 12px; border: 1px solid #d9dce1; border-radius: 8px; font-size: 13px; font-family: monospace; margin-bottom: 10px; }
+  .btn-secondary { border: 1px solid #3b6ef6; background: #fff; color: #3b6ef6; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px; }
   .status-msg { font-size: 13px; margin-top: 10px; }
   .status-msg.ok { color: #1a8f4c; }
   .status-msg.err { color: #c94040; }
 
   .empty { color: #9aa1ac; font-size: 13px; padding: 30px 0; text-align: center; }
   .loading { color: #9aa1ac; font-size: 13px; padding: 60px 0; text-align: center; }
-
-  .agg-tabs { display: flex; gap: 4px; margin-bottom: 14px; }
-  .agg-tab { padding: 7px 14px; font-size: 13px; border: 1px solid #d9dce1; background: #fff; border-radius: 20px; cursor: pointer; color: #5b6472; }
-  .agg-tab.active { background: #1c1f26; color: #fff; border-color: #1c1f26; }
-
-  .chart-panel { position: relative; margin-bottom: 6px; }
-  .chart-header { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  select.metric-select { padding: 7px 10px; border: 1px solid #d9dce1; border-radius: 6px; font-size: 13px; }
-  .chart-box { height: 260px; }
-
-  .col-toggle-wrap { position: relative; display: inline-block; }
-  .col-toggle-btn {
-    border: 1px solid #d9dce1; background: #fff; border-radius: 6px; padding: 6px 12px;
-    font-size: 12px; cursor: pointer; color: #5b6472;
-  }
-  .col-popover {
-    display: none; position: absolute; right: 0; top: 34px; background: #fff; border: 1px solid #e7e8ec;
-    border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.1); padding: 10px; z-index: 20;
-    max-height: 320px; overflow-y: auto; width: 220px;
-  }
-  .col-popover.open { display: block; }
-  .col-popover label { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 3px 0; cursor: pointer; }
-  .col-popover .grp-title { font-size: 11px; color: #9aa1ac; margin: 6px 0 2px; }
-  .col-popover .actions { display: flex; gap: 6px; margin-top: 8px; }
-  .col-popover .actions button { flex: 1; font-size: 11px; padding: 5px; border: 1px solid #d9dce1; background: #f8f9fb; border-radius: 5px; cursor: pointer; }
 </style>
 </head>
 <body>
 
 <div class="topbar">
   <h1>깡비 실적 관리</h1>
-  <button class="btn-primary" disabled title="추후 지원 예정">+ 센터 추가</button>
+  <div class="actions">
+    <button class="btn-ghost" onclick="toggleBackupPanel()">백업/복원</button>
+    <button class="btn-primary" disabled title="추후 지원 예정">+ 센터 추가</button>
+  </div>
+</div>
+
+<div class="backup-panel" id="backupPanel">
+  <button class="btn-outline" onclick="copyToClipboard()">클립보드로 복사</button>
+  <button class="btn-outline" onclick="pasteFromClipboard()">클립보드에서 복원</button>
+  <button class="btn-outline" onclick="downloadFile()">파일로 다운로드</button>
+  <label class="btn-outline" style="display:inline-block;">
+    파일 업로드 <input type="file" id="restoreFile" accept="application/json" style="display:none;" onchange="uploadFile(event)">
+  </label>
+  <span class="msg" id="backupMsg"></span>
 </div>
 
 <div class="maintabs">
@@ -141,7 +132,6 @@
   <aside class="sidebar">
     <div class="section-label">센터 목록</div>
     <div id="centerList"></div>
-    <div class="add-center">+ 센터 관리는 추후 지원</div>
   </aside>
   <main id="main"><div class="loading">불러오는 중...</div></main>
 </div>
@@ -150,63 +140,96 @@
 const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/center-report-upload';
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
 
-// 센터별 upload_token 매핑 (직접입력 API 호출 시 센터 식별용)
-const CENTER_TOKENS = {
-  'kbsonhae': '61263f6c-eeb7-46f1-a956-9e573513d60d'
-};
+const CENTER_TOKENS = { 'kbsonhae': '61263f6c-eeb7-46f1-a956-9e573513d60d' };
+const TO_TARGET = { 'kbsonhae': 178 };
+
+const KR_HOLIDAYS_2026 = [
+  '2026-01-01', '2026-02-16', '2026-02-17', '2026-02-18',
+  '2026-03-01', '2026-03-02', '2026-05-05', '2026-05-24', '2026-05-25',
+  '2026-06-03', '2026-06-06', '2026-07-17', '2026-08-15', '2026-08-17',
+  '2026-09-24', '2026-09-25', '2026-09-26', '2026-10-03', '2026-10-05',
+  '2026-10-09', '2026-12-25'
+];
+
+const KPI_DEFS = [
+  { label: '재직인원(TO대비)', type: 'staff', attKey: '총원' },
+  { label: '근태·제휴CS', type: 'count', attKey: '제휴CS_소계' },
+  { label: '근태·장기사고', type: 'count', attKey: '장기사고_소계' },
+  { label: '인입호·제휴상담', type: 'count', perfKey: '제휴상담_인입호' },
+  { label: '인입호·장기손사', type: 'count', perfKey: '장기손사_인입호' },
+  { label: '응대호·제휴상담', type: 'count', perfKey: '제휴상담_응답호' },
+  { label: '응대호·장기손사', type: 'count', perfKey: '장기손사_응답호' },
+  { label: '응답율·제휴상담', type: 'rate', perfKey: '제휴상담_응답율' },
+  { label: '응답율·장기손사', type: 'rate', perfKey: '장기손사_응답율' },
+  { label: 'SL·제휴상담', type: 'rate', perfKey: '제휴상담_SL' },
+  { label: 'SL·장기손사', type: 'rate', perfKey: '장기손사_SL' },
+];
+
+const CHART_GROUPS = [
+  { title: '응답율 추이 (%)', keys: ['제휴상담_응답율', '장기손사_응답율'], rate: true },
+  { title: 'SL 추이', keys: ['제휴상담_SL', '장기손사_SL'], rate: true },
+  { title: '인입호 추이', keys: ['제휴상담_인입호', '장기손사_인입호'], rate: false },
+  { title: '응대호 추이', keys: ['제휴상담_응답호', '장기손사_응답호'], rate: false },
+];
 
 let allCenters = [];
 let allRows = [];
 let currentCenter = null;
 let currentMonth = new Date().toISOString().slice(0, 7);
 let viewMode = 'cumulative';
+let aggView = 'daily';
 let currentMainTab = 'dashboard';
 let rowSchema = [];
+let parsedRows = [];
+let miniCharts = [];
+
+function isWeekendOrHoliday(dateStr) {
+  const d = new Date(dateStr + 'T00:00:00');
+  const dow = d.getDay();
+  return dow === 0 || dow === 6 || KR_HOLIDAYS_2026.includes(dateStr);
+}
 
 async function init() {
   await loadOverview();
   if (allCenters.length > 0) currentCenter = allCenters[0].center_code;
+  loadColPrefs();
   renderSidebar();
   renderMain();
 }
 
 async function loadOverview() {
   try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview', {
-      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }
-    });
+    const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview', { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
     const data = await res.json();
-    if (data.success) {
-      allCenters = data.centers || [];
-      allRows = data.rows || [];
-    }
+    if (data.success) { allCenters = data.centers || []; allRows = data.rows || []; }
   } catch (e) {
-    document.getElementById('main').innerHTML = `<div class="empty">데이터 로드 실패: ${e.message}</div>`;
+    document.getElementById('main').innerHTML = '<div class="empty">데이터 로드 실패: ' + e.message + '</div>';
   }
 }
 
 function renderSidebar() {
   const list = document.getElementById('centerList');
-  if (allCenters.length === 0) {
-    list.innerHTML = `<div class="empty">등록된 센터가 없습니다.</div>`;
-    return;
-  }
-  list.innerHTML = allCenters.map(c => `
-    <div class="center-item ${c.center_code === currentCenter ? 'active' : ''}" onclick="selectCenter('${c.center_code}')">
-      <span><span class="dot"></span> ${c.center_name}</span>
-    </div>`).join('');
+  if (allCenters.length === 0) { list.innerHTML = '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
+  list.innerHTML = allCenters.map(function(c) {
+    return '<div class="center-item ' + (c.center_code === currentCenter ? 'active' : '') + '" onclick="selectCenter(\'' + c.center_code + '\')"><span class="dot"></span><span>' + c.center_name + '</span></div>';
+  }).join('');
 }
 
 function selectCenter(code) {
   currentCenter = code;
+  loadColPrefs();
   renderSidebar();
   renderMain();
 }
 
 function switchMainTab(tab) {
   currentMainTab = tab;
-  document.querySelectorAll('.maintab').forEach(el => el.classList.toggle('active', el.dataset.tab === tab));
+  document.querySelectorAll('.maintab').forEach(function(el) { el.classList.toggle('active', el.dataset.tab === tab); });
   renderMain();
+}
+
+function toggleBackupPanel() {
+  document.getElementById('backupPanel').classList.toggle('open');
 }
 
 function renderMain() {
@@ -214,552 +237,454 @@ function renderMain() {
   else renderEntry();
 }
 
-let aggView = 'daily'; // 'daily' | 'weekly' | 'dow' | 'monthly'
-let hiddenCols = new Set();
-let chartMetric = null;
-let chartInstance = null;
+let colPrefs = { order: [], hidden: [] };
+
+function colPrefsKey() { return 'kkangbi_cols_' + currentCenter; }
+
+function loadColPrefs() {
+  try {
+    const raw = localStorage.getItem(colPrefsKey());
+    colPrefs = raw ? JSON.parse(raw) : { order: [], hidden: [] };
+  } catch (e) { colPrefs = { order: [], hidden: [] }; }
+}
+
+function saveColPrefs() {
+  localStorage.setItem(colPrefsKey(), JSON.stringify(colPrefs));
+}
+
+function ensureColOrder(allKeys) {
+  const known = colPrefs.order.filter(function(k) { return allKeys.includes(k); });
+  const newKeys = allKeys.filter(function(k) { return !known.includes(k); });
+  colPrefs.order = known.concat(newKeys);
+  saveColPrefs();
+  return colPrefs.order.filter(function(k) { return !colPrefs.hidden.includes(k); });
+}
+
+function moveCol(key, dir) {
+  const idx = colPrefs.order.indexOf(key);
+  const swapIdx = idx + dir;
+  if (swapIdx < 0 || swapIdx >= colPrefs.order.length) return;
+  const tmp = colPrefs.order[idx];
+  colPrefs.order[idx] = colPrefs.order[swapIdx];
+  colPrefs.order[swapIdx] = tmp;
+  saveColPrefs();
+  renderDashboard();
+}
+
+function toggleColVisible(key) {
+  if (colPrefs.hidden.includes(key)) colPrefs.hidden = colPrefs.hidden.filter(function(k) { return k !== key; });
+  else colPrefs.hidden.push(key);
+  saveColPrefs();
+  renderDashboard();
+}
+
+function setAllColsVisible(show) {
+  colPrefs.hidden = show ? [] : colPrefs.order.slice();
+  saveColPrefs();
+  renderDashboard();
+}
 
 function renderDashboard() {
   const main = document.getElementById('main');
-  if (!currentCenter) { main.innerHTML = `<div class="empty">센터를 선택해 주세요.</div>`; return; }
+  if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
 
-  const centerInfo = allCenters.find(c => c.center_code === currentCenter);
-  const centerRows = allRows.filter(r => r.center_code === currentCenter);
+  const centerInfo = allCenters.find(function(c) { return c.center_code === currentCenter; });
+  const centerRows = allRows.filter(function(r) { return r.center_code === currentCenter; });
 
-  const [y, m] = currentMonth.split('-').map(Number);
-  const monthRows = centerRows.filter(r => r.report_date.startsWith(currentMonth));
-  const cumulativeRows = centerRows.filter(r => {
+  const parts = currentMonth.split('-').map(Number);
+  const y = parts[0], m = parts[1];
+  const monthRows = centerRows.filter(function(r) { return r.report_date.startsWith(currentMonth); });
+  const cumulativeRows = centerRows.filter(function(r) {
     const d = new Date(r.report_date);
     return d.getFullYear() === y && (d.getMonth() + 1) <= m;
   });
   const targetRows = viewMode === 'single' ? monthRows : cumulativeRows;
-  const sortedTarget = [...targetRows].sort((a, b) => a.report_date.localeCompare(b.report_date));
+  const sortedTarget = targetRows.slice().sort(function(a, b) { return a.report_date.localeCompare(b.report_date); });
 
-  const kpis = computeKpis(sortedTarget);
   const alertInfo = computeAlert(centerRows);
+  const trendHtml = renderTrendList(monthRows, cumulativeRows);
 
-  main.innerHTML = `
-    <div class="month-bar">
-      <button class="nav" onclick="shiftMonth(-1)">‹</button>
-      <div class="month-label">${currentMonth}</div>
-      <button class="nav" onclick="shiftMonth(1)">›</button>
-      <div class="toggle-group">
-        <button class="${viewMode === 'single' ? 'active' : ''}" onclick="setViewMode('single')">단월</button>
-        <button class="${viewMode === 'cumulative' ? 'active' : ''}" onclick="setViewMode('cumulative')">연초누적</button>
-      </div>
-    </div>
+  let chartBoxes = '';
+  for (let i = 0; i < CHART_GROUPS.length; i++) {
+    chartBoxes += '<div class="mini-chart-box"><div class="title">' + CHART_GROUPS[i].title + '</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div></div>';
+  }
 
-    <div class="kpi-grid">
-      ${kpis.map(k => `
-        <div class="kpi-card">
-          <div class="label">${k.label}</div>
-          <div class="value ${k.cls || ''}">${k.value}</div>
-          ${k.sub ? `<div class="sub">${k.sub}</div>` : ''}
-        </div>`).join('')}
-    </div>
+  main.innerHTML = ''
+    + '<div class="month-bar">'
+    + '<button class="nav" onclick="shiftMonth(-1)">‹</button>'
+    + '<div class="month-label">' + currentMonth + '</div>'
+    + '<button class="nav" onclick="shiftMonth(1)">›</button>'
+    + '<div class="toggle-group">'
+    + '<button class="' + (viewMode === 'single' ? 'active' : '') + '" onclick="setViewMode(\'single\')">단월</button>'
+    + '<button class="' + (viewMode === 'cumulative' ? 'active' : '') + '" onclick="setViewMode(\'cumulative\')">연초누적</button>'
+    + '</div>'
+    + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
+    + '</div>'
+    + alertInfo.html
+    + '<div class="split">'
+    + '<div class="panel"><h3>지표 추이</h3><div class="mini-charts">' + chartBoxes + '</div></div>'
+    + '<div class="panel"><h3>' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><div class="trend-list">' + trendHtml + '</div></div>'
+    + '</div>'
+    + '<div class="agg-tabs">'
+    + '<div class="agg-tab ' + (aggView === 'daily' ? 'active' : '') + '" onclick="setAggView(\'daily\')">일별</div>'
+    + '<div class="agg-tab ' + (aggView === 'weekly' ? 'active' : '') + '" onclick="setAggView(\'weekly\')">주별</div>'
+    + '<div class="agg-tab ' + (aggView === 'dow' ? 'active' : '') + '" onclick="setAggView(\'dow\')">요일별</div>'
+    + '<div class="agg-tab ' + (aggView === 'monthly' ? 'active' : '') + '" onclick="setAggView(\'monthly\')">월별</div>'
+    + '</div>'
+    + '<div class="panel">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+    + '<h3 style="margin:0;">' + aggLabel(aggView) + ' 현황 (' + sortedTarget.length + '건 기준)</h3>'
+    + (aggView === 'daily' ? renderColToggleButton(sortedTarget) : '')
+    + '</div>'
+    + '<div id="tableArea">' + (sortedTarget.length === 0 ? '<div class="empty">해당 기간에 등록된 실적이 없습니다.</div>' : renderAggTable(sortedTarget, aggView)) + '</div>'
+    + (aggView === 'daily' ? renderHiddenChips() : '')
+    + '</div>';
 
-    ${alertInfo.html}
-
-    <div class="agg-tabs">
-      <div class="agg-tab ${aggView === 'daily' ? 'active' : ''}" onclick="setAggView('daily')">일별</div>
-      <div class="agg-tab ${aggView === 'weekly' ? 'active' : ''}" onclick="setAggView('weekly')">주별</div>
-      <div class="agg-tab ${aggView === 'dow' ? 'active' : ''}" onclick="setAggView('dow')">요일별</div>
-      <div class="agg-tab ${aggView === 'monthly' ? 'active' : ''}" onclick="setAggView('monthly')">월별</div>
-    </div>
-
-    <div class="panel chart-panel">
-      <div class="chart-header">
-        <h3 style="margin:0;">지표 추이</h3>
-        <select class="metric-select" id="metricSelect" onchange="onMetricChange()"></select>
-      </div>
-      <div class="chart-box"><canvas id="metricChart"></canvas></div>
-    </div>
-
-    <div class="panel" style="margin-top:14px;">
-      <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
-        <h3 style="margin:0;">${centerInfo ? centerInfo.center_name : ''} · ${aggLabel(aggView)} 현황 (${sortedTarget.length}건 기준)</h3>
-        ${aggView === 'daily' ? renderColToggleButton(sortedTarget) : ''}
-      </div>
-      <div id="tableArea">${sortedTarget.length === 0 ? '<div class="empty">해당 기간에 등록된 실적이 없습니다.</div>' : renderAggTable(sortedTarget, aggView)}</div>
-    </div>
-  `;
-
-  setupMetricSelect(sortedTarget);
-  drawChart(sortedTarget);
+  drawMiniCharts(sortedTarget);
 
   if (aggView === 'daily') {
-    document.querySelectorAll('.col-toggle-btn').forEach(btn => {
-      btn.addEventListener('click', () => document.getElementById('colPopover').classList.toggle('open'));
+    document.querySelectorAll('.col-toggle-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() { document.getElementById('colPopover').classList.toggle('open'); });
     });
   }
 }
 
+function shiftMonth(delta) {
+  const parts = currentMonth.split('-').map(Number);
+  const d = new Date(parts[0], parts[1] - 1 + delta, 1);
+  currentMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
+  renderDashboard();
+}
+function setViewMode(mode) { viewMode = mode; renderDashboard(); }
 function setAggView(v) { aggView = v; renderDashboard(); }
 function aggLabel(v) { return { daily: '일자별', weekly: '주별', dow: '요일별', monthly: '월별' }[v]; }
 
-// ============================================
-// 컬럼 표시/숨김 (일별 표 전용)
-// ============================================
+function avgExcludingHolidays(rows, getVal) {
+  const filtered = rows.filter(function(r) { return !isWeekendOrHoliday(r.report_date); });
+  const nums = filtered.map(getVal).filter(function(n) { return n !== null && !isNaN(n); });
+  if (nums.length === 0) return null;
+  return nums.reduce(function(a, b) { return a + b; }, 0) / nums.length;
+}
+
+function extractNum(row, field, key) {
+  const obj = row[field];
+  if (!obj || obj[key] === undefined || obj[key] === null || obj[key] === '') return null;
+  return parseFloat(String(obj[key]).replace(/[%,]/g, ''));
+}
+
+function renderTrendList(monthRows, cumulativeRows) {
+  return KPI_DEFS.map(function(def) {
+    let dailyAvg, cumAvg, dailyDisplay, cumDisplay;
+
+    if (def.type === 'staff') {
+      dailyAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
+      cumAvg = avgExcludingHolidays(cumulativeRows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
+      const to = TO_TARGET[currentCenter] || null;
+      dailyDisplay = dailyAvg !== null ? (dailyAvg.toFixed(1) + '명' + (to ? ' (' + (dailyAvg / to * 100).toFixed(0) + '%)' : '')) : '-';
+      cumDisplay = cumAvg !== null ? (cumAvg.toFixed(1) + '명' + (to ? ' (' + (cumAvg / to * 100).toFixed(0) + '%)' : '')) : '-';
+    } else if (def.type === 'count') {
+      const field = def.attKey ? 'attendance_data' : 'performance_data';
+      const key = def.attKey || def.perfKey;
+      dailyAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, field, key); });
+      cumAvg = avgExcludingHolidays(cumulativeRows, function(r) { return extractNum(r, field, key); });
+      dailyDisplay = dailyAvg !== null ? (Math.round(dailyAvg).toLocaleString() + '건') : '-';
+      cumDisplay = cumAvg !== null ? (Math.round(cumAvg).toLocaleString() + '건') : '-';
+    } else {
+      dailyAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', def.perfKey); });
+      cumAvg = avgExcludingHolidays(cumulativeRows, function(r) { return extractNum(r, 'performance_data', def.perfKey); });
+      dailyDisplay = dailyAvg !== null ? (dailyAvg.toFixed(1) + '%') : '-';
+      cumDisplay = cumAvg !== null ? (cumAvg.toFixed(1) + '%') : '-';
+    }
+
+    let arrowHtml = '';
+    if (dailyAvg !== null && cumAvg !== null) {
+      const up = dailyAvg >= cumAvg;
+      arrowHtml = '<span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</span>';
+    }
+
+    return '<div class="trend-row"><span class="label">' + def.label + '</span>'
+      + '<span class="vals"><span class="main">' + dailyDisplay + '</span> ' + arrowHtml
+      + '<span class="sub">누적 ' + cumDisplay + '</span></span></div>';
+  }).join('');
+}
+
+function computeAlert(centerRows) {
+  const sorted = centerRows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
+  if (sorted.length < 2) return { html: '<div class="alert-card none"><b>이상징후</b>비교할 데이터가 충분하지 않습니다.</div>' };
+  const latest = sorted[0], prev = sorted[1];
+  const keys = Object.keys(latest.performance_data || {}).filter(function(k) { return k.includes('응답율'); });
+  const issues = [];
+  keys.forEach(function(k) {
+    const cur = parseFloat(String(latest.performance_data[k]).replace('%', ''));
+    const prevVal = prev.performance_data ? prev.performance_data[k] : undefined;
+    if (prevVal === undefined) return;
+    const before = parseFloat(String(prevVal).replace('%', ''));
+    if (!isNaN(cur) && !isNaN(before) && before - cur >= 5) {
+      issues.push(k + ' ' + before + '% → ' + cur + '% (▼' + (before - cur).toFixed(1) + 'p)');
+    }
+  });
+  if (issues.length === 0) return { html: '<div class="alert-card none"><b>이상징후 없음</b>최근 대비 응답율 급락 항목이 없습니다.</div>' };
+  return { html: '<div class="alert-card"><b>이상징후 감지 (' + latest.report_date + ' 기준)</b>' + issues.join(' · ') + '</div>' };
+}
+
+function drawMiniCharts(records) {
+  miniCharts.forEach(function(c) { if (c) c.destroy(); });
+  miniCharts = [];
+
+  let buckets;
+  if (aggView === 'daily') {
+    buckets = {};
+    records.forEach(function(r) { buckets[r.report_date] = [r]; });
+  } else {
+    buckets = groupByBucket(records, aggView);
+  }
+  const labels = Object.keys(buckets);
+
+  CHART_GROUPS.forEach(function(group, i) {
+    const canvas = document.getElementById('miniChart' + i);
+    if (!canvas) return;
+
+    const datasets = group.keys.map(function(key, ki) {
+      const values = labels.map(function(label) {
+        const rows = buckets[label];
+        if (group.rate) {
+          return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'performance_data', key); });
+        }
+        const nums = rows.map(function(r) { return extractNum(r, 'performance_data', key); }).filter(function(n) { return n !== null && !isNaN(n); });
+        return nums.length ? nums.reduce(function(a, b) { return a + b; }, 0) : null;
+      });
+      return {
+        label: key,
+        data: values,
+        borderColor: ki === 0 ? '#3b6ef6' : '#1a8f4c',
+        backgroundColor: ki === 0 ? 'rgba(59,110,246,.1)' : 'rgba(26,143,71,.1)',
+        tension: 0.3,
+        fill: false
+      };
+    });
+
+    miniCharts[i] = new Chart(canvas, {
+      type: group.rate ? 'line' : 'bar',
+      data: { labels: labels, datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 8, font: { size: 10 } } } },
+        scales: { y: { beginAtZero: !group.rate, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } }
+      }
+    });
+  });
+}
+
 function renderColToggleButton(records) {
   const attKeys = collectKeys(records, 'attendance_data');
   const perfKeys = collectKeys(records, 'performance_data');
-  const allKeys = [...attKeys.map(k => ({ k, g: '근태' })), ...perfKeys.map(k => ({ k, g: '실적' }))];
+  const allKeys = attKeys.concat(perfKeys);
+  ensureColOrder(allKeys);
 
-  const itemsHtml = allKeys.map(({ k, g }) => `
-    <label><input type="checkbox" data-colkey="${k}" ${hiddenCols.has(k) ? '' : 'checked'} onchange="toggleCol('${k}')"> ${g}·${k}</label>
-  `).join('');
+  const itemsHtml = colPrefs.order.map(function(k, idx) {
+    const grp = attKeys.includes(k) ? '근태' : '실적';
+    const checked = !colPrefs.hidden.includes(k);
+    return '<div class="col-item">'
+      + '<button class="mv" onclick="moveCol(\'' + k + '\',-1)" ' + (idx === 0 ? 'disabled' : '') + '>▲</button>'
+      + '<button class="mv" onclick="moveCol(\'' + k + '\',1)" ' + (idx === colPrefs.order.length - 1 ? 'disabled' : '') + '>▼</button>'
+      + '<label><input type="checkbox" ' + (checked ? 'checked' : '') + ' onchange="toggleColVisible(\'' + k + '\')"> ' + grp + '·' + k + '</label>'
+      + '</div>';
+  }).join('');
 
-  return `
-    <div class="col-toggle-wrap">
-      <button class="col-toggle-btn" type="button">표시 항목 ▾</button>
-      <div class="col-popover" id="colPopover">
-        <div class="grp-title">표시할 항목을 선택하세요</div>
-        ${itemsHtml}
-        <div class="actions">
-          <button onclick="setAllCols(true)">전체 표시</button>
-          <button onclick="setAllCols(false)">전체 숨김</button>
-        </div>
-      </div>
-    </div>`;
+  return '<div class="col-toggle-wrap">'
+    + '<button class="col-toggle-btn" type="button">표시 항목 ▾</button>'
+    + '<div class="col-popover" id="colPopover">'
+    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;">체크 해제 시 표에서 숨겨집니다. ▲▼로 순서 변경</div>'
+    + itemsHtml
+    + '<div class="actions"><button onclick="setAllColsVisible(true)">전체 표시</button><button onclick="setAllColsVisible(false)">전체 숨김</button></div>'
+    + '</div></div>';
 }
 
-function toggleCol(key) {
-  if (hiddenCols.has(key)) hiddenCols.delete(key); else hiddenCols.add(key);
-  refreshTableOnly();
+function renderHiddenChips() {
+  if (colPrefs.hidden.length === 0) return '';
+  const chips = colPrefs.hidden.map(function(k) {
+    return '<span class="hidden-chip" onclick="toggleColVisible(\'' + k + '\')">' + k + ' 다시보기</span>';
+  }).join('');
+  return '<div style="font-size:11px;color:#9aa1ac;margin-top:12px;">숨겨진 항목 (클릭하면 다시 표시):</div><div class="hidden-chips">' + chips + '</div>';
 }
 
-function setAllCols(showAll) {
-  const centerRows = allRows.filter(r => r.center_code === currentCenter);
-  const attKeys = collectKeys(centerRows, 'attendance_data');
-  const perfKeys = collectKeys(centerRows, 'performance_data');
-  hiddenCols = showAll ? new Set() : new Set([...attKeys, ...perfKeys]);
-  renderDashboard();
-}
-
-function refreshTableOnly() {
-  // 팝업 체크 상태 유지한 채 표만 다시 그림
-  const centerRows = allRows.filter(r => r.center_code === currentCenter);
-  const [y, m] = currentMonth.split('-').map(Number);
-  const monthRows = centerRows.filter(r => r.report_date.startsWith(currentMonth));
-  const cumulativeRows = centerRows.filter(r => {
-    const d = new Date(r.report_date);
-    return d.getFullYear() === y && (d.getMonth() + 1) <= m;
-  });
-  const targetRows = viewMode === 'single' ? monthRows : cumulativeRows;
-  const sortedTarget = [...targetRows].sort((a, b) => a.report_date.localeCompare(b.report_date));
-  document.getElementById('tableArea').innerHTML = renderAggTable(sortedTarget, aggView);
-}
-
-// ============================================
-// 집계 표 (일별 / 주별 / 요일별 / 월별)
-// ============================================
 function renderAggTable(records, view) {
   if (view === 'daily') return buildMatrix(records);
 
   const buckets = groupByBucket(records, view);
   const attKeys = collectKeys(records, 'attendance_data');
   const perfKeys = collectKeys(records, 'performance_data');
+  const allKeys = attKeys.concat(perfKeys);
 
-  const headHtml = `
-    <th style="position:sticky;left:0;background:#f8f9fb;">${aggLabel(view)}</th>
-    <th>일수</th>
-    ${attKeys.map(k => `<th>근태·${k}</th>`).join('')}
-    ${perfKeys.map(k => `<th>실적·${k}</th>`).join('')}
-  `;
-
-  const bodyHtml = Object.entries(buckets).map(([label, rows]) => {
-    const attAgg = aggregateKeys(rows, 'attendance_data', attKeys);
-    const perfAgg = aggregateKeys(rows, 'performance_data', perfKeys);
-    return `
-      <tr>
-        <td style="position:sticky;left:0;background:#fff;font-weight:600;">${label}</td>
-        <td>${rows.length}</td>
-        ${attKeys.map(k => `<td>${fmt(attAgg[k])}</td>`).join('')}
-        ${perfKeys.map(k => `<td>${fmt(perfAgg[k])}</td>`).join('')}
-      </tr>`;
+  const headTop = allKeys.map(function(k) {
+    const isRate = /응답율|CPD|S\.?L/i.test(k);
+    return '<th colspan="' + (isRate ? 1 : 2) + '" style="text-align:center;">' + k + '</th>';
+  }).join('');
+  const headSub = allKeys.map(function(k) {
+    const isRate = /응답율|CPD|S\.?L/i.test(k);
+    return isRate ? '<th>평균</th>' : '<th>합계</th><th>평균</th>';
   }).join('');
 
-  return `<div class="table-scroll"><table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+  const bodyHtml = Object.keys(buckets).map(function(label) {
+    const rows = buckets[label];
+    const cells = allKeys.map(function(k) {
+      const isRate = /응답율|CPD|S\.?L/i.test(k);
+      const field = attKeys.includes(k) ? 'attendance_data' : 'performance_data';
+      const nums = rows.map(function(r) { return extractNum(r, field, k); }).filter(function(n) { return n !== null && !isNaN(n); });
+      const avg = avgExcludingHolidays(rows, function(r) { return extractNum(r, field, k); });
+      if (isRate) return '<td>' + (avg !== null ? avg.toFixed(1) + '%' : '-') + '</td>';
+      const sum = nums.length ? nums.reduce(function(a, b) { return a + b; }, 0).toLocaleString() : '-';
+      return '<td>' + sum + '</td><td>' + (avg !== null ? Math.round(avg).toLocaleString() : '-') + '</td>';
+    }).join('');
+    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">' + label + '</td><td>' + rows.length + '</td>' + cells + '</tr>';
+  }).join('');
+
+  return '<div class="table-scroll"><table>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">' + aggLabel(view) + '</th><th>일수</th>' + headTop + '</tr>'
+    + '<tr><th style="position:sticky;left:0;background:#f8f9fb;"></th><th></th>' + headSub + '</tr></thead>'
+    + '<tbody>' + bodyHtml + '</tbody></table></div>';
 }
 
 function groupByBucket(records, view) {
   const buckets = {};
   const dowNames = ['일', '월', '화', '수', '목', '금', '토'];
-
-  records.forEach(r => {
+  records.forEach(function(r) {
     const d = new Date(r.report_date + 'T00:00:00');
     let label;
-    if (view === 'weekly') {
-      const week = Math.ceil(d.getDate() / 7);
-      label = `${d.getMonth() + 1}월 ${week}주`;
-    } else if (view === 'dow') {
-      label = dowNames[d.getDay()] + '요일';
-    } else if (view === 'monthly') {
-      label = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
-    }
+    if (view === 'weekly') { const week = Math.ceil(d.getDate() / 7); label = (d.getMonth() + 1) + '월 ' + week + '주'; }
+    else if (view === 'dow') { label = dowNames[d.getDay()] + '요일'; }
+    else if (view === 'monthly') { label = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
     if (!buckets[label]) buckets[label] = [];
     buckets[label].push(r);
   });
-
-  // 요일별은 일~토 고정 순서로 정렬
   if (view === 'dow') {
     const ordered = {};
-    dowNames.forEach(n => { const key = n + '요일'; if (buckets[key]) ordered[key] = buckets[key]; });
+    dowNames.forEach(function(n) { const key = n + '요일'; if (buckets[key]) ordered[key] = buckets[key]; });
     return ordered;
   }
   return buckets;
 }
 
-// 비율(응답율/CPD/S.L)은 평균, 건수(인입호/응답호 등)는 합계
-function aggregateKeys(rows, field, keys) {
-  const result = {};
-  keys.forEach(key => {
-    const vals = rows.map(r => r[field] ? r[field][key] : undefined).filter(v => v !== undefined && v !== null && v !== '');
-    if (vals.length === 0) { result[key] = null; return; }
-
-    const isRate = /응답율|CPD|S\.?L/i.test(key);
-    const nums = vals.map(v => parseFloat(String(v).replace(/[%,]/g, ''))).filter(n => !isNaN(n));
-    if (nums.length === 0) { result[key] = vals[vals.length - 1]; return; }
-
-    if (isRate) {
-      const avg = nums.reduce((a, b) => a + b, 0) / nums.length;
-      result[key] = key.includes('응답율') ? `${avg.toFixed(1)}%` : avg.toFixed(1);
-    } else {
-      const sum = nums.reduce((a, b) => a + b, 0);
-      result[key] = sum.toLocaleString();
-    }
-  });
-  return result;
-}
-
-// ============================================
-// 지표 선택 그래프
-// ============================================
-function setupMetricSelect(records) {
-  const select = document.getElementById('metricSelect');
-  const perfKeys = collectKeys(records, 'performance_data');
-  if (perfKeys.length === 0) { select.innerHTML = '<option>표시할 지표 없음</option>'; return; }
-
-  if (!chartMetric || !perfKeys.includes(chartMetric)) {
-    chartMetric = perfKeys.find(k => k.includes('응답율')) || perfKeys[0];
-  }
-  select.innerHTML = perfKeys.map(k => `<option value="${k}" ${k === chartMetric ? 'selected' : ''}>${k}</option>`).join('');
-}
-
-function onMetricChange() {
-  chartMetric = document.getElementById('metricSelect').value;
-  const centerRows = allRows.filter(r => r.center_code === currentCenter);
-  const [y, m] = currentMonth.split('-').map(Number);
-  const monthRows = centerRows.filter(r => r.report_date.startsWith(currentMonth));
-  const cumulativeRows = centerRows.filter(r => {
-    const d = new Date(r.report_date);
-    return d.getFullYear() === y && (d.getMonth() + 1) <= m;
-  });
-  const targetRows = viewMode === 'single' ? monthRows : cumulativeRows;
-  drawChart([...targetRows].sort((a, b) => a.report_date.localeCompare(b.report_date)));
-}
-
-function drawChart(records) {
-  const canvas = document.getElementById('metricChart');
-  if (!canvas || !chartMetric || records.length === 0) return;
-
-  const buckets = aggView === 'daily'
-    ? Object.fromEntries(records.map(r => [r.report_date, [r]]))
-    : groupByBucket(records, aggView);
-
-  const labels = Object.keys(buckets);
-  const isRate = /응답율|CPD|S\.?L/i.test(chartMetric);
-  const values = labels.map(label => {
-    const rows = buckets[label];
-    const nums = rows.map(r => {
-      const v = r.performance_data ? r.performance_data[chartMetric] : undefined;
-      return v !== undefined ? parseFloat(String(v).replace(/[%,]/g, '')) : NaN;
-    }).filter(n => !isNaN(n));
-    if (nums.length === 0) return null;
-    return isRate ? (nums.reduce((a, b) => a + b, 0) / nums.length) : nums.reduce((a, b) => a + b, 0);
-  });
-
-  if (chartInstance) chartInstance.destroy();
-  chartInstance = new Chart(canvas, {
-    type: isRate ? 'line' : 'bar',
-    data: {
-      labels,
-      datasets: [{
-        label: chartMetric,
-        data: values,
-        borderColor: '#3b6ef6',
-        backgroundColor: isRate ? 'rgba(59,110,246,.1)' : '#3b6ef6',
-        tension: 0.3,
-        fill: isRate,
-      }]
-    },
-    options: {
-      responsive: true, maintainAspectRatio: false,
-      plugins: { legend: { display: false } },
-      scales: { y: { beginAtZero: !isRate } }
-    }
-  });
-}
-
-function shiftMonth(delta) {
-  const [y, m] = currentMonth.split('-').map(Number);
-  const d = new Date(y, m - 1 + delta, 1);
-  currentMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
-  renderDashboard();
-}
-
-function setViewMode(mode) {
-  viewMode = mode;
-  renderDashboard();
-}
-
-function computeKpis(rows) {
-  if (rows.length === 0) {
-    return [
-      { label: '등록 일수', value: '0일' },
-      { label: '평균 응답율', value: '-' },
-      { label: '누적 인입호', value: '-' },
-    ];
-  }
-
-  const latest = rows[rows.length - 1];
-  const totalStaff = latest.attendance_data ? latest.attendance_data['총원'] : undefined;
-
-  const responseRates = [];
-  const callCounts = [];
-  rows.forEach(r => {
-    const perf = r.performance_data || {};
-    Object.entries(perf).forEach(([k, v]) => {
-      if (k.includes('응답율')) {
-        const n = parseFloat(String(v).replace('%', ''));
-        if (!isNaN(n)) responseRates.push(n);
-      }
-      if (k.includes('인입호')) {
-        const n = parseFloat(String(v).replace(/,/g, ''));
-        if (!isNaN(n)) callCounts.push(n);
-      }
-    });
-  });
-
-  const avgResponse = responseRates.length ? (responseRates.reduce((a, b) => a + b, 0) / responseRates.length).toFixed(1) : null;
-  const totalCalls = callCounts.length ? callCounts.reduce((a, b) => a + b, 0).toLocaleString() : null;
-
-  return [
-    { label: '최근 총원', value: totalStaff ? `${totalStaff}명` : '-' },
-    { label: '등록 일수', value: `${rows.length}일`, sub: `${rows[0].report_date} ~ ${latest.report_date}` },
-    { label: '평균 응답율', value: avgResponse ? `${avgResponse}%` : '-', cls: (avgResponse && Number(avgResponse) < 90) ? 'warn' : 'ok' },
-    { label: '누적 인입호', value: totalCalls ? `${totalCalls}건` : '-' },
-  ];
-}
-
-function computeAlert(centerRows) {
-  const sorted = [...centerRows].sort((a, b) => b.report_date.localeCompare(a.report_date));
-  if (sorted.length < 2) {
-    return { html: `<div class="alert-card none"><b>이상징후</b>비교할 데이터가 충분하지 않습니다.</div>` };
-  }
-  const [latest, prev] = sorted;
-  const keys = Object.keys(latest.performance_data || {}).filter(k => k.includes('응답율'));
-  const issues = [];
-  keys.forEach(k => {
-    const cur = parseFloat(String(latest.performance_data[k]).replace('%', ''));
-    const prevVal = prev.performance_data ? prev.performance_data[k] : undefined;
-    if (prevVal === undefined) return;
-    const before = parseFloat(String(prevVal).replace('%', ''));
-    if (!isNaN(cur) && !isNaN(before) && before - cur >= 5) {
-      issues.push(`${k} ${before}% → ${cur}% (▼${(before - cur).toFixed(1)}p)`);
-    }
-  });
-
-  if (issues.length === 0) {
-    return { html: `<div class="alert-card none"><b>이상징후 없음</b>최근 대비 응답율 급락 항목이 없습니다.</div>` };
-  }
-  return { html: `<div class="alert-card"><b>이상징후 감지 (${latest.report_date} 기준)</b>${issues.join(' · ')}</div>` };
-}
-
 function buildMatrix(records) {
-  const attKeys = collectKeys(records, 'attendance_data').filter(k => !hiddenCols.has(k));
-  const perfKeys = collectKeys(records, 'performance_data').filter(k => !hiddenCols.has(k));
+  const attKeysAll = collectKeys(records, 'attendance_data');
+  const perfKeysAll = collectKeys(records, 'performance_data');
+  const visible = ensureColOrder(attKeysAll.concat(perfKeysAll));
+  const attKeys = visible.filter(function(k) { return attKeysAll.includes(k); });
+  const perfKeys = visible.filter(function(k) { return perfKeysAll.includes(k); });
 
-  const headHtml = `
-    <th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>
-    <th>상태</th>
-    ${attKeys.map(k => `<th>근태·${k}</th>`).join('')}
-    ${perfKeys.map(k => `<th>실적·${k}</th>`).join('')}
-  `;
+  const headHtml = '<th style="position:sticky;left:0;background:#f8f9fb;">날짜</th><th>상태</th>'
+    + attKeys.map(function(k) { return '<th>근태·' + k + '</th>'; }).join('')
+    + perfKeys.map(function(k) { return '<th>실적·' + k + '</th>'; }).join('');
 
-  const bodyHtml = [...records].reverse().map(r => `
-    <tr>
-      <td style="position:sticky;left:0;background:#fff;font-weight:600;">${r.report_date}</td>
-      <td><span class="status-dot ${r.parsed_status}"></span>${statusLabel(r.parsed_status)}</td>
-      ${attKeys.map(k => `<td>${fmt(r.attendance_data ? r.attendance_data[k] : undefined)}</td>`).join('')}
-      ${perfKeys.map(k => `<td>${fmt(r.performance_data ? r.performance_data[k] : undefined)}</td>`).join('')}
-    </tr>`).join('');
+  const bodyHtml = records.slice().reverse().map(function(r) {
+    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">' + r.report_date + (isWeekendOrHoliday(r.report_date) ? ' 🔸' : '') + '</td>'
+      + '<td><span class="status-dot ' + r.parsed_status + '"></span>' + statusLabel(r.parsed_status) + '</td>'
+      + attKeys.map(function(k) { return '<td>' + fmt(r.attendance_data ? r.attendance_data[k] : undefined) + '</td>'; }).join('')
+      + perfKeys.map(function(k) { return '<td>' + fmt(r.performance_data ? r.performance_data[k] : undefined) + '</td>'; }).join('')
+      + '</tr>';
+  }).join('');
 
-  return `<div class="table-scroll"><table><thead><tr>${headHtml}</tr></thead><tbody>${bodyHtml}</tbody></table></div>`;
+  return '<div class="table-scroll"><table><thead><tr>' + headHtml + '</tr></thead><tbody>' + bodyHtml + '</tbody></table></div>';
 }
 
 function collectKeys(records, field) {
   const keys = new Set();
-  records.forEach(r => {
-    const obj = r[field];
-    if (obj && typeof obj === 'object') Object.keys(obj).forEach(k => keys.add(k));
-  });
-  return Array.from(keys).slice(0, 20);
+  records.forEach(function(r) { const obj = r[field]; if (obj && typeof obj === 'object') Object.keys(obj).forEach(function(k) { keys.add(k); }); });
+  return Array.from(keys);
 }
-
 function fmt(v) { return (v === undefined || v === null || v === '') ? '-' : v; }
 function statusLabel(s) { return { success: '완료', pending: '분석중', needs_review: '확인필요' }[s] || s; }
 
-let parsedRows = [];
-
 async function renderEntry() {
   const main = document.getElementById('main');
-  if (!currentCenter) { main.innerHTML = `<div class="empty">센터를 선택해 주세요.</div>`; return; }
-
+  if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
   const token = CENTER_TOKENS[currentCenter];
-  if (!token) {
-    main.innerHTML = `<div class="empty">이 센터는 아직 데이터입력 토큰이 등록되지 않았습니다.<br>CENTER_TOKENS 설정에 추가해 주세요.</div>`;
-    return;
-  }
+  if (!token) { main.innerHTML = '<div class="empty">이 센터는 아직 데이터입력 토큰이 등록되지 않았습니다.</div>'; return; }
 
   const thisYear = new Date().getFullYear();
-  main.innerHTML = `
-    <div class="entry-wrap panel" style="max-width:100%;">
-      <h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>
-      <div class="entry-row">
-        <label>기준 연도</label>
-        <input type="number" id="entryYear" value="${thisYear}" style="width:90px;padding:8px 10px;border:1px solid #d9dce1;border-radius:6px;font-size:13px;">
-        <span style="font-size:12px;color:#9aa1ac;">날짜가 "6/1"처럼 연도 없이 있을 때 사용됩니다</span>
-      </div>
-
-      <p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">
-        엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)
-      </p>
-      <textarea class="paste-box" id="pasteBox" style="min-height:110px;" placeholder="6/1	165.5	34	90.5	...
-6/2	164.5	34	89.5	..."></textarea>
-      <button class="btn-secondary" onclick="parseMultiPaste()">양식에 반영</button>
-      <button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>
-      <div class="status-msg" id="manualStatus"></div>
-
-      <div id="templateArea" style="margin-top:16px;"></div>
-    </div>
-  `;
+  main.innerHTML = '<div class="entry-wrap panel">'
+    + '<h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>'
+    + '<div class="entry-row"><label>기준 연도</label><input type="number" id="entryYear" value="' + thisYear + '" style="width:90px;"><span style="font-size:12px;color:#9aa1ac;">날짜가 "6/1"처럼 연도 없이 있을 때 사용됩니다</span></div>'
+    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)</p>'
+    + '<textarea class="paste-box" id="pasteBox" placeholder="6/1	165.5	34	90.5	...&#10;6/2	164.5	34	89.5	..."></textarea>'
+    + '<button class="btn-secondary" onclick="parseMultiPaste()">양식에 반영</button>'
+    + '<button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>'
+    + '<div class="status-msg" id="manualStatus"></div>'
+    + '<div id="templateArea" style="margin-top:16px;"></div>'
+    + '</div>';
 
   try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(token), {
-      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }
-    });
+    const res = await fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(token), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
     const data = await res.json();
     rowSchema = data.success ? (data.row_schema || []) : [];
-    if (rowSchema.length === 0) {
-      document.getElementById('templateArea').innerHTML = `<p style="color:#c94040;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>`;
-    }
-  } catch (e) {
-    document.getElementById('templateArea').innerHTML = `<p class="empty">양식을 불러오지 못했습니다.</p>`;
-  }
+    if (rowSchema.length === 0) document.getElementById('templateArea').innerHTML = '<p style="color:#c94040;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>';
+  } catch (e) { document.getElementById('templateArea').innerHTML = '<p class="empty">양식을 불러오지 못했습니다.</p>'; }
 }
 
 function parseMultiPaste() {
   const raw = document.getElementById('pasteBox').value;
   const statusEl = document.getElementById('manualStatus');
   const year = document.getElementById('entryYear').value;
-  const lines = raw.split('\n').map(l => l.replace(/\r$/, '')).filter(l => l.trim() !== '');
-
+  const lines = raw.split('\n').map(function(l) { return l.replace(/\r$/, ''); }).filter(function(l) { return l.trim() !== ''; });
   if (lines.length === 0) return;
-  if (!rowSchema || rowSchema.length === 0) {
-    statusEl.className = 'status-msg err';
-    statusEl.textContent = '입력양식이 아직 로드되지 않았습니다.';
-    return;
-  }
+  if (!rowSchema || rowSchema.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '입력양식이 아직 로드되지 않았습니다.'; return; }
 
   const errors = [];
   parsedRows = [];
-
-  lines.forEach((line, li) => {
-    const tokens = line.split('\t').map(t => t.trim());
+  lines.forEach(function(line, li) {
+    const tokens = line.split('\t').map(function(t) { return t.trim(); });
     const dateToken = tokens[0];
     const values = tokens.slice(1);
-
-    if (values.length !== rowSchema.length) {
-      errors.push(`줄 ${li + 1} (${dateToken || '날짜없음'}): 항목 수 ${values.length}개 / 필요 ${rowSchema.length}개 — 이 줄은 제외됩니다.`);
-      return;
-    }
-
+    if (values.length !== rowSchema.length) { errors.push('줄 ' + (li + 1) + ' (' + (dateToken || '날짜없음') + '): 항목 수 ' + values.length + '개 / 필요 ' + rowSchema.length + '개 — 제외됩니다.'); return; }
     const isoDate = toIsoDate(dateToken, year);
-    if (!isoDate) {
-      errors.push(`줄 ${li + 1}: 날짜 인식 실패("${dateToken}") — 이 줄은 제외됩니다.`);
-      return;
-    }
-
-    parsedRows.push({ date: isoDate, dateLabel: dateToken, values });
+    if (!isoDate) { errors.push('줄 ' + (li + 1) + ': 날짜 인식 실패("' + dateToken + '") — 제외됩니다.'); return; }
+    parsedRows.push({ date: isoDate, dateLabel: dateToken, values: values });
   });
 
   statusEl.className = errors.length ? 'status-msg err' : 'status-msg';
   statusEl.innerHTML = errors.length ? errors.join('<br>') : '';
-
   renderPreviewTable();
   document.getElementById('manualSaveBtn').style.display = parsedRows.length ? 'inline-block' : 'none';
 }
 
-// "6/1", "6-1", "2026-06-01" 등을 YYYY-MM-DD로 변환
 function toIsoDate(token, fallbackYear) {
   if (!token) return null;
   token = token.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(token)) return token;
   const m = token.match(/^(\d{1,2})[\/\-](\d{1,2})$/);
-  if (m) {
-    const [, mm, dd] = m;
-    return `${fallbackYear}-${mm.padStart(2, '0')}-${dd.padStart(2, '0')}`;
-  }
+  if (m) { return fallbackYear + '-' + m[1].padStart(2, '0') + '-' + m[2].padStart(2, '0'); }
   return null;
 }
 
 function renderPreviewTable() {
   const area = document.getElementById('templateArea');
-  if (parsedRows.length === 0) {
-    area.innerHTML = `<p class="empty">반영할 데이터가 없습니다.</p>`;
-    return;
-  }
-
+  if (parsedRows.length === 0) { area.innerHTML = '<p class="empty">반영할 데이터가 없습니다.</p>'; return; }
   const cols = parseGroups();
-
   const groupCells = [];
   let i = 0;
   while (i < cols.length) {
     let span = 1;
     while (i + span < cols.length && cols[i + span].dispGroup === cols[i].dispGroup) span++;
-    groupCells.push(`<th colspan="${span}" style="text-align:center;background:#eef2ff;color:#3b6ef6;">${cols[i].dispGroup}</th>`);
+    groupCells.push('<th colspan="' + span + '" style="text-align:center;background:#eef2ff;color:#3b6ef6;">' + cols[i].dispGroup + '</th>');
     i += span;
   }
-  const labelCells = cols.map(c => `<th style="text-align:center;">${c.label}</th>`).join('');
-
-  const bodyRows = parsedRows.map((row, ri) => {
-    const cells = row.values.map((v, ci) =>
-      `<td><input type="text" class="template-input" data-row="${ri}" data-idx="${ci}" data-key="${cols[ci].key}" data-group="${cols[ci].origGroup}" value="${v}" style="width:64px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>`
-    ).join('');
-    return `<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">${row.date}</td>${cells}</tr>`;
+  const labelCells = cols.map(function(c) { return '<th style="text-align:center;">' + c.label + '</th>'; }).join('');
+  const bodyRows = parsedRows.map(function(row, ri) {
+    const cells = row.values.map(function(v, ci) {
+      return '<td><input type="text" class="template-input" data-row="' + ri + '" data-idx="' + ci + '" data-key="' + cols[ci].key + '" data-group="' + cols[ci].origGroup + '" value="' + v + '" style="width:64px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>';
+    }).join('');
+    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">' + row.date + '</td>' + cells + '</tr>';
   }).join('');
-
-  area.innerHTML = `
-    <div class="table-scroll">
-      <table>
-        <thead>
-          <tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>${groupCells.join('')}</tr>
-          <tr><th style="position:sticky;left:0;background:#f8f9fb;"></th>${labelCells}</tr>
-        </thead>
-        <tbody>${bodyRows}</tbody>
-      </table>
-    </div>
-    <p style="font-size:12px;color:#9aa1ac;margin-top:6px;">${parsedRows.length}개 날짜 · 값은 직접 클릭해 수정할 수 있습니다</p>
-  `;
+  area.innerHTML = '<div class="table-scroll"><table><thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>' + groupCells.join('') + '</tr><tr><th style="position:sticky;left:0;background:#f8f9fb;"></th>' + labelCells + '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>'
+    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + parsedRows.length + '개 날짜 · 값은 직접 클릭해 수정할 수 있습니다</p>';
 }
 
 function parseGroups() {
-  return rowSchema.map(col => {
+  return rowSchema.map(function(col) {
     const idx = col.key.indexOf('_');
     const dispGroup = idx > -1 ? col.key.slice(0, idx) : (col.group === 'attendance' ? '근태' : '실적');
     const label = idx > -1 ? col.key.slice(idx + 1) : col.key;
-    return { key: col.key, origGroup: col.group, dispGroup, label };
+    return { key: col.key, origGroup: col.group, dispGroup: dispGroup, label: label };
   });
 }
 
@@ -768,38 +693,96 @@ async function saveAllRows() {
   const token = CENTER_TOKENS[currentCenter];
   let success = 0, fail = 0;
   const failDates = [];
-
   statusEl.className = 'status-msg';
-
-  for (const row of parsedRows) {
-    const inputs = document.querySelectorAll(`.template-input[data-row="${parsedRows.indexOf(row)}"]`);
+  for (let idx = 0; idx < parsedRows.length; idx++) {
+    const row = parsedRows[idx];
+    const inputs = document.querySelectorAll('.template-input[data-row="' + idx + '"]');
     const values = {};
-    inputs.forEach(inp => { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
-
-    statusEl.textContent = `저장 중... (${success + fail + 1}/${parsedRows.length})`;
+    inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+    statusEl.textContent = '저장 중... (' + (success + fail + 1) + '/' + parsedRows.length + ')';
     try {
       const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
-        method: 'POST',
-        headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token, report_date: row.date, values })
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, report_date: row.date, values: values })
       });
       const data = await res.json();
       if (data.success) success++; else { fail++; failDates.push(row.date); }
-    } catch (e) {
-      fail++; failDates.push(row.date);
-    }
+    } catch (e) { fail++; failDates.push(row.date); }
   }
-
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
-  statusEl.textContent = fail
-    ? `${success}건 저장 완료, ${fail}건 실패 (${failDates.join(', ')})`
-    : `${success}건 모두 저장 완료되었습니다.`;
-
+  statusEl.textContent = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
   document.getElementById('pasteBox').value = '';
   document.getElementById('manualSaveBtn').style.display = 'none';
   parsedRows = [];
   document.getElementById('templateArea').innerHTML = '';
   await loadOverview();
+}
+
+function exportData() { return JSON.stringify(allRows, null, 2); }
+
+async function copyToClipboard() {
+  const msg = document.getElementById('backupMsg');
+  try {
+    await navigator.clipboard.writeText(exportData());
+    msg.textContent = '전체 ' + allRows.length + '건이 클립보드에 복사되었습니다.';
+  } catch (e) { msg.textContent = '클립보드 복사 실패: ' + e.message; }
+}
+
+function downloadFile() {
+  const blob = new Blob([exportData()], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  const today = new Date().toISOString().slice(0, 10);
+  a.href = url; a.download = 'kkangbi_report_backup_' + today + '.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  document.getElementById('backupMsg').textContent = '파일 다운로드가 시작되었습니다.';
+}
+
+async function pasteFromClipboard() {
+  const msg = document.getElementById('backupMsg');
+  try {
+    const text = await navigator.clipboard.readText();
+    await restoreData(text);
+  } catch (e) { msg.textContent = '클립보드 읽기 실패: ' + e.message; }
+}
+
+function uploadFile(evt) {
+  const file = evt.target.files[0];
+  if (!file) return;
+  const reader = new FileReader();
+  reader.onload = function() { restoreData(reader.result); };
+  reader.readAsText(file);
+}
+
+async function restoreData(jsonText) {
+  const msg = document.getElementById('backupMsg');
+  let records;
+  try { records = JSON.parse(jsonText); } catch (e) { msg.textContent = 'JSON 형식이 올바르지 않습니다.'; return; }
+  if (!Array.isArray(records)) { msg.textContent = '배열 형태의 백업 데이터가 아닙니다.'; return; }
+
+  let success = 0, skipped = 0;
+  for (let i = 0; i < records.length; i++) {
+    const rec = records[i];
+    const token = CENTER_TOKENS[rec.center_code];
+    if (!token || !rec.report_date) { skipped++; continue; }
+    const values = {};
+    Object.entries(rec.attendance_data || {}).forEach(function(entry) { values[entry[0]] = { value: entry[1], group: 'attendance' }; });
+    Object.entries(rec.performance_data || {}).forEach(function(entry) { values[entry[0]] = { value: entry[1], group: 'performance' }; });
+
+    msg.textContent = '복원 중... (' + (success + skipped + 1) + '/' + records.length + ')';
+    try {
+      const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, report_date: rec.report_date, values: values })
+      });
+      const data = await res.json();
+      if (data.success) success++; else skipped++;
+    } catch (e) { skipped++; }
+  }
+  msg.textContent = '복원 완료: ' + success + '건 성공, ' + skipped + '건 제외(토큰 미등록 센터 포함)';
+  await loadOverview();
+  renderMain();
 }
 
 init();
