@@ -158,17 +158,19 @@ const KR_HOLIDAYS_2026 = [
 ];
 
 const KPI_DEFS = [
-  { label: '재직인원(TO대비)', type: 'staff', attKey: '총원' },
-  { label: '근태·제휴CS', type: 'count', attKey: '제휴CS_소계' },
-  { label: '근태·장기사고', type: 'count', attKey: '장기사고_소계' },
-  { label: '인입호·제휴상담', type: 'count', perfKey: '제휴상담_인입호' },
-  { label: '인입호·장기손사', type: 'count', perfKey: '장기손사_인입호' },
-  { label: '응대호·제휴상담', type: 'count', perfKey: '제휴상담_응답호' },
-  { label: '응대호·장기손사', type: 'count', perfKey: '장기손사_응답호' },
-  { label: '응답율·제휴상담', type: 'rate', perfKey: '제휴상담_응답율' },
-  { label: '응답율·장기손사', type: 'rate', perfKey: '장기손사_응답율' },
-  { label: 'SL·제휴상담', type: 'rate', perfKey: '제휴상담_SL' },
-  { label: 'SL·장기손사', type: 'rate', perfKey: '장기손사_SL' },
+  { label: '전체재직인원(TO대비)', type: 'staff', attKey: '총원' },
+
+  { section: '제휴상담', label: '근태', type: 'count', attKey: '제휴CS_소계' },
+  { label: '실적·인입호', type: 'count', perfKey: '제휴상담_인입호' },
+  { label: '실적·응대호', type: 'count', perfKey: '제휴상담_응답호' },
+  { label: '응답율', type: 'rate', perfKey: '제휴상담_응답율' },
+  { label: 'SL', type: 'rate', perfKey: '제휴상담_SL' },
+
+  { section: '장기손사', label: '근태', type: 'count', attKey: '장기사고_소계' },
+  { label: '실적·인입호', type: 'count', perfKey: '장기손사_인입호' },
+  { label: '실적·응대호', type: 'count', perfKey: '장기손사_응답호' },
+  { label: '응답율', type: 'rate', perfKey: '장기손사_응답율' },
+  { label: 'SL', type: 'rate', perfKey: '장기손사_SL' },
 ];
 
 const CHART_CENTERS = [
@@ -366,7 +368,13 @@ function renderDashboard() {
     : viewMode === 'quarter' ? quarterRows
     : viewMode === 'half' ? halfRows
     : cumulativeRows;
-  const sortedTarget = targetRows.slice().sort(function(a, b) { return a.report_date.localeCompare(b.report_date); });
+  let sortedTarget = targetRows.slice().sort(function(a, b) { return a.report_date.localeCompare(b.report_date); });
+
+  // 분기별/반기별 집계탭은 개별 분기·반기를 비교하는 화면이므로,
+  // 상단 기간토글(단월 등)과 무관하게 항상 연초~현재월 전체 데이터를 사용한다.
+  if (aggView === 'quarter' || aggView === 'half') {
+    sortedTarget = cumulativeRows.slice().sort(function(a, b) { return a.report_date.localeCompare(b.report_date); });
+  }
 
   const prevYearMonth = (y - 1) + '-' + String(m).padStart(2, '0');
   const prevYearMonthRows = centerRows.filter(function(r) { return r.report_date.startsWith(prevYearMonth); });
@@ -403,10 +411,12 @@ function renderDashboard() {
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
     + '</div>'
     + '<div class="agg-tabs">'
-    + '<div class="agg-tab ' + (aggView === 'daily' ? 'active' : '') + '" onclick="setAggView(\'daily\')">일별</div>'
+    + '<div class="agg-tab ' + (aggView === 'daily' ? 'active' : '') + '" style="' + (viewMode !== 'single' ? 'opacity:.4;cursor:not-allowed;' : '') + '" title="' + (viewMode !== 'single' ? '단월 범위에서만 일별 표를 볼 수 있습니다' : '') + '" onclick="' + (viewMode !== 'single' ? '' : "setAggView('daily')") + '">일별</div>'
     + '<div class="agg-tab ' + (aggView === 'weekly' ? 'active' : '') + '" onclick="setAggView(\'weekly\')">주별</div>'
     + '<div class="agg-tab ' + (aggView === 'dow' ? 'active' : '') + '" onclick="setAggView(\'dow\')">요일별</div>'
     + '<div class="agg-tab ' + (aggView === 'monthly' ? 'active' : '') + '" onclick="setAggView(\'monthly\')">월별</div>'
+    + '<div class="agg-tab ' + (aggView === 'quarter' ? 'active' : '') + '" onclick="setAggView(\'quarter\')">분기별</div>'
+    + '<div class="agg-tab ' + (aggView === 'half' ? 'active' : '') + '" onclick="setAggView(\'half\')">반기별</div>'
     + '</div>'
     + '<div class="panel">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
@@ -433,9 +443,17 @@ function shiftMonth(delta) {
   currentMonth = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0');
   renderDashboard();
 }
-function setViewMode(mode) { viewMode = mode; renderDashboard(); }
-function setAggView(v) { aggView = v; renderDashboard(); }
-function aggLabel(v) { return { daily: '일자별', weekly: '주별', dow: '요일별', monthly: '월별' }[v]; }
+function setViewMode(mode) {
+  viewMode = mode;
+  if (mode !== 'single' && aggView === 'daily') aggView = 'weekly';
+  renderDashboard();
+}
+function setAggView(v) {
+  if (v === 'daily' && viewMode !== 'single') return;
+  aggView = v;
+  renderDashboard();
+}
+function aggLabel(v) { return { daily: '일자별', weekly: '주별', dow: '요일별', monthly: '월별', quarter: '분기별', half: '반기별' }[v]; }
 
 function renderChartSummary(prefix, records, includeAnswered) {
   const inboundKey = prefix + '_인입호';
@@ -526,7 +544,11 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows) {
 
     lastTrendLines.push(def.label + '\t' + dailyDisplay + '\t' + cumDisplay + '\t' + (prevYearAvg !== null ? formatKpiValue(def, prevYearAvg) : '-'));
 
-    return '<div class="trend-row"><span class="label">' + def.label + '</span>'
+    const sectionHtml = def.section
+      ? '<div style="font-size:11px;font-weight:700;color:#60584C;background:#FFF6DC;padding:5px 6px;margin-top:8px;border-radius:5px;">' + def.section + '</div>'
+      : '';
+
+    return sectionHtml + '<div class="trend-row"><span class="label">' + def.label + '</span>'
       + '<span class="vals"><span class="main">' + dailyDisplay + '</span> ' + arrowHtml
       + '<span class="sub">누적 ' + cumDisplay + '</span>' + yoyHtml + '</span></div>';
   }).join('');
@@ -650,21 +672,21 @@ function drawMiniCharts(records) {
     }
     datasets.push(
       {
-        type: 'line', label: '응답율(%)', data: rateData, borderColor: '#1a8f4c', backgroundColor: 'transparent',
+        type: 'line', label: '응답율(%)', data: rateData, borderColor: '#60584C', backgroundColor: 'transparent',
         yAxisID: 'yRate', tension: 0.25, pointRadius: 2, order: 1
       },
       {
-        type: 'line', label: 'SL', data: slData, borderColor: '#c98a20', backgroundColor: 'transparent',
+        type: 'line', label: 'SL', data: slData, borderColor: '#545045', backgroundColor: 'transparent',
         yAxisID: 'yRate', tension: 0.25, pointRadius: 3, order: 0, borderWidth: 2,
         segment: {
           borderColor: function(ctx) {
             const y0 = ctx.p0.parsed.y, y1 = ctx.p1.parsed.y;
-            return (y0 < SL_THRESHOLD || y1 < SL_THRESHOLD) ? '#c94040' : '#1a8f4c';
+            return (y0 < SL_THRESHOLD || y1 < SL_THRESHOLD) ? '#c94040' : '#545045';
           }
         },
         pointBackgroundColor: function(ctx) {
           const v = ctx.raw;
-          return (v !== null && v < SL_THRESHOLD) ? '#c94040' : '#1a8f4c';
+          return (v !== null && v < SL_THRESHOLD) ? '#c94040' : '#545045';
         }
       },
       {
@@ -788,6 +810,8 @@ function groupByBucket(records, view) {
     if (view === 'weekly') { const week = Math.ceil(d.getDate() / 7); label = (d.getMonth() + 1) + '월 ' + week + '주'; }
     else if (view === 'dow') { label = dowNames[d.getDay()] + '요일'; }
     else if (view === 'monthly') { label = d.getFullYear() + '-' + String(d.getMonth() + 1).padStart(2, '0'); }
+    else if (view === 'quarter') { const q = Math.ceil((d.getMonth() + 1) / 3); label = d.getFullYear() + ' ' + q + '분기'; }
+    else if (view === 'half') { const h = (d.getMonth() + 1) <= 6 ? '상반기' : '하반기'; label = d.getFullYear() + ' ' + h; }
     if (!buckets[label]) buckets[label] = [];
     buckets[label].push(r);
   });
