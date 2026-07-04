@@ -397,6 +397,8 @@ function refreshTablePanel() {
   const scrollY = window.scrollY;
   const prevPopover = document.getElementById('colPopover');
   const popoverScrollTop = prevPopover ? prevPopover.scrollTop : 0;
+  const prevTableScroll = panel.querySelector('.table-scroll');
+  const tableScrollLeft = prevTableScroll ? prevTableScroll.scrollLeft : 0;
 
   const sortedTarget = computeSortedTargetRows();
   panel.innerHTML = buildTablePanelInner(sortedTarget);
@@ -404,6 +406,8 @@ function refreshTablePanel() {
 
   const newPopover = document.getElementById('colPopover');
   if (newPopover) newPopover.scrollTop = popoverScrollTop;
+  const newTableScroll = panel.querySelector('.table-scroll');
+  if (newTableScroll) newTableScroll.scrollLeft = tableScrollLeft;
   window.scrollTo(0, scrollY);
 }
 
