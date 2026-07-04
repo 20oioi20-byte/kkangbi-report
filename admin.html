@@ -514,6 +514,7 @@ function shiftMonth(delta) {
 function setViewMode(mode) {
   viewMode = mode;
   if (mode !== 'single' && aggView === 'daily') aggView = 'weekly';
+  if (mode === 'single') aggView = 'daily';
   renderDashboard();
 }
 function setAggView(v) {
