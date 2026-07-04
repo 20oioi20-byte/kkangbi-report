@@ -32,7 +32,7 @@
   .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7cbd3; flex-shrink: 0; }
   .center-item.active .dot { background: #FE2E36; }
 
-  main { flex: 1; padding: 22px 26px; }
+  main { flex: 1; min-width: 0; padding: 22px 26px; }
 
   .month-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
   .month-bar button.nav { border: 1px solid #d9dce1; background: #fff; border-radius: 6px; width: 30px; height: 30px; cursor: pointer; }
@@ -45,12 +45,12 @@
   .alert-card.none { background: #eef7f0; border-color: #cfe9d4; color: #2f7a45; }
   .alert-card b { display: block; margin-bottom: 4px; font-size: 13px; }
 
-  .split { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 18px; align-items: start; }
+  .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-bottom: 18px; align-items: start; }
   .panel { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
   .panel h3 { font-size: 15px; margin: 0 0 12px; }
 
-  .mini-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
-  .mini-charts.vertical { grid-template-columns: 1fr; }
+  .mini-charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
+  .mini-charts.vertical { grid-template-columns: minmax(0, 1fr); }
   .chart-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
   .chart-summary .stat { text-align: center; }
   .chart-summary .stat .l { font-size: 10px; color: #9aa1ac; }
