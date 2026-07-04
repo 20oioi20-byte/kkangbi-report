@@ -52,7 +52,7 @@
   .mini-charts { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
   .mini-chart-box { background: #fafbfc; border-radius: 8px; padding: 10px; }
   .mini-chart-box .title { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
-  .mini-chart-box .canvas-wrap { position: relative; height: 140px; }
+  .mini-chart-box .canvas-wrap { position: relative; height: 220px; }
 
   .trend-list { display: flex; flex-direction: column; gap: 2px; }
   .trend-row { display: flex; justify-content: space-between; align-items: center; padding: 8px 4px; border-bottom: 1px solid #f0f1f3; font-size: 12.5px; }
@@ -165,12 +165,11 @@ const KPI_DEFS = [
   { label: 'SL·장기손사', type: 'rate', perfKey: '장기손사_SL' },
 ];
 
-const CHART_GROUPS = [
-  { title: '응답율 추이 (%)', keys: ['제휴상담_응답율', '장기손사_응답율'], rate: true },
-  { title: 'SL 추이', keys: ['제휴상담_SL', '장기손사_SL'], rate: true },
-  { title: '인입호 추이', keys: ['제휴상담_인입호', '장기손사_인입호'], rate: false },
-  { title: '응대호 추이', keys: ['제휴상담_응답호', '장기손사_응답호'], rate: false },
+const CHART_CENTERS = [
+  { title: '제휴상담', prefix: '제휴상담' },
+  { title: '장기손사', prefix: '장기손사' },
 ];
+const SL_THRESHOLD = 92;
 
 let allCenters = [];
 let allRows = [];
@@ -238,8 +237,10 @@ function renderMain() {
 }
 
 let colPrefs = { order: [], hidden: [] };
+let colPopoverOpen = false;
 
 function colPrefsKey() { return 'kkangbi_cols_' + currentCenter; }
+function presetsKey() { return 'kkangbi_colpresets_' + currentCenter; }
 
 function loadColPrefs() {
   try {
@@ -250,6 +251,43 @@ function loadColPrefs() {
 
 function saveColPrefs() {
   localStorage.setItem(colPrefsKey(), JSON.stringify(colPrefs));
+}
+
+function loadPresets() {
+  try {
+    const raw = localStorage.getItem(presetsKey());
+    return raw ? JSON.parse(raw) : [];
+  } catch (e) { return []; }
+}
+
+function savePresetsList(list) {
+  localStorage.setItem(presetsKey(), JSON.stringify(list));
+}
+
+function saveCurrentAsPreset() {
+  const input = document.getElementById('presetNameInput');
+  const name = (input.value || '').trim();
+  if (!name) { input.focus(); return; }
+  const presets = loadPresets().filter(function(p) { return p.name !== name; });
+  presets.push({ name: name, order: colPrefs.order.slice(), hidden: colPrefs.hidden.slice() });
+  savePresetsList(presets);
+  colPopoverOpen = true;
+  renderDashboard();
+}
+
+function applyPreset(name) {
+  const preset = loadPresets().find(function(p) { return p.name === name; });
+  if (!preset) return;
+  colPrefs = { order: preset.order.slice(), hidden: preset.hidden.slice() };
+  saveColPrefs();
+  colPopoverOpen = true;
+  renderDashboard();
+}
+
+function deletePreset(name) {
+  savePresetsList(loadPresets().filter(function(p) { return p.name !== name; }));
+  colPopoverOpen = true;
+  renderDashboard();
 }
 
 function ensureColOrder(allKeys) {
@@ -268,6 +306,7 @@ function moveCol(key, dir) {
   colPrefs.order[idx] = colPrefs.order[swapIdx];
   colPrefs.order[swapIdx] = tmp;
   saveColPrefs();
+  colPopoverOpen = true;
   renderDashboard();
 }
 
@@ -275,12 +314,19 @@ function toggleColVisible(key) {
   if (colPrefs.hidden.includes(key)) colPrefs.hidden = colPrefs.hidden.filter(function(k) { return k !== key; });
   else colPrefs.hidden.push(key);
   saveColPrefs();
+  colPopoverOpen = true;
   renderDashboard();
 }
 
 function setAllColsVisible(show) {
   colPrefs.hidden = show ? [] : colPrefs.order.slice();
   saveColPrefs();
+  colPopoverOpen = true;
+  renderDashboard();
+}
+
+function toggleColPopover() {
+  colPopoverOpen = !colPopoverOpen;
   renderDashboard();
 }
 
@@ -305,8 +351,8 @@ function renderDashboard() {
   const trendHtml = renderTrendList(monthRows, cumulativeRows);
 
   let chartBoxes = '';
-  for (let i = 0; i < CHART_GROUPS.length; i++) {
-    chartBoxes += '<div class="mini-chart-box"><div class="title">' + CHART_GROUPS[i].title + '</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div></div>';
+  for (let i = 0; i < CHART_CENTERS.length; i++) {
+    chartBoxes += '<div class="mini-chart-box"><div class="title">' + CHART_CENTERS[i].title + ' · 인입호/응대호(막대) · 응답율/SL(선, 기준 92)</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div></div>';
   }
 
   main.innerHTML = ''
@@ -342,11 +388,9 @@ function renderDashboard() {
 
   drawMiniCharts(sortedTarget);
 
-  if (aggView === 'daily') {
-    document.querySelectorAll('.col-toggle-btn').forEach(function(btn) {
-      btn.addEventListener('click', function() { document.getElementById('colPopover').classList.toggle('open'); });
-    });
-  }
+  document.querySelectorAll('.col-toggle-btn').forEach(function(btn) {
+    btn.onclick = function() { toggleColPopover(); };
+  });
 }
 
 function shiftMonth(delta) {
@@ -427,6 +471,14 @@ function computeAlert(centerRows) {
   return { html: '<div class="alert-card"><b>이상징후 감지 (' + latest.report_date + ' 기준)</b>' + issues.join(' · ') + '</div>' };
 }
 
+function formatChartLabel(bucketLabel) {
+  if (aggView !== 'daily') return bucketLabel;
+  const d = new Date(bucketLabel + 'T00:00:00');
+  if (isNaN(d.getTime())) return bucketLabel;
+  const dow = ['일', '월', '화', '수', '목', '금', '토'][d.getDay()];
+  return d.getDate() + '일(' + dow + ')';
+}
+
 function drawMiniCharts(records) {
   miniCharts.forEach(function(c) { if (c) c.destroy(); });
   miniCharts = [];
@@ -438,38 +490,73 @@ function drawMiniCharts(records) {
   } else {
     buckets = groupByBucket(records, aggView);
   }
-  const labels = Object.keys(buckets);
+  const bucketKeys = Object.keys(buckets);
+  const labels = bucketKeys.map(formatChartLabel);
 
-  CHART_GROUPS.forEach(function(group, i) {
+  CHART_CENTERS.forEach(function(center, i) {
     const canvas = document.getElementById('miniChart' + i);
     if (!canvas) return;
 
-    const datasets = group.keys.map(function(key, ki) {
-      const values = labels.map(function(label) {
-        const rows = buckets[label];
-        if (group.rate) {
-          return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'performance_data', key); });
-        }
+    const inboundKey = center.prefix + '_인입호';
+    const answeredKey = center.prefix + '_응답호';
+    const rateKey = center.prefix + '_응답율';
+    const slKey = center.prefix + '_SL';
+
+    function sumSeries(key) {
+      return bucketKeys.map(function(bk) {
+        const rows = buckets[bk];
         const nums = rows.map(function(r) { return extractNum(r, 'performance_data', key); }).filter(function(n) { return n !== null && !isNaN(n); });
         return nums.length ? nums.reduce(function(a, b) { return a + b; }, 0) : null;
       });
-      return {
-        label: key,
-        data: values,
-        borderColor: ki === 0 ? '#3b6ef6' : '#1a8f4c',
-        backgroundColor: ki === 0 ? 'rgba(59,110,246,.1)' : 'rgba(26,143,71,.1)',
-        tension: 0.3,
-        fill: false
-      };
-    });
+    }
+    function avgSeries(key) {
+      return bucketKeys.map(function(bk) { return avgExcludingHolidays(buckets[bk], function(r) { return extractNum(r, 'performance_data', key); }); });
+    }
+
+    const inboundData = sumSeries(inboundKey);
+    const answeredData = sumSeries(answeredKey);
+    const rateData = avgSeries(rateKey);
+    const slData = avgSeries(slKey);
+    const slLineData = labels.map(function() { return SL_THRESHOLD; });
+
+    const datasets = [
+      { type: 'bar', label: '인입호', data: inboundData, backgroundColor: '#c7d7fb', yAxisID: 'yCount', order: 3 },
+      { type: 'bar', label: '응대호', data: answeredData, backgroundColor: '#3b6ef6', yAxisID: 'yCount', order: 3 },
+      {
+        type: 'line', label: '응답율(%)', data: rateData, borderColor: '#1a8f4c', backgroundColor: 'transparent',
+        yAxisID: 'yRate', tension: 0.25, pointRadius: 2, order: 1
+      },
+      {
+        type: 'line', label: 'SL', data: slData, borderColor: '#c98a20', backgroundColor: 'transparent',
+        yAxisID: 'yRate', tension: 0.25, pointRadius: 3, order: 0, borderWidth: 2,
+        segment: {
+          borderColor: function(ctx) {
+            const y0 = ctx.p0.parsed.y, y1 = ctx.p1.parsed.y;
+            return (y0 < SL_THRESHOLD || y1 < SL_THRESHOLD) ? '#c94040' : '#1a8f4c';
+          }
+        },
+        pointBackgroundColor: function(ctx) {
+          const v = ctx.raw;
+          return (v !== null && v < SL_THRESHOLD) ? '#c94040' : '#1a8f4c';
+        }
+      },
+      {
+        type: 'line', label: 'SL기준(' + SL_THRESHOLD + ')', data: slLineData, borderColor: '#c94040',
+        borderDash: [4, 4], borderWidth: 1, pointRadius: 0, yAxisID: 'yRate', order: 2
+      }
+    ];
 
     miniCharts[i] = new Chart(canvas, {
-      type: group.rate ? 'line' : 'bar',
       data: { labels: labels, datasets: datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
+        interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 8, font: { size: 10 } } } },
-        scales: { y: { beginAtZero: !group.rate, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 } } } }
+        scales: {
+          yCount: { position: 'left', beginAtZero: true, ticks: { font: { size: 9 } } },
+          yRate: { position: 'right', min: 0, max: 100, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 } } },
+          x: { ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true } }
+        }
       }
     });
   });
@@ -491,12 +578,30 @@ function renderColToggleButton(records) {
       + '</div>';
   }).join('');
 
+  const presets = loadPresets();
+  const presetListHtml = presets.length === 0
+    ? '<div style="font-size:11px;color:#9aa1ac;">저장된 설정이 없습니다.</div>'
+    : presets.map(function(p) {
+        return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">'
+          + '<button style="flex:1;text-align:left;font-size:11px;padding:5px 8px;border:1px solid #d9dce1;background:#fff;border-radius:5px;cursor:pointer;" onclick="applyPreset(\'' + p.name + '\')">' + p.name + '</button>'
+          + '<button style="border:none;background:none;color:#c94040;font-size:11px;cursor:pointer;" onclick="deletePreset(\'' + p.name + '\')">삭제</button>'
+          + '</div>';
+      }).join('');
+
   return '<div class="col-toggle-wrap">'
     + '<button class="col-toggle-btn" type="button">표시 항목 ▾</button>'
-    + '<div class="col-popover" id="colPopover">'
-    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;">체크 해제 시 표에서 숨겨집니다. ▲▼로 순서 변경</div>'
+    + '<div class="col-popover' + (colPopoverOpen ? ' open' : '') + '" id="colPopover">'
+    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;">체크 해제 시 표에서 숨겨집니다. ▲▼로 순서 변경 (주별·요일별·월별에도 동일 적용)</div>'
     + itemsHtml
     + '<div class="actions"><button onclick="setAllColsVisible(true)">전체 표시</button><button onclick="setAllColsVisible(false)">전체 숨김</button></div>'
+    + '<div style="border-top:1px solid #eee;margin-top:10px;padding-top:10px;">'
+    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;">현재 설정을 이름 붙여 저장</div>'
+    + '<div style="display:flex;gap:4px;margin-bottom:8px;">'
+    + '<input type="text" id="presetNameInput" placeholder="설정 이름" style="flex:1;font-size:12px;padding:5px 7px;border:1px solid #d9dce1;border-radius:5px;">'
+    + '<button style="font-size:11px;padding:5px 10px;border:1px solid #3b6ef6;background:#3b6ef6;color:#fff;border-radius:5px;cursor:pointer;" onclick="saveCurrentAsPreset()">저장</button>'
+    + '</div>'
+    + presetListHtml
+    + '</div>'
     + '</div></div>';
 }
 
@@ -512,9 +617,11 @@ function renderAggTable(records, view) {
   if (view === 'daily') return buildMatrix(records);
 
   const buckets = groupByBucket(records, view);
-  const attKeys = collectKeys(records, 'attendance_data');
-  const perfKeys = collectKeys(records, 'performance_data');
-  const allKeys = attKeys.concat(perfKeys);
+  const attKeysAll = collectKeys(records, 'attendance_data');
+  const perfKeysAll = collectKeys(records, 'performance_data');
+  const visible = ensureColOrder(attKeysAll.concat(perfKeysAll));
+  const allKeys = visible;
+  const attKeys = visible.filter(function(k) { return attKeysAll.includes(k); });
 
   const headTop = allKeys.map(function(k) {
     const isRate = /응답율|CPD|S\.?L/i.test(k);
