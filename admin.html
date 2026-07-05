@@ -46,6 +46,21 @@
 
   .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
   .summary-card2 { background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+
+  .kbj-kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px; }
+  .kbj-kpi-card { background: #fff; border-radius: 10px; padding: 14px 14px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .kbj-kpi-card .l { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
+  .kbj-kpi-card .v { font-size: 22px; font-weight: 700; color: #1c1f26; }
+  .kbj-kpi-card .s { font-size: 10.5px; color: #9aa1ac; margin-top: 6px; line-height: 1.4; }
+  .kbj-split2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 18px; align-items: start; }
+  .kbj-stat-box { flex: 1; text-align: center; }
+  .kbj-stat-box .l { font-size: 11px; color: #9aa1ac; }
+  .kbj-stat-box .v { font-size: 18px; font-weight: 700; margin-top: 2px; }
+  .kbj-stat-box .p { font-size: 11px; color: #9aa1ac; }
+  .kbj-perf-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .kbj-perf-table th, .kbj-perf-table td { padding: 8px 6px; text-align: center; border-bottom: 1px solid #f0f1f3; }
+  .kbj-perf-table th { color: #9aa1ac; font-weight: 600; font-size: 11.5px; }
+  @media (max-width: 900px) { .kbj-kpi-grid { grid-template-columns: repeat(3, 1fr); } .kbj-split2 { grid-template-columns: 1fr; } }
   .summary-card2 .sc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
   .summary-card2 .sc-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
   .summary-card2 .sc-copy { font-size: 11px; padding: 4px 10px; border-radius: 14px; border: 1px solid var(--dash-accent, #FE2E36); color: var(--dash-accent, #FE2E36); background: #fff; cursor: pointer; }
@@ -201,6 +216,14 @@ const CENTER_KPI_DEFS = {
     { label: '포기호', type: 'count', perfKey: '포기호' },
     { label: 'CPD', type: 'number', perfKey: 'CPD' },
   ],
+  'kbjeongbi': [
+    { label: '접수 Total', type: 'count', perfKey: '접수_Total' },
+    { label: '처리 Total', type: 'count', perfKey: '처리_Total' },
+    { label: '고지의무 접수', type: 'count', perfKey: '접수_고지의무' },
+    { label: '통지의무 접수', type: 'count', perfKey: '접수_통지의무' },
+    { label: '고지의무 처리', type: 'count', perfKey: '처리_고지의무' },
+    { label: '통지의무 처리', type: 'count', perfKey: '처리_통지의무' },
+  ],
 };
 
 // 센터별 지표 추이 차트 구성 - 새 센터 추가 시 여기에 등록
@@ -208,7 +231,8 @@ const CENTER_KPI_DEFS = {
 // 센터별 대시보드 테마 색상 (KB손보부천은 기존 브랜드 색상 유지, 평택시청은 평택시 시그니처 컬러 반영)
 // main: pantone 320C(teal), sub: pantone 072C(navy) 기준
 const CENTER_DASH_THEME = {
-  'pyeongtaek': { accent: '#009DA5', dark: '#303192', soft: '#E6F6F7' }
+  'pyeongtaek': { accent: '#009DA5', dark: '#303192', soft: '#E6F6F7' },
+  'kbjeongbi': { accent: '#FFBC00', dark: '#545045', soft: '#FFF6DC' }
 };
 const DEFAULT_DASH_THEME = { accent: '#FE2E36', dark: '#1c1f26', soft: '#FFE8E9' };
 
@@ -242,6 +266,16 @@ const CENTER_CHART_CONFIG = {
         title: '평택시청', barKeys: ['요청호', '응답호'], barLabels: ['요청호', '응답호'],
         lineKeys: ['응대율', 'CPD'], lineLabels: ['응대율(%)', 'CPD'],
         threshold: { key: '응대율', value: 90, label: '응대율목표(90)' }
+      },
+    ]
+  },
+  'kbjeongbi': {
+    barColors: ['#D9C89A', '#c94040'],
+    lineColor: '#545045',
+    groups: [
+      {
+        title: '일별 실적 추이', barKeys: ['접수_Total', '처리_Total'], barLabels: ['접수 Total', '처리 Total'],
+        lineKeys: [], lineLabels: []
       },
     ]
   },
@@ -878,7 +912,7 @@ function renderDashboard() {
     + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
-    + renderSummaryCards(monthRows, cumulativeRows, prevMonthRows)
+    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiExtraDashboard(centerRows, monthRows, prevMonthRows) : renderSummaryCards(monthRows, cumulativeRows, prevMonthRows))
     + '<div class="split">'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
@@ -899,6 +933,7 @@ function renderDashboard() {
 
   drawMiniCharts(sortedTarget);
   drawCategoryPieChart(centerRows);
+  if (currentCenter === 'kbjeongbi') drawKbjeongbiDonut(centerRows);
   ['catOverviewDetails', 'catTrendDetails'].forEach(function(id) {
     const el = document.getElementById(id);
     if (el) {
@@ -1136,6 +1171,157 @@ function computeAlert(centerRows) {
 // 전체 현황 요약 카드 (이상징후와 지표추이 사이) - 센터별 설정 기반 공통 함수
 // ============================================
 const GROUP_ICONS = ['🎧', '🚗', '📋', '💼', '🏢'];
+
+// ============================================
+// KB손보정비 전용 대시보드 (참고 이미지 반영)
+// 최신 일자(금일) 스냅샷 기준 KPI + 접수구성 도넛 + 인력/처리 성과표 + 변경기한일 준수현황
+// ============================================
+let kbjComposeDonut = null, kbjComplianceDonut1 = null, kbjComplianceDonut2 = null;
+
+function kbjNum(row, key, group) { return extractNum(row, group || 'performance_data', key); }
+
+function kbjStatBox(label, val, pct) {
+  return '<div class="kbj-stat-box"><div class="l">' + label + '</div><div class="v">' + val.toLocaleString() + '건</div><div class="p">(' + pct.toFixed(1) + '%)</div></div>';
+}
+
+function renderKbjeongbiExtraDashboard(centerRows, monthRows, prevMonthRows) {
+  const sorted = centerRows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
+  const latest = sorted.find(function(r) { return r.performance_data && r.performance_data['접수_Total'] !== undefined; });
+  if (!latest) return '<div class="panel" style="margin-bottom:18px;"><div class="empty">등록된 데이터가 없습니다.</div></div>';
+
+  const others = monthRows.filter(function(r) { return r.report_date !== latest.report_date && !isWeekendOrHoliday(r.report_date) && r.performance_data && r.performance_data['접수_Total'] !== undefined; });
+  function avgOf(key) {
+    const vals = others.map(function(r) { return kbjNum(r, key); }).filter(function(n) { return n !== null && !isNaN(n); });
+    return vals.length ? vals.reduce(function(a, b) { return a + b; }, 0) / vals.length : null;
+  }
+  function avgOfAtt(key) {
+    const vals = others.map(function(r) { return kbjNum(r, key, 'attendance_data'); }).filter(function(n) { return n !== null && !isNaN(n); });
+    return vals.length ? vals.reduce(function(a, b) { return a + b; }, 0) / vals.length : null;
+  }
+  const jVal = function(key) { const v = kbjNum(latest, key); return v === null ? 0 : v; };
+  const jAtt = function(key) { return kbjNum(latest, key, 'attendance_data'); };
+
+  const jr = { g: jVal('접수_고지의무'), t: jVal('접수_통지의무'), m: jVal('접수_목적물소멸'), e: jVal('접수_기타'), total: jVal('접수_Total') };
+  const jp = { g: jVal('처리_고지의무'), t: jVal('처리_통지의무'), m: jVal('처리_목적물소멸'), e: jVal('처리_기타'), total: jVal('처리_Total') };
+  const ju = { g: jr.g - jp.g, t: jr.t - jp.t, m: jr.m - jp.m, e: jr.e - jp.e, total: jr.total - jp.total };
+  const rate = jr.total ? (jp.total / jr.total * 100) : 0;
+
+  const staffTotal = jAtt('재직인원');
+  const inputCounselor = jAtt('상담사_투입인원');
+  const managerCount = 1; // 고정 관리자 인원
+  const counselorTotal = staffTotal !== null ? staffTotal - managerCount : null;
+  const efficiency = (inputCounselor !== null && staffTotal) ? (inputCounselor / staffTotal * 100) : null;
+
+  const breakdownLine = function(o) { return '고지의무 ' + o.g + ' · 통지의무 ' + o.t + ' · 목적물소멸 ' + o.m + ' · 기타 ' + o.e; };
+
+  const kpiCards = [
+    { l: '📥 접수 Total', v: jr.total.toLocaleString() + '건', s: breakdownLine(jr) },
+    { l: '✅ 처리 Total', v: jp.total.toLocaleString() + '건', s: breakdownLine(jp) },
+    { l: '🎯 처리율', v: rate.toFixed(1) + '%', s: '접수 대비 처리 비율' },
+    { l: '⏳ 미처리건', v: ju.total.toLocaleString() + '건', s: breakdownLine(ju) },
+    { l: '🎧 투입상담사', v: (inputCounselor !== null ? inputCounselor : '-') + '명', s: '상담사 ' + (counselorTotal !== null ? counselorTotal : '-') + '명 중 투입 ' + (inputCounselor !== null ? inputCounselor : '-') + '명' },
+    { l: '📈 인력 운영효율', v: (efficiency !== null ? efficiency.toFixed(0) : '-') + '%', s: '투입상담사 ' + (inputCounselor !== null ? inputCounselor : '-') + '명 / 총 인원 ' + (staffTotal !== null ? staffTotal : '-') + '명' }
+  ];
+  const kpiHtml = '<div class="kbj-kpi-grid">' + kpiCards.map(function(c) {
+    return '<div class="kbj-kpi-card"><div class="l">' + c.l + '</div><div class="v">' + c.v + '</div><div class="s">' + c.s + '</div></div>';
+  }).join('') + '</div>';
+
+  // 인력 및 처리 성과 분석 표 (금일 / 전일평균 / 전일대비)
+  const staffAvg = avgOfAtt('재직인원');
+  const counselorAvgVal = staffAvg !== null ? staffAvg - managerCount : null;
+  const inputAvg = avgOfAtt('상담사_투입인원');
+  const receiveAvg = avgOf('접수_Total');
+  const processAvg = avgOf('처리_Total');
+  const rateAvg = (receiveAvg !== null && processAvg !== null && receiveAvg !== 0) ? (processAvg / receiveAvg * 100) : null;
+
+  function fmt1(n) { return n === null ? '-' : (Number.isInteger(n) ? n.toString() : n.toFixed(1)); }
+  function diffArrow(cur, base, unit, isPct) {
+    if (cur === null || base === null) return '-';
+    const d = cur - base;
+    const up = d >= 0;
+    const color = up ? '#c94040' : '#2f6fd1';
+    return '<span style="color:' + color + ';font-weight:600;">' + (up ? '▲' : '▼') + Math.abs(d).toFixed(isPct ? 1 : 1) + unit + '</span>';
+  }
+
+  const perfTable = '<table class="kbj-perf-table">'
+    + '<thead><tr><th>상담사</th><th>투입상담사</th><th>접수 Total</th><th>처리 Total</th><th>처리율</th></tr></thead>'
+    + '<tbody>'
+    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#f8f9fb;">금일 (' + latest.report_date + ')</td></tr>'
+    + '<tr><td>' + (counselorTotal !== null ? counselorTotal + '명' : '-') + '</td><td>' + (inputCounselor !== null ? inputCounselor + '명' : '-') + '</td><td>' + jr.total.toLocaleString() + '건</td><td>' + jp.total.toLocaleString() + '건</td><td>' + rate.toFixed(1) + '%</td></tr>'
+    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#f8f9fb;">전일 평균</td></tr>'
+    + '<tr><td>' + (counselorAvgVal !== null ? fmt1(counselorAvgVal) + '명' : '-') + '</td><td>' + (inputAvg !== null ? fmt1(inputAvg) + '명' : '-') + '</td><td>' + (receiveAvg !== null ? Math.round(receiveAvg).toLocaleString() + '건' : '-') + '</td><td>' + (processAvg !== null ? Math.round(processAvg).toLocaleString() + '건' : '-') + '</td><td>' + (rateAvg !== null ? rateAvg.toFixed(1) + '%' : '-') + '</td></tr>'
+    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#f8f9fb;">전일 대비</td></tr>'
+    + '<tr><td>' + diffArrow(counselorTotal, counselorAvgVal, '명') + '</td><td>' + diffArrow(inputCounselor, inputAvg, '명') + '</td><td>' + diffArrow(jr.total, receiveAvg, '건') + '</td><td>' + diffArrow(jp.total, processAvg, '건') + '</td><td>' + diffArrow(rate, rateAvg, '%p', true) + '</td></tr>'
+    + '</tbody></table>'
+    + '<p style="font-size:11px;color:#9aa1ac;margin-top:8px;">※ 인력 운영효율 = 투입상담사 / 총 인원 기준</p>';
+
+  // 변경기한일 준수 현황 (고지의무 / 통지의무)
+  function compliancePanel(label, canvasId, target, proc, unproc) {
+    const denom = proc + unproc;
+    const procRate = denom ? (proc / denom * 100) : 0;
+    const unprocRate = 100 - procRate;
+    return '<div class="panel">'
+      + '<h3 style="margin-bottom:12px;">' + label + ' 변경기한일 준수 현황 <span style="font-size:12px;color:#9aa1ac;font-weight:400;">대상 ' + target.toLocaleString() + '건</span></h3>'
+      + '<div style="display:flex;gap:10px;margin-bottom:14px;">'
+      + kbjStatBox('대상건', target, 100)
+      + kbjStatBox('처리건', proc, procRate)
+      + kbjStatBox('미처리건', unproc, unprocRate)
+      + '</div>'
+      + '<div style="width:110px;height:110px;margin:0 auto;"><canvas id="' + canvasId + '"></canvas></div>'
+      + '<div style="text-align:center;font-size:12px;color:#9aa1ac;margin-top:8px;">처리율 ' + procRate.toFixed(1) + '% · 미처리율 ' + unprocRate.toFixed(1) + '%</div>'
+      + '</div>';
+  }
+
+  const gojiTarget = jVal('고지의무_변경기한일_대상건'), gojiProc = jVal('고지의무_변경기한일_처리건'), gojiUnproc = jVal('고지의무_변경기한일_미처리건');
+  const tongjiTarget = jVal('통지의무_변경기한일_대상건'), tongjiProc = jVal('통지의무_변경기한일_처리건'), tongjiUnproc = jVal('통지의무_변경기한일_미처리건');
+
+  return kpiHtml
+    + '<div class="kbj-split2">'
+    + '<div class="panel"><h3 style="margin-bottom:12px;">인력 및 처리 성과 분석</h3>' + perfTable + '</div>'
+    + '<div class="panel"><h3 style="margin-bottom:12px;">접수건 구성 비중 <span style="font-size:12px;color:#9aa1ac;font-weight:400;">(Total ' + jr.total.toLocaleString() + '건)</span></h3>'
+    + '<div style="width:100%;max-width:220px;height:220px;margin:0 auto;"><canvas id="kbjComposeChart"></canvas></div></div>'
+    + '</div>'
+    + '<div class="kbj-split2">'
+    + compliancePanel('고지의무', 'kbjComplianceChart1', gojiTarget, gojiProc, gojiUnproc)
+    + compliancePanel('통지의무', 'kbjComplianceChart2', tongjiTarget, tongjiProc, tongjiUnproc)
+    + '</div>';
+}
+
+function drawKbjeongbiDonut(centerRows) {
+  [kbjComposeDonut, kbjComplianceDonut1, kbjComplianceDonut2].forEach(function(c) { if (c) c.destroy(); });
+  kbjComposeDonut = null; kbjComplianceDonut1 = null; kbjComplianceDonut2 = null;
+
+  const sorted = centerRows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
+  const latest = sorted.find(function(r) { return r.performance_data && r.performance_data['접수_Total'] !== undefined; });
+  if (!latest) return;
+  const jVal = function(key) { const v = kbjNum(latest, key); return v === null ? 0 : v; };
+  const theme = getDashTheme();
+  const palette = [theme.accent, theme.dark, '#B7C4D6', '#D9C89A'];
+
+  const composeCanvas = document.getElementById('kbjComposeChart');
+  if (composeCanvas) {
+    kbjComposeDonut = new Chart(composeCanvas, {
+      type: 'doughnut',
+      data: {
+        labels: ['고지의무', '통지의무', '목적물소멸', '기타'],
+        datasets: [{ data: [jVal('접수_고지의무'), jVal('접수_통지의무'), jVal('접수_목적물소멸'), jVal('접수_기타')], backgroundColor: palette }]
+      },
+      options: { responsive: true, maintainAspectRatio: false, plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 8, font: { size: 10 } } } } }
+    });
+  }
+
+  function drawComplianceDonut(canvasId, proc, unproc) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return null;
+    return new Chart(canvas, {
+      type: 'doughnut',
+      data: { labels: ['처리', '미처리'], datasets: [{ data: [proc, unproc], backgroundColor: [theme.accent, '#e8e8e8'] }] },
+      options: { responsive: true, maintainAspectRatio: false, cutout: '65%', plugins: { legend: { display: false } } }
+    });
+  }
+  kbjComplianceDonut1 = drawComplianceDonut('kbjComplianceChart1', jVal('고지의무_변경기한일_처리건'), jVal('고지의무_변경기한일_미처리건'));
+  kbjComplianceDonut2 = drawComplianceDonut('kbjComplianceChart2', jVal('통지의무_변경기한일_처리건'), jVal('통지의무_변경기한일_미처리건'));
+}
 
 function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
   const toInfo = CENTER_TO_INFO[currentCenter];
@@ -2648,8 +2834,10 @@ async function renderEntry() {
 // 재직 및 투입현황 반자동 입력 (TO/재직인원 자동값 + 상담사 투입인원만 수동 입력)
 // ============================================
 const ATTENDANCE_SEMI_AUTO = {
-  'kbjeongbi': { defaultTO: 15, defaultStaff: 15, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
+  'kbjeongbi': { defaultTO: 15, defaultStaff: 15, defaultManual: 15, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
 };
+
+let attRangeRows = [];
 
 function renderAttendanceSemiAutoPanel() {
   const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
@@ -2657,50 +2845,102 @@ function renderAttendanceSemiAutoPanel() {
   const today = new Date().toISOString().slice(0, 10);
   return '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>일자별 재직 및 투입현황 입력</h3>'
-    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">TO와 재직인원은 기본값이 자동으로 채워지며(변경 가능), ' + cfg.manualLabel + '만 직접 입력하시면 됩니다.</p>'
-    + '<div class="entry-row"><label>날짜</label><input type="date" id="attDate" value="' + today + '"></div>'
-    + '<div class="entry-row"><label>TO</label><input type="number" id="attTO" value="' + cfg.defaultTO + '" style="width:80px;"></div>'
-    + '<div class="entry-row"><label>재직인원</label><input type="number" id="attStaff" value="' + cfg.defaultStaff + '" style="width:80px;"></div>'
-    + '<div class="entry-row"><label>' + cfg.manualLabel + '</label><input type="number" id="attManual" placeholder="입력" style="width:80px;"></div>'
-    + '<button class="btn-primary" onclick="submitAttendanceSemiAuto()">저장</button>'
+    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">기간을 지정하면 주말·공휴일을 제외한 영업일마다 입력칸이 자동 생성됩니다. TO·재직인원·' + cfg.manualLabel + '은 기본값(15명)이 채워지며 개별 수정 가능합니다.</p>'
+    + '<div class="entry-row"><label>시작일</label><input type="date" id="attStart" value="' + today + '"></div>'
+    + '<div class="entry-row"><label>종료일</label><input type="date" id="attEnd" value="' + today + '"></div>'
+    + '<button class="btn-secondary" onclick="generateAttRangeRows()">기간 적용</button>'
+    + '<button class="btn-primary" id="attSaveBtn" style="display:none;" onclick="saveAttRangeRows()">전체 저장</button>'
     + '<div class="status-msg" id="attStatus"></div>'
+    + '<div id="attTemplateArea" style="margin-top:14px;"></div>'
     + '</div>';
 }
 
-async function submitAttendanceSemiAuto() {
+function generateAttRangeRows() {
+  const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
+  const statusEl = document.getElementById('attStatus');
+  const startVal = document.getElementById('attStart').value;
+  const endVal = document.getElementById('attEnd').value;
+  if (!startVal || !endVal) { statusEl.className = 'status-msg err'; statusEl.textContent = '시작일과 종료일을 모두 선택해 주세요.'; return; }
+  if (startVal > endVal) { statusEl.className = 'status-msg err'; statusEl.textContent = '시작일이 종료일보다 늦을 수 없습니다.'; return; }
+
+  attRangeRows = [];
+  let cur = new Date(startVal + 'T00:00:00');
+  const end = new Date(endVal + 'T00:00:00');
+  while (cur <= end) {
+    const dateStr = cur.getFullYear() + '-' + String(cur.getMonth() + 1).padStart(2, '0') + '-' + String(cur.getDate()).padStart(2, '0');
+    if (!isWeekendOrHoliday(dateStr)) attRangeRows.push(dateStr);
+    cur.setDate(cur.getDate() + 1);
+  }
+
+  statusEl.className = 'status-msg';
+  statusEl.textContent = attRangeRows.length + '일(주말·공휴일 제외)이 대상으로 지정되었습니다.';
+  renderAttRangeTemplate();
+  document.getElementById('attSaveBtn').style.display = attRangeRows.length ? 'inline-block' : 'none';
+}
+
+function renderAttRangeTemplate() {
+  const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
+  const area = document.getElementById('attTemplateArea');
+  if (attRangeRows.length === 0) { area.innerHTML = '<p class="empty">지정된 영업일이 없습니다.</p>'; return; }
+
+  const rows = attRangeRows.map(function(date, idx) {
+    return '<tr>'
+      + '<td style="position:sticky;left:0;background:#fff;font-weight:600;">' + date + '</td>'
+      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="to" value="' + cfg.defaultTO + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="staff" value="' + cfg.defaultStaff + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="manual" value="' + cfg.defaultManual + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '</tr>';
+  }).join('');
+
+  area.innerHTML = '<div class="table-scroll"><table>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th></tr></thead>'
+    + '<tbody>' + rows + '</tbody></table></div>'
+    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 값은 직접 클릭해 수정할 수 있습니다</p>';
+}
+
+async function saveAttRangeRows() {
   const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
   const statusEl = document.getElementById('attStatus');
   const token = centerTokenMap[currentCenter];
-  const date = document.getElementById('attDate').value;
-  const to = document.getElementById('attTO').value;
-  const staff = document.getElementById('attStaff').value;
-  const manual = document.getElementById('attManual').value;
+  const BATCH_SIZE = 5;
+  let success = 0, fail = 0;
+  const failDates = [];
 
-  if (!date) { statusEl.className = 'status-msg err'; statusEl.textContent = '날짜를 선택해 주세요.'; return; }
-  if (manual === '') { statusEl.className = 'status-msg err'; statusEl.textContent = cfg.manualLabel + '을 입력해 주세요.'; return; }
+  for (let start = 0; start < attRangeRows.length; start += BATCH_SIZE) {
+    const batchIdx = [];
+    for (let i = start; i < Math.min(start + BATCH_SIZE, attRangeRows.length); i++) batchIdx.push(i);
 
-  const values = {};
-  values[cfg.toKey] = { value: to, group: 'attendance' };
-  values[cfg.staffKey] = { value: staff, group: 'attendance' };
-  values[cfg.manualKey] = { value: manual, group: 'attendance' };
+    statusEl.className = 'status-msg';
+    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, attRangeRows.length) + '/' + attRangeRows.length + ')';
 
-  statusEl.className = 'status-msg';
-  statusEl.textContent = '저장 중...';
-  try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: token, report_date: date, values: values })
-    });
-    const data = await res.json();
-    if (!data.success) throw new Error(data.error || '저장 실패');
-    statusEl.className = 'status-msg ok';
-    statusEl.textContent = date + ' 재직/투입현황이 저장되었습니다.';
-    document.getElementById('attManual').value = '';
-    await loadOverviewForCurrent();
-  } catch (e) {
-    statusEl.className = 'status-msg err';
-    statusEl.textContent = '저장 실패: ' + e.message;
+    const results = await Promise.all(batchIdx.map(function(idx) {
+      const date = attRangeRows[idx];
+      const toVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="to"]').value;
+      const staffVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="staff"]').value;
+      const manualVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]').value;
+
+      const values = {};
+      values[cfg.toKey] = { value: toVal, group: 'attendance' };
+      values[cfg.staffKey] = { value: staffVal, group: 'attendance' };
+      values[cfg.manualKey] = { value: manualVal, group: 'attendance' };
+
+      return fetch(SB_FUNCTION_URL + '?action=manual-entry', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, report_date: date, values: values })
+      }).then(function(res) { return res.json(); })
+        .then(function(data) { return { date: date, ok: !!data.success }; })
+        .catch(function() { return { date: date, ok: false }; });
+    }));
+
+    results.forEach(function(r) { if (r.ok) success++; else { fail++; failDates.push(r.date); } });
   }
+
+  statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
+  statusEl.textContent = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
+  attRangeRows = [];
+  document.getElementById('attSaveBtn').style.display = 'none';
+  document.getElementById('attTemplateArea').innerHTML = '';
+  await loadOverviewForCurrent();
 }
 
 let categorySchema = [];
