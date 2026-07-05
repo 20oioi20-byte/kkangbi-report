@@ -708,7 +708,7 @@ function buildTablePanelInner(sortedTarget) {
     + '</div>'
     + '</div>'
     + '<div id="tableArea">' + (sortedTarget.length === 0 ? '<div class="empty">해당 기간에 등록된 실적이 없습니다.</div>' : renderAggTable(sortedTarget, aggView)) + '</div>'
-    + (aggView === 'daily' ? renderHiddenChips() : '');
+    ;
 }
 
 function bindColToggleButton() {
@@ -823,7 +823,7 @@ function renderDashboard() {
     + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
-    + renderCategoryPiePanel(centerRows)
+    + renderCategoryPiePanel(centerRows, monthRows, prevMonthRows)
     + '<div class="split">'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
@@ -1057,15 +1057,34 @@ function formatChartLabel(bucketLabel) {
 }
 
 // ============================================
-// 업무유형별 인입현황 - 원형그래프 (최신 일자 기준 인입건수 비율)
+// 업무유형별 인입현황 - 원형그래프(최신일자) + 상위3 트렌드 + 전월대비 증감 랭킹표
 // ============================================
 let categoryPieChartInstance = null;
+let categoryTrendChartInstance = null;
 
-function renderCategoryPiePanel(centerRows) {
+const CENTER_CATEGORY_PALETTE = {
+  'pyeongtaek': ['#009DA5', '#303192', '#7ED9DD', '#6C7FC9', '#00C2C2', '#1D2A6B', '#4FB8BD', '#8891D6', '#00838A', '#5A6BB0', '#B9EDEF', '#3A4A9A']
+};
+const DEFAULT_CATEGORY_PALETTE = ['#FFBC00', '#60584C', '#8A8478', '#B7C4D6', '#9B9E9F', '#545045', '#D9C89A', '#C7B299', '#A9A9A9', '#E8D9B5', '#7A7062', '#C9C0B0'];
+function getCategoryPalette() { return CENTER_CATEGORY_PALETTE[currentCenter] || DEFAULT_CATEGORY_PALETTE; }
+
+// 이상징후 기준: 증감률 30%↑ AND 절대증가 100건↑ 동시 충족 시에만 "이상"으로 표기
+const CATEGORY_ANOMALY_PCT = 30;
+const CATEGORY_ANOMALY_ABS = 100;
+
+function categoryMonthlySum(rows, key) {
+  return rows.reduce(function(sum, r) {
+    const n = parseFloat(String((r.performance_data && r.performance_data[key]) || '0').replace(/,/g, '')) || 0;
+    return sum + n;
+  }, 0);
+}
+
+function renderCategoryPiePanel(centerRows, monthRows, prevMonthRows) {
   const schema = categorySchemaCache[currentCenter] || [];
   if (schema.length === 0) return '';
 
-  const totalKey = schema[0].key; // 첫 항목("합계")은 파이차트 대상에서 제외
+  const totalKey = schema[0].key;
+  const catCols = schema.slice(1);
   const sorted = centerRows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
   const latest = sorted.find(function(r) { return r.performance_data && r.performance_data[totalKey] !== undefined; });
 
@@ -1073,12 +1092,46 @@ function renderCategoryPiePanel(centerRows) {
     return '<div class="panel" style="margin-bottom:18px;"><h3>업무유형별 인입건수 비율</h3><div class="empty">등록된 데이터가 없습니다.</div></div>';
   }
 
+  // 최근 30건 기준 상위 3개 항목 산정
+  const recent30 = sorted.slice(0, 30);
+  const sumsRecent = {};
+  catCols.forEach(function(c) { sumsRecent[c.key] = categoryMonthlySum(recent30, c.key); });
+  const top3 = catCols.map(function(c) { return c.key; }).sort(function(a, b) { return sumsRecent[b] - sumsRecent[a]; }).slice(0, 3);
+
+  // 전월 대비 증감 랭킹표 (전체 12개 항목)
+  const rankRows = catCols.map(function(c) {
+    const curSum = categoryMonthlySum(monthRows, c.key);
+    const prevSum = categoryMonthlySum(prevMonthRows, c.key);
+    const diff = curSum - prevSum;
+    const pct = prevSum !== 0 ? (diff / prevSum * 100) : (curSum > 0 ? 100 : 0);
+    const isAnomaly = Math.abs(pct) >= CATEGORY_ANOMALY_PCT && Math.abs(diff) >= CATEGORY_ANOMALY_ABS;
+    return { key: c.key, curSum: curSum, prevSum: prevSum, diff: diff, pct: pct, isAnomaly: isAnomaly };
+  }).sort(function(a, b) { return b.pct - a.pct; });
+
+  const rankHtml = rankRows.map(function(r) {
+    const up = r.diff >= 0;
+    const arrowColor = up ? '#c94040' : '#2f6fd1';
+    return '<tr' + (r.isAnomaly ? ' style="background:#fdecea;"' : '') + '>'
+      + '<td>' + r.key + (r.isAnomaly ? ' ⚠' : '') + '</td>'
+      + '<td>' + r.curSum.toLocaleString() + '건</td>'
+      + '<td>' + r.prevSum.toLocaleString() + '건</td>'
+      + '<td style="color:' + arrowColor + ';font-weight:600;">' + (up ? '▲' : '▼') + Math.abs(r.diff).toLocaleString() + '건 (' + Math.abs(r.pct).toFixed(1) + '%)</td>'
+      + '</tr>';
+  }).join('');
+
   return '<div class="panel" style="margin-bottom:18px;">'
     + '<h3>업무유형별 인입건수 비율 (' + latest.report_date + ' 기준)</h3>'
-    + '<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">'
+    + '<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;margin-bottom:20px;">'
     + '<div style="width:260px;height:260px;"><canvas id="categoryPieChart"></canvas></div>'
     + '<div class="table-scroll" style="flex:1;min-width:240px;">' + buildCategoryShareTable(latest, schema, totalKey) + '</div>'
-    + '</div></div>';
+    + '</div>'
+
+    + '<h3 style="margin-top:20px;">상위 3개 유형 추이 (' + top3.join(' · ') + ')</h3>'
+    + '<div style="height:220px;"><canvas id="categoryTrendChart"></canvas></div>'
+
+    + '<h3 style="margin-top:20px;">업무유형별 전월 대비 증감 (증감률 ' + CATEGORY_ANOMALY_PCT + '%↑ · 절대증가 ' + CATEGORY_ANOMALY_ABS + '건↑ 동시 충족 시 ⚠)</h3>'
+    + '<div class="table-scroll"><table><thead><tr><th>업무유형</th><th>이번달 합계</th><th>전월 합계</th><th>증감</th></tr></thead><tbody>' + rankHtml + '</tbody></table></div>'
+    + '</div>';
 }
 
 function buildCategoryShareTable(row, schema, totalKey) {
@@ -1093,20 +1146,22 @@ function buildCategoryShareTable(row, schema, totalKey) {
 
 function drawCategoryPieChart(centerRows) {
   if (categoryPieChartInstance) { categoryPieChartInstance.destroy(); categoryPieChartInstance = null; }
+  if (categoryTrendChartInstance) { categoryTrendChartInstance.destroy(); categoryTrendChartInstance = null; }
   const canvas = document.getElementById('categoryPieChart');
   if (!canvas) return;
 
   const schema = categorySchemaCache[currentCenter] || [];
   if (schema.length === 0) return;
   const totalKey = schema[0].key;
+  const catCols = schema.slice(1);
 
   const sorted = centerRows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
   const latest = sorted.find(function(r) { return r.performance_data && r.performance_data[totalKey] !== undefined; });
   if (!latest) return;
 
-  const labels = schema.slice(1).map(function(c) { return c.key; });
-  const values = schema.slice(1).map(function(c) { return parseFloat(String(latest.performance_data[c.key] || '0').replace(/,/g, '')) || 0; });
-  const palette = ['#FFBC00', '#60584C', '#8A8478', '#B7C4D6', '#9B9E9F', '#545045', '#D9C89A', '#C7B299', '#A9A9A9', '#E8D9B5', '#7A7062', '#C9C0B0'];
+  const labels = catCols.map(function(c) { return c.key; });
+  const values = catCols.map(function(c) { return parseFloat(String(latest.performance_data[c.key] || '0').replace(/,/g, '')) || 0; });
+  const palette = getCategoryPalette();
 
   categoryPieChartInstance = new Chart(canvas, {
     type: 'pie',
@@ -1116,6 +1171,36 @@ function drawCategoryPieChart(centerRows) {
       plugins: { legend: { display: false } }
     }
   });
+
+  // 상위 3개 유형 추이 (최근 30건, 날짜 오름차순)
+  const recent30 = sorted.slice(0, 30).slice().reverse();
+  const sumsRecent = {};
+  catCols.forEach(function(c) { sumsRecent[c.key] = categoryMonthlySum(sorted.slice(0, 30), c.key); });
+  const top3Keys = catCols.map(function(c) { return c.key; }).sort(function(a, b) { return sumsRecent[b] - sumsRecent[a]; }).slice(0, 3);
+
+  const trendCanvas = document.getElementById('categoryTrendChart');
+  if (trendCanvas && top3Keys.length) {
+    const trendLabels = recent30.map(function(r) { return r.report_date; });
+    const trendDatasets = top3Keys.map(function(key, i) {
+      return {
+        label: key,
+        data: recent30.map(function(r) { return parseFloat(String((r.performance_data && r.performance_data[key]) || '0').replace(/,/g, '')) || 0; }),
+        borderColor: palette[i % palette.length],
+        backgroundColor: 'transparent',
+        tension: 0.25,
+        pointRadius: 2
+      };
+    });
+    categoryTrendChartInstance = new Chart(trendCanvas, {
+      type: 'line',
+      data: { labels: trendLabels, datasets: trendDatasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 8, font: { size: 10 } } } },
+        scales: { y: { beginAtZero: true, ticks: { font: { size: 9 } } }, x: { ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true } } }
+      }
+    });
+  }
 }
 
 function drawMiniCharts(records) {
