@@ -41,7 +41,21 @@
   .toggle-group button { border: none; background: #fff; padding: 6px 14px; font-size: 13px; cursor: pointer; color: #5b6472; }
   .toggle-group button.active { background: var(--dash-accent, #FE2E36); color: #FFFFFF; }
 
-  .alert-card { background: #fdf1de; border: 1px solid #f3dfb2; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; font-size: 13px; color: #8a6414; }
+  .alert-card { background: #fdf1de; border: 1px solid #f3dfb2; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; font-size: 13px; color: #8a6414; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .alert-chip { background: #fff; border: 1px solid #f3dfb2; color: #8a6414; font-size: 12px; padding: 6px 12px; border-radius: 20px; white-space: nowrap; }
+
+  .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
+  .summary-card2 { background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .summary-card2 .sc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
+  .summary-card2 .sc-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
+  .summary-card2 .sc-copy { font-size: 11px; padding: 4px 10px; border-radius: 14px; border: 1px solid var(--dash-accent, #FE2E36); color: var(--dash-accent, #FE2E36); background: #fff; cursor: pointer; }
+  .summary-card2 .sc-row { display: grid; gap: 10px; margin-bottom: 10px; }
+  .summary-card2 .sc-stat { text-align: center; }
+  .summary-card2 .sc-stat .l { font-size: 11px; color: #9aa1ac; margin-bottom: 3px; }
+  .summary-card2 .sc-stat .v { font-size: 16px; font-weight: 700; }
+  .summary-card2 .sc-stat .v .pct { font-size: 12px; color: #9aa1ac; font-weight: 400; }
+  .summary-card2 .sc-stat .sub { font-size: 10.5px; color: #9aa1ac; margin-top: 2px; }
+  .summary-card2 .sc-stat .v.warn { color: #c94040; }
   .alert-card.none { background: #eef7f0; border-color: #cfe9d4; color: #2f7a45; }
   .alert-card b { display: block; margin-bottom: 4px; font-size: 13px; }
 
@@ -148,7 +162,13 @@ const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/c
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
 
 // 센터별 upload_token은 더 이상 하드코딩하지 않고, 비밀번호 인증 성공 시 서버에서 동적으로 받아옵니다.
-const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 24 };
+const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 20 }; // 평택시청: 투입인원은 상담사만 집계되므로 상담사 정원(20명) 기준
+
+// 센터별 전체 정원 정보 (전체 운영 요약 카드의 각주 표시용)
+const CENTER_TO_INFO = {
+  'kbsonhae': { total: 178, counselor: 178, staffAttKey: '총원', note: '' },
+  'pyeongtaek': { total: 24, counselor: 20, staffAttKey: '투입인원', note: '관리자 4명 제외, 상담사 20명 기준' }
+};
 
 const KR_HOLIDAYS_2026 = [
   '2026-01-01', '2026-02-16', '2026-02-17', '2026-02-18',
@@ -823,6 +843,7 @@ function renderDashboard() {
     + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
+    + renderSummaryCards(monthRows, cumulativeRows, prevMonthRows)
     + '<div class="split">'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
@@ -1043,9 +1064,25 @@ function downloadChartImage(canvas, idx) {
 
 function computeAlert(centerRows) {
   const sorted = centerRows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
-  if (sorted.length < 2) return { html: '<div class="alert-card none"><b>이상징후</b>비교할 데이터가 충분하지 않습니다.</div>' };
+
+  // 우측 보조 배지: 임계값에 근접(임계값 이상 ~ +5 이내)한 그룹은 "모니터링 권장"으로 안내
+  const chartConfig = CENTER_CHART_CONFIG[currentCenter];
+  const monthRowsForAlert = centerRows.filter(function(r) { return r.report_date.startsWith(currentMonth); });
+  const chips = [];
+  if (chartConfig) {
+    chartConfig.groups.forEach(function(group) {
+      if (!group.threshold) return;
+      const avg = avgExcludingHolidays(monthRowsForAlert, function(r) { return extractNum(r, 'performance_data', group.threshold.key); });
+      if (avg !== null && avg >= group.threshold.value && avg < group.threshold.value + 5) {
+        chips.push(group.title + ' ' + group.threshold.key.split('_').pop() + ' 모니터링 권장');
+      }
+    });
+  }
+  const chipsHtml = chips.length ? chips.map(function(c) { return '<span class="alert-chip">⚠ ' + c + '</span>'; }).join('') : '';
+
+  if (sorted.length < 2) return { html: '<div class="alert-card none"><div><b>이상징후</b>비교할 데이터가 충분하지 않습니다.</div>' + chipsHtml + '</div>' };
   const latest = sorted[0], prev = sorted[1];
-  const keys = Object.keys(latest.performance_data || {}).filter(function(k) { return k.includes('응답율'); });
+  const keys = Object.keys(latest.performance_data || {}).filter(function(k) { return k.includes('응답율') || k.includes('응대율'); });
   const issues = [];
   keys.forEach(function(k) {
     const cur = parseFloat(String(latest.performance_data[k]).replace('%', ''));
@@ -1056,8 +1093,81 @@ function computeAlert(centerRows) {
       issues.push(k + ' ' + before + '% → ' + cur + '% (▼' + (before - cur).toFixed(1) + 'p)');
     }
   });
-  if (issues.length === 0) return { html: '<div class="alert-card none"><b>이상징후 없음</b>최근 대비 응답율 급락 항목이 없습니다.</div>' };
-  return { html: '<div class="alert-card"><b>이상징후 감지 (' + latest.report_date + ' 기준)</b>' + issues.join(' · ') + '</div>' };
+  if (issues.length === 0) return { html: '<div class="alert-card none"><div><b>이상징후 없음</b>최근 대비 응답율, SL, 인입 등 주요 지표가 안정적으로 유지되고 있습니다.</div>' + chipsHtml + '</div>' };
+  return { html: '<div class="alert-card"><div><b>이상징후 감지 (' + latest.report_date + ' 기준)</b>' + issues.join(' · ') + '</div>' + chipsHtml + '</div>' };
+}
+
+// ============================================
+// 전체 현황 요약 카드 (이상징후와 지표추이 사이) - 센터별 설정 기반 공통 함수
+// ============================================
+const GROUP_ICONS = ['🎧', '🚗', '📋', '💼', '🏢'];
+
+function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
+  const toInfo = CENTER_TO_INFO[currentCenter];
+  const chartConfig = CENTER_CHART_CONFIG[currentCenter];
+  if (!toInfo || !chartConfig) return '';
+
+  const to = TO_TARGET[currentCenter] || toInfo.counselor;
+  const staffAvgMonth = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'attendance_data', toInfo.staffAttKey); });
+  const staffAvgCum = avgExcludingHolidays(cumulativeRows, function(r) { return extractNum(r, 'attendance_data', toInfo.staffAttKey); });
+  const staffAvgPrevMonth = prevMonthRows && prevMonthRows.length ? avgExcludingHolidays(prevMonthRows, function(r) { return extractNum(r, 'attendance_data', toInfo.staffAttKey); }) : null;
+
+  const curPct = staffAvgMonth !== null && to ? (staffAvgMonth / to * 100) : null;
+  const prevPct = staffAvgPrevMonth !== null && to ? (staffAvgPrevMonth / to * 100) : null;
+  const cumPct = staffAvgCum !== null && to ? (staffAvgCum / to * 100) : null;
+  const pctDiff = (curPct !== null && prevPct !== null) ? (curPct - prevPct) : null;
+
+  const overviewCard = '<div class="summary-card2" id="sumCardOverview">'
+    + '<div class="sc-head"><span class="sc-title">👥 전체 운영 요약</span><button class="sc-copy" onclick="copySummaryCard(\'sumCardOverview\')">복사</button></div>'
+    + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
+    + '<div class="sc-stat"><div class="l">전체 재직인원(TO대비)</div><div class="v">' + (staffAvgMonth !== null ? staffAvgMonth.toFixed(1) : '-') + '명</div><div class="sub">(' + (curPct !== null ? curPct.toFixed(0) : '-') + '%)</div></div>'
+    + '<div class="sc-stat"><div class="l">운영 안정도</div><div class="v">' + (curPct !== null ? curPct.toFixed(0) : '-') + '%</div><div class="sub">' + (pctDiff !== null ? ('전월比 ' + (pctDiff >= 0 ? '▲' : '▼') + Math.abs(pctDiff).toFixed(0) + '%p') : '-') + '</div></div>'
+    + '<div class="sc-stat"><div class="l">누적평균 재직인원</div><div class="v">' + (staffAvgCum !== null ? staffAvgCum.toFixed(1) : '-') + '명</div><div class="sub">(' + (cumPct !== null ? cumPct.toFixed(0) : '-') + '%)</div></div>'
+    + '</div>'
+    + (toInfo.note ? '<div class="sub" style="text-align:center;color:#9aa1ac;">※ 전체 정원 ' + toInfo.total + '명 중 ' + toInfo.note + '</div>' : '')
+    + '</div>';
+
+  const groupCards = chartConfig.groups.map(function(group, gi) {
+    const inboundAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', group.barKeys[0]); });
+    const answeredAvg = group.barKeys[1] ? avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', group.barKeys[1]); }) : null;
+    const rateAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', group.lineKeys[0]); });
+    const secondAvg = group.lineKeys[1] ? avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', group.lineKeys[1]); }) : null;
+
+    let missText = '-';
+    if (group.threshold) {
+      const vals = monthRows.filter(function(r) { return !isWeekendOrHoliday(r.report_date); })
+        .map(function(r) { return extractNum(r, 'performance_data', group.threshold.key); })
+        .filter(function(n) { return n !== null && !isNaN(n); });
+      const below = vals.filter(function(v) { return v < group.threshold.value; }).length;
+      missText = vals.length ? below + '/' + vals.length + '일' : '-';
+    }
+
+    const cardId = 'sumCardGroup' + gi;
+    const secondLabel = group.lineLabels[1] || group.lineLabels[0];
+    return '<div class="summary-card2" id="' + cardId + '">'
+      + '<div class="sc-head"><span class="sc-title">' + GROUP_ICONS[gi % GROUP_ICONS.length] + ' ' + group.title + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">' + group.title + ' 복사</button></div>'
+      + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
+      + '<div class="sc-stat"><div class="l">' + group.barLabels[0] + '</div><div class="v">' + (inboundAvg !== null ? Math.round(inboundAvg).toLocaleString() : '-') + '건</div></div>'
+      + (group.barKeys[1] ? '<div class="sc-stat"><div class="l">' + group.barLabels[1] + '</div><div class="v">' + (answeredAvg !== null ? Math.round(answeredAvg).toLocaleString() : '-') + '건</div></div>' : '')
+      + '<div class="sc-stat"><div class="l">' + group.lineLabels[0].replace('(%)', '') + '</div><div class="v">' + (rateAvg !== null ? rateAvg.toFixed(1) + '%' : '-') + '</div></div>'
+      + '</div>'
+      + (group.lineKeys[1] ? '<div class="sc-row" style="grid-template-columns:repeat(2,1fr);margin-bottom:0;">'
+        + '<div class="sc-stat"><div class="l">' + secondLabel + '</div><div class="v">' + (secondAvg !== null ? secondAvg.toFixed(1) : '-') + '</div></div>'
+        + '<div class="sc-stat"><div class="l">' + secondLabel + ' 미달일수</div><div class="v warn">' + missText + '</div></div>'
+        + '</div>' : '')
+      + '</div>';
+  }).join('');
+
+  return '<div class="summary-cards">' + overviewCard + groupCards + '</div>';
+}
+
+function copySummaryCard(id) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const text = el.innerText.replace(/\n{2,}/g, '\n');
+  navigator.clipboard.writeText(text)
+    .then(function() { alert('요약 카드 내용이 클립보드에 복사되었습니다.'); })
+    .catch(function(e) { alert('복사 실패: ' + e.message); });
 }
 
 function formatChartLabel(bucketLabel) {
