@@ -1758,12 +1758,21 @@ function xlsxExtractDaily(workbook, fields) {
     }
     if (!hdr) return;
 
+    // "출근현황" 요약박스(월별 스냅샷)가 메인 표 아래쪽에 별도로 있고, 날짜 열이 메인 표와 겹쳐
+    // 별도 날짜 데이터로 잘못 추출되는 문제가 있어, 이 박스가 시작되는 행 이후는 통째로 제외한다.
+    let attendanceBoxRow = null;
+    for (let r = hdr + 1; r <= maxRow && !attendanceBoxRow; r++) {
+      for (let c = 1; c <= maxCol; c++) {
+        const v = xlsxGet(grid, r, c);
+        if (v && String(v).replace(/[\n\r\s]/g, '').includes('출근현황')) { attendanceBoxRow = r; break; }
+      }
+    }
+    const effectiveMaxRow = attendanceBoxRow ? attendanceBoxRow - 1 : maxRow;
+
     const paths = {};
     for (let c = 1; c <= maxCol; c++) {
       const arr = [];
       for (let r = hdr; r <= hdr + 2; r++) { const v = xlsxGet(grid, r, c); if (!xlsxIsBlank(v)) arr.push(xlsxClean(v)); }
-      // "출근결측/출근현황" 등 별도 요약 표는 메인 일자별 표와 헤더 단어가 겹쳐 혼동될 수 있어
-      // "출근"이 포함된 열은 매핑 후보에서 완전히 제외한다.
       if (arr.join('|').includes('출근')) continue;
       paths[c] = arr;
     }
@@ -1777,7 +1786,7 @@ function xlsxExtractDaily(workbook, fields) {
     }
 
     const dateCandidates = findCols(['일자']);
-    const dateCol = dateCandidates.slice().sort(function(a, b) { return xlsxDateScore(grid, b, hdr, maxRow) - xlsxDateScore(grid, a, hdr, maxRow); })[0] || null;
+    const dateCol = dateCandidates.slice().sort(function(a, b) { return xlsxDateScore(grid, b, hdr, effectiveMaxRow) - xlsxDateScore(grid, a, hdr, effectiveMaxRow); })[0] || null;
 
     const colMap = {};
     fields.forEach(function(f) {
@@ -1785,7 +1794,7 @@ function xlsxExtractDaily(workbook, fields) {
       colMap[f[0]] = arr[f[3] || 0] || null;
     });
 
-    for (let r = hdr + 3; r <= maxRow; r++) {
+    for (let r = hdr + 3; r <= effectiveMaxRow; r++) {
       const dv = dateCol ? xlsxGet(grid, r, dateCol) : null;
       const date = xlsxNormalizeDate(dv);
       if (!date) continue;
