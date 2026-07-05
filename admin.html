@@ -1624,6 +1624,218 @@ function hwpxParseDaily(tables) {
   return daily;
 }
 
+// ============================================
+// 엑셀(XLSX) 자동 추출 (kb_daily_visible_items_extractor_v2.html 로직 이식)
+// XLSX도 ZIP 포맷이라 hwpxUnzipOne(단일 항목 추출)을 그대로 재사용한다.
+// ============================================
+const XLSX_FIELDS_KBSONHAE = [
+  ['total', 'num1', ['총원']],
+  ['rec_cs_total', 'num1', ['재적인원', '제휴CS', '소계']],
+  ['rec_long_total', 'num1', ['재적인원', '장기사고', '소계']],
+  ['input_cs', 'num1', ['투입인원', '제휴상담'], 0],
+  ['input_cs_rate', 'pct1', ['투입인원', '제휴상담'], 1],
+  ['input_long', 'num1', ['투입인원', '장기사고'], 0],
+  ['input_long_rate', 'pct1', ['투입인원', '장기사고'], 1],
+  ['chat', 'num1', ['기타업무', '채팅상담']],
+  ['support', 'num1', ['기타업무', '지원업무']],
+  ['lapse', 'num1', ['기타업무', '실효안내']],
+  ['manager_team', 'num1', ['관리자', '팀장']],
+  ['manager_special', 'num1', ['관리자', '특화']],
+  ['manager_qa', 'num1', ['관리자', 'QA']],
+  ['manager_total', 'num1', ['관리자', '소계']],
+  ['trainee_total', 'num1', ['교육생', '소계']],
+  ['exclude_hold', 'num1', ['제외', '보유계약']],
+  ['cs_in', 'int', ['Call현황', '제휴상담', '인입호']],
+  ['cs_answer', 'int', ['Call현황', '제휴상담', '응답호']],
+  ['cs_support', 'int', ['Call현황', '제휴상담', '손사지원']],
+  ['cs_out', 'int', ['Call현황', '제휴상담', 'OutCall']],
+  ['cs_callback', 'int', ['Call현황', '제휴상담', '콜백']],
+  ['cs_rate', 'pct1', ['Call현황', '제휴상담', '응답율']],
+  ['cs_cpd', 'num1', ['Call현황', '제휴상담', 'CPD']],
+  ['cs_sl', 'num1', ['Call현황', '제휴상담', 'S.L']],
+  ['lt_in', 'int', ['Call현황', '장기손사', 'Total', '인입호']],
+  ['lt_answer', 'int', ['Call현황', '장기손사', 'Total', '응답호']],
+  ['lt_out', 'int', ['Call현황', '장기손사', 'Total', 'OutCall']],
+  ['lt_callback', 'int', ['Call현황', '장기손사', 'Total', '콜백']],
+  ['lt_rate', 'pct1', ['Call현황', '장기손사', 'Total', '응답율']],
+  ['lt_cpd', 'num1', ['Call현황', '장기손사', 'Total', 'CPD']],
+  ['lt_sl', 'num1', ['Call현황', '장기손사', 'Total', 'S.L']]
+];
+
+const XLSX_EXTRACTOR_FIELDS = { 'kbsonhae': XLSX_FIELDS_KBSONHAE };
+
+function xlsxRefToRc(ref) { const m = /([A-Z]+)(\d+)/.exec(ref); return [Number(m[2]), xlsxColToNum(m[1])]; }
+function xlsxColToNum(s) { let n = 0; for (let i = 0; i < s.length; i++) n = n * 26 + (s.charCodeAt(i) - 64); return n; }
+function xlsxRangeToCoords(ref) { const parts = ref.split(':'); const a = xlsxRefToRc(parts[0]), b = xlsxRefToRc(parts[1]); return { r1: a[0], c1: a[1], r2: b[0], c2: b[1] }; }
+function xlsxGet(grid, r, c) { return grid.get(r + ',' + c); }
+function xlsxClean(v) { return String(v === null || v === undefined ? '' : v).replace(/[\n\r\s_]/g, '').trim(); }
+function xlsxIsBlank(v) { return v === undefined || v === null || String(v).trim() === ''; }
+function xlsxIsDateSerial(v) { return typeof v === 'number' && v > 40000 && v < 60000; }
+function xlsxExcelDate(v) { const d = new Date(Date.UTC(1899, 11, 30) + Math.round(Number(v)) * 86400000); return (d.getUTCMonth() + 1) + '/' + d.getUTCDate(); }
+function xlsxNormalizeDate(v) {
+  if (xlsxIsDateSerial(v)) return xlsxExcelDate(v);
+  const s = String(v === null || v === undefined ? '' : v).trim();
+  const m = s.match(/(\d{1,2})\s*[\/.-]\s*(\d{1,2})/);
+  return m ? (Number(m[1]) + '/' + Number(m[2])) : '';
+}
+function xlsxDateScore(grid, c, hdr, maxRow) { let n = 0; for (let r = hdr + 3; r <= maxRow; r++) { if (xlsxIsDateSerial(xlsxGet(grid, r, c))) n++; } return n; }
+
+function xlsxParseSheet(doc, shared) {
+  const grid = new Map();
+  Array.from(doc.getElementsByTagName('c')).forEach(function(c) {
+    const ref = c.getAttribute('r'); if (!ref) return;
+    const rc = xlsxRefToRc(ref);
+    const type = c.getAttribute('t');
+    let val = null;
+    const vNode = Array.from(c.childNodes).find(function(n) { return n.nodeName === 'v'; });
+    if (type === 's') {
+      val = vNode && vNode.textContent !== '' ? (shared[Number(vNode.textContent)] || '') : '';
+    } else if (type === 'inlineStr') {
+      val = Array.from(c.getElementsByTagName('t')).map(function(t) { return t.textContent || ''; }).join('');
+    } else if (vNode && vNode.textContent !== null && vNode.textContent !== '') {
+      const n = Number(vNode.textContent);
+      val = isFinite(n) ? n : vNode.textContent;
+    }
+    if (val !== null) grid.set(rc[0] + ',' + rc[1], val);
+  });
+  const merges = [];
+  Array.from(doc.getElementsByTagName('mergeCell')).forEach(function(mc) { merges.push(xlsxRangeToCoords(mc.getAttribute('ref'))); });
+  merges.forEach(function(m) {
+    const key = m.r1 + ',' + m.c1;
+    if (!grid.has(key)) return;
+    const val = grid.get(key);
+    for (let r = m.r1; r <= m.r2; r++) for (let c = m.c1; c <= m.c2; c++) { const k = r + ',' + c; if (!grid.has(k)) grid.set(k, val); }
+  });
+  let maxRow = 0, maxCol = 0;
+  grid.forEach(function(v, k) { const parts = k.split(','); const r = Number(parts[0]), c = Number(parts[1]); if (r > maxRow) maxRow = r; if (c > maxCol) maxCol = c; });
+  return { grid: grid, maxRow: maxRow, maxCol: maxCol };
+}
+
+async function xlsxParseWorkbook(arrayBuffer) {
+  const wbXmlText = await hwpxUnzipOne(arrayBuffer, 'xl/workbook.xml');
+  const relXmlText = await hwpxUnzipOne(arrayBuffer, 'xl/_rels/workbook.xml.rels');
+  let sharedStrings = [];
+  try {
+    const sstText = await hwpxUnzipOne(arrayBuffer, 'xl/sharedStrings.xml');
+    const sstDoc = new DOMParser().parseFromString(sstText, 'application/xml');
+    sharedStrings = Array.from(sstDoc.getElementsByTagName('si')).map(function(si) { return si.textContent || ''; });
+  } catch (e) { /* 공유문자열이 없는 파일도 있음 */ }
+
+  const wbDoc = new DOMParser().parseFromString(wbXmlText, 'application/xml');
+  const relDoc = new DOMParser().parseFromString(relXmlText, 'application/xml');
+  const relMap = {};
+  Array.from(relDoc.getElementsByTagName('Relationship')).forEach(function(rel) {
+    relMap[rel.getAttribute('Id')] = 'xl/' + rel.getAttribute('Target').replace(/^\.?\//, '');
+  });
+
+  const sheets = [];
+  const sheetEls = Array.from(wbDoc.getElementsByTagName('sheet'));
+  for (let i = 0; i < sheetEls.length; i++) {
+    const sh = sheetEls[i];
+    const name = sh.getAttribute('name');
+    const rid = sh.getAttribute('r:id') || sh.getAttributeNS('http://schemas.openxmlformats.org/officeDocument/2006/relationships', 'id');
+    const target = relMap[rid];
+    if (!target) continue;
+    let sheetXmlText;
+    try { sheetXmlText = await hwpxUnzipOne(arrayBuffer, target); } catch (e) { continue; }
+    const sheetDoc = new DOMParser().parseFromString(sheetXmlText, 'application/xml');
+    const parsed = xlsxParseSheet(sheetDoc, sharedStrings);
+    sheets.push({ name: name, grid: parsed.grid, maxRow: parsed.maxRow, maxCol: parsed.maxCol });
+  }
+  return { sheets: sheets };
+}
+
+function xlsxExtractDaily(workbook, fields) {
+  const allRows = [];
+  workbook.sheets.forEach(function(sheet) {
+    const grid = sheet.grid, maxRow = sheet.maxRow, maxCol = sheet.maxCol;
+    let hdr = null;
+    for (let r = 1; r <= Math.min(maxRow, 12); r++) {
+      let text = '';
+      for (let c = 1; c <= maxCol; c++) { const v = xlsxGet(grid, r, c); text += ' ' + String(v === null || v === undefined ? '' : v).replace(/[\n\r]/g, ''); }
+      if (text.includes('일자') && (text.includes('Call') || text.includes('콜'))) { hdr = r; break; }
+    }
+    if (!hdr) return;
+
+    const paths = {};
+    for (let c = 1; c <= maxCol; c++) {
+      const arr = [];
+      for (let r = hdr; r <= hdr + 2; r++) { const v = xlsxGet(grid, r, c); if (!xlsxIsBlank(v)) arr.push(xlsxClean(v)); }
+      paths[c] = arr;
+    }
+    function findCols(tokens) {
+      const res = [];
+      Object.keys(paths).forEach(function(c) {
+        const joined = paths[c].join('|');
+        if (tokens.every(function(t) { return joined.includes(t); })) res.push(Number(c));
+      });
+      return res.sort(function(a, b) { return a - b; });
+    }
+
+    const dateCandidates = findCols(['일자']);
+    const dateCol = dateCandidates.slice().sort(function(a, b) { return xlsxDateScore(grid, b, hdr, maxRow) - xlsxDateScore(grid, a, hdr, maxRow); })[0] || null;
+
+    const colMap = {};
+    fields.forEach(function(f) {
+      const arr = findCols(f[2]);
+      colMap[f[0]] = arr[f[3] || 0] || null;
+    });
+
+    for (let r = hdr + 3; r <= maxRow; r++) {
+      const dv = dateCol ? xlsxGet(grid, r, dateCol) : null;
+      const date = xlsxNormalizeDate(dv);
+      if (!date) continue;
+      if (['합계', '평균'].indexOf(String(dv).trim()) > -1) continue;
+
+      const obj = { date: date };
+      fields.forEach(function(f) {
+        const c = colMap[f[0]];
+        obj[f[0]] = c ? xlsxGet(grid, r, c) : null;
+      });
+      if (xlsxIsBlank(obj.cs_in) && xlsxIsBlank(obj.lt_in)) continue; // Call 현황이 비어있는 행은 제외
+      allRows.push(obj);
+    }
+  });
+  return allRows;
+}
+
+function xlsxFmtValue(v, type) {
+  if (xlsxIsBlank(v)) return '';
+  const n = Number(v);
+  if (!isFinite(n)) return String(v);
+  if (type === 'pct1') return (n * 100).toFixed(1) + '%';
+  if (type === 'int') return Math.round(n).toLocaleString('ko-KR');
+  const rounded = Math.round(n * 10) / 10;
+  return rounded.toLocaleString('ko-KR', { minimumFractionDigits: Number.isInteger(rounded) ? 0 : 1, maximumFractionDigits: 1 });
+}
+
+async function extractXlsxAndFill() {
+  const statusEl = document.getElementById('xlsxStatus');
+  const fileInput = document.getElementById('xlsxFile');
+  const f = fileInput.files[0];
+  if (!f) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 .xlsx 파일을 선택해 주세요.'; return; }
+
+  const fields = XLSX_EXTRACTOR_FIELDS[currentCenter];
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '엑셀 파일을 읽는 중...';
+  try {
+    const workbook = await xlsxParseWorkbook(await f.arrayBuffer());
+    const daily = xlsxExtractDaily(workbook, fields);
+    if (daily.length === 0) throw new Error('일자별 데이터를 찾지 못했습니다. 문서 양식이 다를 수 있습니다.');
+
+    const lines = daily.map(function(row) {
+      const values = fields.map(function(f) { return xlsxFmtValue(row[f[0]], f[1]); });
+      return row.date + '\t' + values.join('\t');
+    });
+    document.getElementById('pasteBox').value = lines.join('\n');
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = daily.length + '일치 추출 완료. 아래 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.';
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '추출 실패: ' + e.message;
+  }
+}
+
 async function extractHwpxAndFill() {
   const statusEl = document.getElementById('hwpxStatus');
   const fileInput = document.getElementById('hwpxFile');
@@ -1659,6 +1871,16 @@ async function renderEntry() {
   if (!token) { main.innerHTML = '<div class="empty">이 센터는 아직 데이터입력 토큰이 등록되지 않았습니다.</div>'; return; }
 
   const thisYear = new Date().getFullYear();
+  const xlsxBox = XLSX_EXTRACTOR_FIELDS[currentCenter]
+    ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
+      + '<h3>엑셀 파일에서 자동 추출</h3>'
+      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">월별 운영보고서(.xlsx)를 첨부하면 일자별 데이터를 읽어 아래 붙여넣기 칸에 자동으로 채워줍니다. 채워진 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.</p>'
+      + '<input type="file" id="xlsxFile" accept=".xlsx">'
+      + '<button class="btn-secondary" onclick="extractXlsxAndFill()">추출해서 채우기</button>'
+      + '<div class="status-msg" id="xlsxStatus"></div>'
+      + '</div>'
+    : '';
+
   const hwpxBox = HWPX_FIELD_ORDER[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
       + '<h3>한글파일(HWPX)에서 자동 추출</h3>'
@@ -1670,6 +1892,7 @@ async function renderEntry() {
     : '';
 
   main.innerHTML = '<div id="inputGuideArea"></div>'
+    + xlsxBox
     + hwpxBox
     + '<div class="entry-wrap panel">'
     + '<h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>'
@@ -1743,6 +1966,14 @@ function renderCategoryEntryPanel() {
     + '</div>';
 }
 
+// 엑셀에서 복사하면 탭(Tab)으로 구분되지만, 직접 타이핑하거나 채팅에서 붙여넣으면
+// 공백으로 구분되는 경우가 많아 둘 다 지원한다.
+function splitLineTokens(line) {
+  return line.includes('\t')
+    ? line.split('\t').map(function(t) { return t.trim(); })
+    : line.trim().split(/\s+/);
+}
+
 function parseCategoryPaste() {
   const raw = document.getElementById('categoryPasteBox').value;
   const statusEl = document.getElementById('categoryStatus');
@@ -1753,7 +1984,7 @@ function parseCategoryPaste() {
   const errors = [];
   categoryParsedRows = [];
   lines.forEach(function(line, li) {
-    const tokens = line.split('\t').map(function(t) { return t.trim(); });
+    const tokens = splitLineTokens(line);
     const dateToken = tokens[0];
     const values = tokens.slice(1);
     if (values.length !== categorySchema.length) { errors.push('줄 ' + (li + 1) + ' (' + (dateToken || '날짜없음') + '): 항목 수 ' + values.length + '개 / 필요 ' + categorySchema.length + '개 — 제외됩니다.'); return; }
@@ -1855,7 +2086,7 @@ function parseMultiPaste() {
   const errors = [];
   parsedRows = [];
   lines.forEach(function(line, li) {
-    const tokens = line.split('\t').map(function(t) { return t.trim(); });
+    const tokens = splitLineTokens(line);
     const dateToken = tokens[0];
     const values = tokens.slice(1);
     if (values.length !== rowSchema.length) { errors.push('줄 ' + (li + 1) + ' (' + (dateToken || '날짜없음') + '): 항목 수 ' + values.length + '개 / 필요 ' + rowSchema.length + '개 — 제외됩니다.'); return; }
