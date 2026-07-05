@@ -145,7 +145,7 @@ const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/c
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
 
 // 센터별 upload_token은 더 이상 하드코딩하지 않고, 비밀번호 인증 성공 시 서버에서 동적으로 받아옵니다.
-const TO_TARGET = { 'kbsonhae': 178 };
+const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 24 };
 
 const KR_HOLIDAYS_2026 = [
   '2026-01-01', '2026-02-16', '2026-02-17', '2026-02-18',
@@ -155,27 +155,59 @@ const KR_HOLIDAYS_2026 = [
   '2026-10-09', '2026-12-25'
 ];
 
-const KPI_DEFS = [
-  { label: '전체재직인원(TO대비)', type: 'staff', attKey: '총원' },
+// 센터별 주요지표(KPI) 구성 - 새 센터 추가 시 여기에 등록
+const CENTER_KPI_DEFS = {
+  'kbsonhae': [
+    { label: '전체재직인원(TO대비)', type: 'staff', attKey: '총원' },
+    { section: '제휴상담', label: '근태', type: 'count', attKey: '제휴CS_소계' },
+    { label: '실적·인입호', type: 'count', perfKey: '제휴상담_인입호' },
+    { label: '실적·응대호', type: 'count', perfKey: '제휴상담_응답호' },
+    { label: '응답율', type: 'rate', perfKey: '제휴상담_응답율' },
+    { label: 'SL', type: 'rate', perfKey: '제휴상담_SL' },
+    { section: '장기손사', label: '근태', type: 'count', attKey: '장기사고_소계' },
+    { label: '실적·인입호', type: 'count', perfKey: '장기손사_인입호' },
+    { label: '실적·응대호', type: 'count', perfKey: '장기손사_응답호' },
+    { label: '응답율', type: 'rate', perfKey: '장기손사_응답율' },
+    { label: 'SL', type: 'rate', perfKey: '장기손사_SL' },
+  ],
+  'pyeongtaek': [
+    { label: '투입인원(TO대비)', type: 'staff', attKey: '투입인원' },
+    { label: '요청호', type: 'count', perfKey: '요청호' },
+    { label: '응답호', type: 'count', perfKey: '응답호' },
+    { label: '응대율', type: 'rate', perfKey: '응대율' },
+    { label: '포기호', type: 'count', perfKey: '포기호' },
+    { label: 'CPD', type: 'number', perfKey: 'CPD' },
+  ],
+};
 
-  { section: '제휴상담', label: '근태', type: 'count', attKey: '제휴CS_소계' },
-  { label: '실적·인입호', type: 'count', perfKey: '제휴상담_인입호' },
-  { label: '실적·응대호', type: 'count', perfKey: '제휴상담_응답호' },
-  { label: '응답율', type: 'rate', perfKey: '제휴상담_응답율' },
-  { label: 'SL', type: 'rate', perfKey: '제휴상담_SL' },
-
-  { section: '장기손사', label: '근태', type: 'count', attKey: '장기사고_소계' },
-  { label: '실적·인입호', type: 'count', perfKey: '장기손사_인입호' },
-  { label: '실적·응대호', type: 'count', perfKey: '장기손사_응답호' },
-  { label: '응답율', type: 'rate', perfKey: '장기손사_응답율' },
-  { label: 'SL', type: 'rate', perfKey: '장기손사_SL' },
-];
-
-const CHART_CENTERS = [
-  { title: '제휴상담', prefix: '제휴상담' },
-  { title: '장기손사', prefix: '장기손사' },
-];
-const SL_THRESHOLD = 92;
+// 센터별 지표 추이 차트 구성 - 새 센터 추가 시 여기에 등록
+// group: { title, barKeys(막대,합계/평균), barLabels, lineKeys(선), lineLabels, threshold: {key, value, label} }
+const CENTER_CHART_CONFIG = {
+  'kbsonhae': {
+    excludeBarOnMonthly: '응대호', // 월별 탭에서 제외할 막대 라벨
+    groups: [
+      {
+        title: '제휴상담', barKeys: ['제휴상담_인입호', '제휴상담_응답호'], barLabels: ['인입호', '응대호'],
+        lineKeys: ['제휴상담_응답율', '제휴상담_SL'], lineLabels: ['응답율(%)', 'SL'],
+        threshold: { key: '제휴상담_SL', value: 92, label: 'SL기준(92)' }
+      },
+      {
+        title: '장기손사', barKeys: ['장기손사_인입호', '장기손사_응답호'], barLabels: ['인입호', '응대호'],
+        lineKeys: ['장기손사_응답율', '장기손사_SL'], lineLabels: ['응답율(%)', 'SL'],
+        threshold: { key: '장기손사_SL', value: 92, label: 'SL기준(92)' }
+      },
+    ]
+  },
+  'pyeongtaek': {
+    groups: [
+      {
+        title: '평택시청', barKeys: ['요청호', '응답호'], barLabels: ['요청호', '응답호'],
+        lineKeys: ['응대율', 'CPD'], lineLabels: ['응대율(%)', 'CPD'],
+        threshold: { key: '응대율', value: 90, label: '응대율목표(90)' }
+      },
+    ]
+  },
+};
 
 let allCentersMeta = [];
 let centerTokenMap = {};
@@ -728,13 +760,19 @@ function renderDashboard() {
   const alertInfo = computeAlert(centerRows);
   const trendHtml = renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonthRows);
 
-  const includeAnswered = aggView !== 'monthly';
+  const chartConfig = CENTER_CHART_CONFIG[currentCenter] || { groups: [] };
+  const excludeBarLabel = (aggView === 'monthly' && chartConfig.excludeBarOnMonthly) ? chartConfig.excludeBarOnMonthly : null;
+
   let chartBoxes = '';
-  for (let i = 0; i < CHART_CENTERS.length; i++) {
-    const center = CHART_CENTERS[i];
-    const titleSuffix = includeAnswered ? '인입호/응대호(막대)' : '인입호(막대)';
-    const summaryHtml = aggView === 'daily' ? '' : renderChartSummary(center.prefix, sortedTarget, includeAnswered);
-    chartBoxes += '<div class="mini-chart-box"><div class="title">' + center.title + ' · ' + titleSuffix + ' · 응답율/SL(선, 기준 92)</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div>' + summaryHtml + '</div>';
+  let copyButtonsHtml = '';
+  for (let i = 0; i < chartConfig.groups.length; i++) {
+    const group = chartConfig.groups[i];
+    const visibleBarLabels = group.barLabels.filter(function(l) { return l !== excludeBarLabel; });
+    const barTitle = visibleBarLabels.join('/') + '(막대)';
+    const lineTitle = group.lineLabels.join('/') + '(선' + (group.threshold ? ', 기준 ' + group.threshold.value : '') + ')';
+    const summaryHtml = aggView === 'daily' ? '' : renderChartSummary(group, sortedTarget, excludeBarLabel);
+    chartBoxes += '<div class="mini-chart-box"><div class="title">' + group.title + ' · ' + barTitle + ' · ' + lineTitle + '</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div>' + summaryHtml + '</div>';
+    copyButtonsHtml += '<button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyChartImage(' + i + ')">' + group.title + ' 복사</button>';
   }
   const chartsClass = aggView === 'daily' ? 'mini-charts vertical' : 'mini-charts';
 
@@ -753,7 +791,7 @@ function renderDashboard() {
     + '</div>'
     + alertInfo.html
     + '<div class="split">'
-    + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;"><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyChartImage(0)">' + CHART_CENTERS[0].title + ' 복사</button><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyChartImage(1)">' + CHART_CENTERS[1].title + ' 복사</button></div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
+    + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
     + '</div>'
     + '<div class="agg-tabs">'
@@ -765,6 +803,7 @@ function renderDashboard() {
     + '<div class="agg-tab ' + (aggView === 'half' ? 'active' : '') + '" onclick="setAggView(\'half\')">반기별</div>'
     + '</div>'
     + '<div class="panel" id="tablePanel">' + buildTablePanelInner(sortedTarget) + '</div>';
+
 
   drawMiniCharts(sortedTarget);
 
@@ -794,29 +833,31 @@ function setAggView(v) {
 }
 function aggLabel(v) { return { daily: '일자별', weekly: '주별', dow: '요일별', monthly: '월별', quarter: '분기별', half: '반기별' }[v]; }
 
-function renderChartSummary(prefix, records, includeAnswered) {
-  const inboundKey = prefix + '_인입호';
-  const answeredKey = prefix + '_응답호';
-  const rateKey = prefix + '_응답율';
-  const slKey = prefix + '_SL';
+function renderChartSummary(group, records, excludeBarLabel) {
+  const stats = [];
 
-  const inboundAvg = avgExcludingHolidays(records, function(r) { return extractNum(r, 'performance_data', inboundKey); });
-  const answeredAvg = includeAnswered ? avgExcludingHolidays(records, function(r) { return extractNum(r, 'performance_data', answeredKey); }) : null;
-  const rateAvg = avgExcludingHolidays(records, function(r) { return extractNum(r, 'performance_data', rateKey); });
+  group.barKeys.forEach(function(key, i) {
+    const label = group.barLabels[i];
+    if (label === excludeBarLabel) return;
+    const avg = avgExcludingHolidays(records, function(r) { return extractNum(r, 'performance_data', key); });
+    stats.push({ l: '평균 ' + label, v: avg !== null ? Math.round(avg).toLocaleString() : '-' });
+  });
 
-  const slVals = records.filter(function(r) { return !isWeekendOrHoliday(r.report_date); })
-    .map(function(r) { return extractNum(r, 'performance_data', slKey); })
-    .filter(function(n) { return n !== null && !isNaN(n); });
-  const slAvg = slVals.length ? slVals.reduce(function(a, b) { return a + b; }, 0) / slVals.length : null;
-  const belowCount = slVals.filter(function(v) { return v < SL_THRESHOLD; }).length;
+  group.lineKeys.forEach(function(key, i) {
+    const label = group.lineLabels[i];
+    const isThresholdLine = group.threshold && group.threshold.key === key;
+    const vals = records.filter(function(r) { return !isWeekendOrHoliday(r.report_date); })
+      .map(function(r) { return extractNum(r, 'performance_data', key); })
+      .filter(function(n) { return n !== null && !isNaN(n); });
+    const avg = vals.length ? vals.reduce(function(a, b) { return a + b; }, 0) / vals.length : null;
+    const isPct = /응답율|응대율|율/.test(label);
+    stats.push({ l: '평균 ' + label, v: avg !== null ? avg.toFixed(1) + (isPct ? '%' : '') : '-' });
 
-  const stats = [
-    { l: '평균 인입호', v: inboundAvg !== null ? Math.round(inboundAvg).toLocaleString() : '-' }
-  ];
-  if (includeAnswered) stats.push({ l: '평균 응대호', v: answeredAvg !== null ? Math.round(answeredAvg).toLocaleString() : '-' });
-  stats.push({ l: '평균 응답율', v: rateAvg !== null ? rateAvg.toFixed(1) + '%' : '-' });
-  stats.push({ l: '평균 SL', v: slAvg !== null ? slAvg.toFixed(1) : '-' });
-  stats.push({ l: 'SL 미달일수', v: slVals.length ? belowCount + '/' + slVals.length + '일' : '-', warn: belowCount > 0 });
+    if (isThresholdLine) {
+      const belowCount = vals.filter(function(v) { return v < group.threshold.value; }).length;
+      stats.push({ l: label + ' 미달일수', v: vals.length ? belowCount + '/' + vals.length + '일' : '-', warn: belowCount > 0 });
+    }
+  });
 
   return '<div class="chart-summary">' + stats.map(function(s) {
     return '<div class="stat"><div class="l">' + s.l + '</div><div class="v' + (s.warn ? ' warn' : '') + '">' + s.v + '</div></div>';
@@ -853,6 +894,7 @@ function formatKpiValue(def, avg) {
     return avg.toFixed(1) + '명' + (to ? ' (' + (avg / to * 100).toFixed(0) + '%)' : '');
   }
   if (def.type === 'count') return Math.round(avg).toLocaleString() + '건';
+  if (def.type === 'number') return avg.toFixed(1);
   return avg.toFixed(1) + '%';
 }
 
@@ -860,7 +902,8 @@ let lastTrendLines = [];
 
 function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonthRows) {
   lastTrendLines = ['지표\t일평균\t전월비\t전년동월비\t누적평균'];
-  return KPI_DEFS.map(function(def) {
+  const defs = CENTER_KPI_DEFS[currentCenter] || [];
+  return defs.map(function(def) {
     const dailyAvg = getAvgForDef(def, monthRows);
     const cumAvg = getAvgForDef(def, cumulativeRows);
     const prevMonthAvg = prevMonthRows && prevMonthRows.length ? getAvgForDef(def, prevMonthRows) : null;
@@ -978,65 +1021,67 @@ function drawMiniCharts(records) {
   const bucketKeys = Object.keys(buckets);
   const labels = bucketKeys.map(formatChartLabel);
 
-  CHART_CENTERS.forEach(function(center, i) {
+  const chartConfig = CENTER_CHART_CONFIG[currentCenter] || { groups: [] };
+  const excludeBarLabel = (aggView === 'monthly' && chartConfig.excludeBarOnMonthly) ? chartConfig.excludeBarOnMonthly : null;
+
+  function sumSeries(key) {
+    return bucketKeys.map(function(bk) {
+      const rows = buckets[bk];
+      const nums = rows.map(function(r) { return extractNum(r, 'performance_data', key); }).filter(function(n) { return n !== null && !isNaN(n); });
+      return nums.length ? nums.reduce(function(a, b) { return a + b; }, 0) : null;
+    });
+  }
+  function avgSeries(key) {
+    return bucketKeys.map(function(bk) { return avgExcludingHolidays(buckets[bk], function(r) { return extractNum(r, 'performance_data', key); }); });
+  }
+  // 일별은 막대가 하루 실측치이므로 합계=평균과 동일하나, 주/요일/월별 집계 막대는 평균값으로 표기
+  const countSeries = aggView === 'daily' ? sumSeries : avgSeries;
+  const barColors = ['#8A8478', '#FFBC00', '#B7C4D6'];
+
+  chartConfig.groups.forEach(function(group, i) {
     const canvas = document.getElementById('miniChart' + i);
     if (!canvas) return;
 
-    const inboundKey = center.prefix + '_인입호';
-    const answeredKey = center.prefix + '_응답호';
-    const rateKey = center.prefix + '_응답율';
-    const slKey = center.prefix + '_SL';
+    const datasets = [];
+    group.barKeys.forEach(function(key, bi) {
+      const label = group.barLabels[bi];
+      if (label === excludeBarLabel) return;
+      datasets.push({ type: 'bar', label: label, data: countSeries(key), backgroundColor: barColors[bi % barColors.length], yAxisID: 'yCount', order: 3 });
+    });
 
-    function sumSeries(key) {
-      return bucketKeys.map(function(bk) {
-        const rows = buckets[bk];
-        const nums = rows.map(function(r) { return extractNum(r, 'performance_data', key); }).filter(function(n) { return n !== null && !isNaN(n); });
-        return nums.length ? nums.reduce(function(a, b) { return a + b; }, 0) : null;
-      });
-    }
-    function avgSeries(key) {
-      return bucketKeys.map(function(bk) { return avgExcludingHolidays(buckets[bk], function(r) { return extractNum(r, 'performance_data', key); }); });
-    }
-    // 일별은 막대가 하루 실측치이므로 합계=평균과 동일하나, 주/요일/월별 집계 막대는
-    // 합계가 아닌 평균값으로 표기 (요청사항 반영)
-    const countSeries = aggView === 'daily' ? sumSeries : avgSeries;
+    group.lineKeys.forEach(function(key, li) {
+      const label = group.lineLabels[li];
+      const isThresholdLine = group.threshold && group.threshold.key === key;
+      const data = avgSeries(key);
 
-    const inboundData = countSeries(inboundKey);
-    const answeredData = aggView === 'monthly' ? null : countSeries(answeredKey);
-    const rateData = avgSeries(rateKey);
-    const slData = avgSeries(slKey);
-    const slLineData = labels.map(function() { return SL_THRESHOLD; });
+      if (!isThresholdLine) {
+        datasets.push({
+          type: 'line', label: label, data: data, borderColor: '#9B9E9F', backgroundColor: 'transparent',
+          yAxisID: 'yRate', tension: 0.25, pointRadius: 2, order: 1
+        });
+        return;
+      }
 
-    const datasets = [
-      { type: 'bar', label: '인입호', data: inboundData, backgroundColor: '#8A8478', yAxisID: 'yCount', order: 3 }
-    ];
-    if (aggView !== 'monthly') {
-      datasets.push({ type: 'bar', label: '응대호', data: answeredData, backgroundColor: '#FFBC00', yAxisID: 'yCount', order: 3 });
-    }
-    datasets.push(
-      {
-        type: 'line', label: '응답율(%)', data: rateData, borderColor: '#9B9E9F', backgroundColor: 'transparent',
-        yAxisID: 'yRate', tension: 0.25, pointRadius: 2, order: 1
-      },
-      {
-        type: 'line', label: 'SL', data: slData, borderColor: '#545045', backgroundColor: 'transparent',
+      const thVal = group.threshold.value;
+      datasets.push({
+        type: 'line', label: label, data: data, borderColor: '#545045', backgroundColor: 'transparent',
         yAxisID: 'yRate', tension: 0.25, pointRadius: 3, order: 0, borderWidth: 2,
         segment: {
           borderColor: function(ctx) {
             const y0 = ctx.p0.parsed.y, y1 = ctx.p1.parsed.y;
-            return (y0 < SL_THRESHOLD || y1 < SL_THRESHOLD) ? '#c94040' : '#545045';
+            return (y0 < thVal || y1 < thVal) ? '#c94040' : '#545045';
           }
         },
         pointBackgroundColor: function(ctx) {
           const v = ctx.raw;
-          return (v !== null && v < SL_THRESHOLD) ? '#c94040' : '#545045';
+          return (v !== null && v < thVal) ? '#c94040' : '#545045';
         }
-      },
-      {
-        type: 'line', label: 'SL기준(' + SL_THRESHOLD + ')', data: slLineData, borderColor: '#c94040',
+      });
+      datasets.push({
+        type: 'line', label: group.threshold.label, data: labels.map(function() { return thVal; }), borderColor: '#c94040',
         borderDash: [4, 4], borderWidth: 1, pointRadius: 0, yAxisID: 'yRate', order: 2
-      }
-    );
+      });
+    });
 
     miniCharts[i] = new Chart(canvas, {
       data: { labels: labels, datasets: datasets },
