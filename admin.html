@@ -598,12 +598,46 @@ let colPopoverOpen = false;
 
 function colPrefsKey() { return 'kkangbi_cols_' + currentCenter; }
 function presetsKey() { return 'kkangbi_colpresets_' + currentCenter; }
+function pinnedPresetKey() { return 'kkangbi_pinned_preset_' + currentCenter; }
+
+function getPinnedPresetName() {
+  try { return localStorage.getItem(pinnedPresetKey()) || null; } catch (e) { return null; }
+}
+function setPinnedPresetName(name) {
+  try {
+    if (name) localStorage.setItem(pinnedPresetKey(), name);
+    else localStorage.removeItem(pinnedPresetKey());
+  } catch (e) { /* ignore */ }
+}
+
+// 고정된 설정이 있으면 항상 그 설정을 최우선 적용 (재접속·탭 이동과 무관하게 유지)
+function applyPinnedPresetIfAny() {
+  const pinned = getPinnedPresetName();
+  if (!pinned) return;
+  const preset = loadPresets().find(function(p) { return p.name === pinned; });
+  if (preset) {
+    colPrefs = { order: preset.order.slice(), hidden: preset.hidden.slice() };
+    saveColPrefs();
+  }
+}
+
+function togglePinPreset(name, checked) {
+  if (checked) {
+    setPinnedPresetName(name);
+    applyPreset(name);
+  } else {
+    if (getPinnedPresetName() === name) setPinnedPresetName(null);
+    colPopoverOpen = true;
+    refreshTablePanel();
+  }
+}
 
 function loadColPrefs() {
   try {
     const raw = localStorage.getItem(colPrefsKey());
     colPrefs = raw ? JSON.parse(raw) : { order: [], hidden: [] };
   } catch (e) { colPrefs = { order: [], hidden: [] }; }
+  applyPinnedPresetIfAny(); // 고정 설정이 있으면 마지막 조작 상태보다 항상 우선 적용
 }
 
 function saveColPrefs() {
@@ -643,6 +677,7 @@ function applyPreset(name) {
 
 function deletePreset(name) {
   savePresetsList(loadPresets().filter(function(p) { return p.name !== name; }));
+  if (getPinnedPresetName() === name) setPinnedPresetName(null);
   colPopoverOpen = true;
   refreshTablePanel();
 }
@@ -1494,11 +1529,16 @@ function renderColToggleButton(records) {
   }).join('');
 
   const presets = loadPresets();
+  const pinnedName = getPinnedPresetName();
   const presetListHtml = presets.length === 0
     ? '<div style="font-size:11px;color:#9aa1ac;">저장된 설정이 없습니다.</div>'
     : presets.map(function(p) {
+        const isPinned = p.name === pinnedName;
         return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">'
-          + '<button style="flex:1;text-align:left;font-size:11px;padding:5px 8px;border:1px solid #d9dce1;background:#fff;border-radius:5px;cursor:pointer;" onclick="applyPreset(\'' + p.name + '\')">' + p.name + '</button>'
+          + '<label style="display:flex;align-items:center;gap:3px;font-size:10px;color:#9aa1ac;cursor:pointer;" title="이 설정을 항상 기본값으로 고정">'
+          + '<input type="checkbox" ' + (isPinned ? 'checked' : '') + ' onchange="togglePinPreset(\'' + p.name + '\', this.checked)"> 고정'
+          + '</label>'
+          + '<button style="flex:1;text-align:left;font-size:11px;padding:5px 8px;border:1px solid ' + (isPinned ? '#FE2E36' : '#d9dce1') + ';background:#fff;border-radius:5px;cursor:pointer;" onclick="applyPreset(\'' + p.name + '\')">' + p.name + (isPinned ? ' 📌' : '') + '</button>'
           + '<button style="border:none;background:none;color:#c94040;font-size:11px;cursor:pointer;" onclick="deletePreset(\'' + p.name + '\')">삭제</button>'
           + '</div>';
       }).join('');
@@ -1514,6 +1554,7 @@ function renderColToggleButton(records) {
     + '<button style="font-size:11px;padding:5px 10px;border:1px solid #FE2E36;background:#FE2E36;color:#FFFFFF;border-radius:5px;cursor:pointer;" onclick="saveCurrentAsPreset()">현재설정 저장</button>'
     + '</div>'
     + '</div>'
+    + '<div style="font-size:10px;color:#9aa1ac;margin-bottom:8px;">"고정"에 체크하면 접속·탭 이동과 무관하게 항상 이 설정이 기본으로 적용됩니다. (일별·주별·요일별·월별·분기별·반기별 표 공통 적용)</div>'
     + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;">체크 해제 시 표에서 숨겨집니다. ▲▼로 순서 변경 (주별·요일별·월별에도 동일 적용)</div>'
     + itemsHtml
     + '<div class="actions"><button onclick="setAllColsVisible(true)">전체 표시</button><button onclick="setAllColsVisible(false)">전체 숨김</button></div>'
@@ -2573,30 +2614,38 @@ async function saveCategoryRows() {
   const token = centerTokenMap[currentCenter];
   let success = 0, fail = 0;
   const failDates = [];
+  const BATCH_SIZE = 5;
   statusEl.className = 'status-msg';
 
-  for (let idx = 0; idx < categoryParsedRows.length; idx++) {
-    const row = categoryParsedRows[idx];
-    const inputs = document.querySelectorAll('.category-input[data-row="' + idx + '"]');
-    const values = {};
-    const total = parseFloat((document.querySelector('.category-input[data-row="' + idx + '"][data-idx="0"]') || {}).value || '0') || 0;
-    inputs.forEach(function(inp) {
-      values[inp.dataset.key] = { value: inp.value, group: 'performance' };
-      if (inp.dataset.idx !== '0') {
-        const n = parseFloat(inp.value || '0') || 0;
-        values[inp.dataset.key + '_비중'] = { value: total ? (n / total * 100).toFixed(1) : '0', group: 'performance' };
-      }
-    });
-    statusEl.textContent = '저장 중... (' + (success + fail + 1) + '/' + categoryParsedRows.length + ')';
-    try {
-      const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
+  for (let start = 0; start < categoryParsedRows.length; start += BATCH_SIZE) {
+    const batchIdx = [];
+    for (let i = start; i < Math.min(start + BATCH_SIZE, categoryParsedRows.length); i++) batchIdx.push(i);
+
+    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, categoryParsedRows.length) + '/' + categoryParsedRows.length + ')';
+
+    const results = await Promise.all(batchIdx.map(function(idx) {
+      const row = categoryParsedRows[idx];
+      const inputs = document.querySelectorAll('.category-input[data-row="' + idx + '"]');
+      const values = {};
+      const total = parseFloat((document.querySelector('.category-input[data-row="' + idx + '"][data-idx="0"]') || {}).value || '0') || 0;
+      inputs.forEach(function(inp) {
+        values[inp.dataset.key] = { value: inp.value, group: 'performance' };
+        if (inp.dataset.idx !== '0') {
+          const n = parseFloat(inp.value || '0') || 0;
+          values[inp.dataset.key + '_비중'] = { value: total ? (n / total * 100).toFixed(1) : '0', group: 'performance' };
+        }
+      });
+      return fetch(SB_FUNCTION_URL + '?action=manual-entry', {
         method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: token, report_date: row.date, values: values })
-      });
-      const data = await res.json();
-      if (data.success) success++; else { fail++; failDates.push(row.date); }
-    } catch (e) { fail++; failDates.push(row.date); }
+      }).then(function(res) { return res.json(); })
+        .then(function(data) { return { date: row.date, ok: !!data.success }; })
+        .catch(function() { return { date: row.date, ok: false }; });
+    }));
+
+    results.forEach(function(r) { if (r.ok) success++; else { fail++; failDates.push(r.date); } });
   }
+
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
   statusEl.textContent = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
   document.getElementById('categoryPasteBox').value = '';
@@ -2678,29 +2727,39 @@ async function saveAllRows() {
   const token = centerTokenMap[currentCenter];
   let success = 0, fail = 0;
   const failDates = [];
+  const BATCH_SIZE = 5;
   statusEl.className = 'status-msg';
-  for (let idx = 0; idx < parsedRows.length; idx++) {
-    const row = parsedRows[idx];
-    const inputs = document.querySelectorAll('.template-input[data-row="' + idx + '"]');
-    const values = {};
-    inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
-    statusEl.textContent = '저장 중... (' + (success + fail + 1) + '/' + parsedRows.length + ')';
-    try {
-      const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
+
+  for (let start = 0; start < parsedRows.length; start += BATCH_SIZE) {
+    const batch = parsedRows.slice(start, start + BATCH_SIZE);
+    const batchIdx = [];
+    for (let i = start; i < Math.min(start + BATCH_SIZE, parsedRows.length); i++) batchIdx.push(i);
+
+    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, parsedRows.length) + '/' + parsedRows.length + ')';
+
+    const results = await Promise.all(batchIdx.map(function(idx) {
+      const row = parsedRows[idx];
+      const inputs = document.querySelectorAll('.template-input[data-row="' + idx + '"]');
+      const values = {};
+      inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+      return fetch(SB_FUNCTION_URL + '?action=manual-entry', {
         method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
         body: JSON.stringify({ token: token, report_date: row.date, values: values })
-      });
-      const data = await res.json();
-      if (data.success) success++; else { fail++; failDates.push(row.date); }
-    } catch (e) { fail++; failDates.push(row.date); }
+      }).then(function(res) { return res.json(); })
+        .then(function(data) { return { date: row.date, ok: !!data.success }; })
+        .catch(function() { return { date: row.date, ok: false }; });
+    }));
+
+    results.forEach(function(r) { if (r.ok) success++; else { fail++; failDates.push(r.date); } });
   }
+
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
   statusEl.textContent = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
   document.getElementById('pasteBox').value = '';
   document.getElementById('manualSaveBtn').style.display = 'none';
   parsedRows = [];
   document.getElementById('templateArea').innerHTML = '';
-  await loadOverview();
+  await loadOverviewForCurrent();
 }
 
 function exportData() { return JSON.stringify(allRows, null, 2); }
@@ -2766,7 +2825,7 @@ async function restoreData(jsonText) {
     } catch (e) { skipped++; }
   }
   msg.textContent = '복원 완료: ' + success + '건 성공, ' + skipped + '건 제외(토큰 미등록 센터 포함)';
-  await loadOverview();
+  await loadOverviewForCurrent();
   renderMain();
 }
 
