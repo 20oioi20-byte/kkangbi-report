@@ -27,7 +27,7 @@
   .layout { display: flex; min-height: calc(100vh - 96px); }
   .sidebar { width: 200px; background: #fff; border-right: 1px solid #e7e8ec; padding: 16px 0; flex-shrink: 0; }
   .sidebar .section-label { padding: 6px 20px; font-size: 12px; color: #9aa1ac; }
-  .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: #3c4250; display: flex; align-items: center; gap: 8px; }
+  .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: #3c4250; display: flex; align-items: center; justify-content: space-between; gap: 8px; }
   .center-item.active { background: #FFE8E9; color: #FE2E36; font-weight: 600; border-right: 3px solid #FE2E36; }
   .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7cbd3; flex-shrink: 0; }
   .center-item.active .dot { background: #FE2E36; }
@@ -88,7 +88,7 @@
   .col-popover.open { display: block; }
   .col-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 2px; }
   .col-item label { flex: 1; display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  .col-item .mv { border: none; background: #f0f1f3; border-radius: 4px; width: 20px; height: 20px; font-size: 11px; cursor: pointer; }
+  .mv { border: none; background: #f0f1f3; border-radius: 4px; width: 20px; height: 20px; font-size: 11px; cursor: pointer; }
   .col-popover .actions { display: flex; gap: 6px; margin-top: 8px; }
   .col-popover .actions button { flex: 1; font-size: 11px; padding: 5px; border: 1px solid #d9dce1; background: #f8f9fb; border-radius: 5px; cursor: pointer; }
   .hidden-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
@@ -113,10 +113,7 @@
 
 <div class="topbar">
   <h1>깡비 실적 관리</h1>
-  <div class="actions">
-    <button class="btn-ghost" onclick="toggleBackupPanel()">백업/복원</button>
-    <button class="btn-primary" disabled title="추후 지원 예정">+ 센터 추가</button>
-  </div>
+  <div class="actions" id="topbarActions"></div>
 </div>
 
 <div class="backup-panel" id="backupPanel">
@@ -147,7 +144,7 @@
 const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/center-report-upload';
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
 
-const CENTER_TOKENS = { 'kbsonhae': '61263f6c-eeb7-46f1-a956-9e573513d60d' };
+// 센터별 upload_token은 더 이상 하드코딩하지 않고, 비밀번호 인증 성공 시 서버에서 동적으로 받아옵니다.
 const TO_TARGET = { 'kbsonhae': 178 };
 
 const KR_HOLIDAYS_2026 = [
@@ -180,6 +177,16 @@ const CHART_CENTERS = [
 ];
 const SL_THRESHOLD = 92;
 
+let allCentersMeta = [];
+let centerTokenMap = {};
+let unlockedCenters = new Set();
+let workspaceUnlocked = false;
+let workspacePasswordCache = '';
+
+const SS_WORKSPACE_PW = 'kkangbi_ws_pw';
+const SS_UNLOCKED_CENTERS = 'kkangbi_unlocked_centers';
+const SS_CENTER_TOKENS = 'kkangbi_center_tokens';
+
 let allCenters = [];
 let allRows = [];
 let currentCenter = null;
@@ -197,19 +204,251 @@ function isWeekendOrHoliday(dateStr) {
   return dow === 0 || dow === 6 || KR_HOLIDAYS_2026.includes(dateStr);
 }
 
-async function init() {
-  await loadOverview();
-  if (allCenters.length > 0) currentCenter = allCenters[0].center_code;
-  loadColPrefs();
+// ============================================
+// 인증 / 세션 (워크스페이스·센터별 비밀번호)
+// 주의: 정적 파일 + anon key 구조라 완벽한 서버 인증은 아니며,
+// 비밀번호를 모르는 일반 사용자를 막는 수준의 보호입니다.
+// ============================================
+function restoreSession() {
+  try {
+    workspacePasswordCache = sessionStorage.getItem(SS_WORKSPACE_PW) || '';
+    workspaceUnlocked = !!workspacePasswordCache;
+    const uc = sessionStorage.getItem(SS_UNLOCKED_CENTERS);
+    unlockedCenters = new Set(uc ? JSON.parse(uc) : []);
+    const ct = sessionStorage.getItem(SS_CENTER_TOKENS);
+    centerTokenMap = ct ? JSON.parse(ct) : {};
+  } catch (e) { /* ignore */ }
+}
+
+function persistSession() {
+  sessionStorage.setItem(SS_WORKSPACE_PW, workspaceUnlocked ? workspacePasswordCache : '');
+  sessionStorage.setItem(SS_UNLOCKED_CENTERS, JSON.stringify(Array.from(unlockedCenters)));
+  sessionStorage.setItem(SS_CENTER_TOKENS, JSON.stringify(centerTokenMap));
+}
+
+async function loadCentersMeta() {
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=centers-manage-list', { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
+    const data = await res.json();
+    if (data.success) allCentersMeta = data.centers || [];
+    allCenters = allCentersMeta;
+  } catch (e) { /* ignore */ }
+}
+
+async function tryWorkspaceLogin(password, silent) {
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=verify-workspace-password', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password: password })
+    });
+    const data = await res.json();
+    if (data.success && data.valid) {
+      workspaceUnlocked = true;
+      workspacePasswordCache = password;
+      centerTokenMap = {};
+      (data.centers || []).forEach(function(c) { centerTokenMap[c.center_code] = c.upload_token; });
+      persistSession();
+      return true;
+    }
+    if (!silent) alert('워크스페이스 비밀번호가 일치하지 않습니다.');
+    if (silent) { workspaceUnlocked = false; workspacePasswordCache = ''; persistSession(); }
+    return false;
+  } catch (e) {
+    if (!silent) alert('오류: ' + e.message);
+    return false;
+  }
+}
+
+function promptWorkspaceLogin() {
+  const pw = prompt('워크스페이스 비밀번호(6자리)를 입력하세요:');
+  if (pw === null) return;
+  tryWorkspaceLogin(pw, false).then(function(ok) { if (ok) refreshAfterAuthChange(); });
+}
+
+function lockWorkspace() {
+  workspaceUnlocked = false;
+  workspacePasswordCache = '';
+  persistSession();
+  refreshAfterAuthChange();
+}
+
+function promptCenterPassword(code) {
+  const meta = allCentersMeta.find(function(c) { return c.center_code === code; });
+  const pw = prompt((meta ? meta.center_name : code) + ' 비밀번호(6자리)를 입력하세요:');
+  if (pw === null) return;
+  fetch(SB_FUNCTION_URL + '?action=verify-center-password', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ center_code: code, password: pw })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (data.success && data.valid) {
+      unlockedCenters.add(code);
+      centerTokenMap[code] = data.upload_token;
+      persistSession();
+      currentCenter = code;
+      refreshAfterAuthChange();
+    } else {
+      alert('비밀번호가 일치하지 않습니다.');
+    }
+  }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+async function refreshAfterAuthChange() {
+  const available = allCentersMeta.filter(function(c) { return workspaceUnlocked || unlockedCenters.has(c.center_code); });
+  if (!available.find(function(c) { return c.center_code === currentCenter; })) {
+    currentCenter = available.length ? available[0].center_code : null;
+  }
+  renderTopbarAuth();
   renderSidebar();
+  if (currentCenter) { await loadOverviewForCurrent(); } else { allRows = []; }
   renderMain();
 }
 
-async function loadOverview() {
+function renderTopbarAuth() {
+  const el = document.getElementById('topbarActions');
+  if (!el) return;
+  const centerPwBtn = currentCenter ? '<button class="btn-ghost" onclick="showChangeCenterPw()">센터 비번변경</button>' : '';
+  if (workspaceUnlocked) {
+    el.innerHTML = '<span class="btn-outline" style="cursor:default;">관리자 모드</span>'
+      + centerPwBtn
+      + '<button class="btn-ghost" onclick="showChangeWorkspacePw()">워크스페이스 비번변경</button>'
+      + '<button class="btn-ghost" onclick="lockWorkspace()">잠그기</button>'
+      + '<button class="btn-ghost" onclick="toggleBackupPanel()">백업/복원</button>';
+  } else {
+    el.innerHTML = centerPwBtn
+      + '<button class="btn-ghost" onclick="toggleBackupPanel()">백업/복원</button>'
+      + '<button class="btn-primary" onclick="promptWorkspaceLogin()">워크스페이스 로그인</button>';
+  }
+}
+
+function showChangeWorkspacePw() {
+  const cur = prompt('현재 워크스페이스 비밀번호:');
+  if (cur === null) return;
+  const next = prompt('새 비밀번호(숫자 6자리):');
+  if (next === null) return;
+  fetch(SB_FUNCTION_URL + '?action=change-workspace-password', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ current_password: cur, new_password: next })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.success) { alert('변경 실패: ' + data.error); return; }
+    alert('워크스페이스 비밀번호가 변경되었습니다.');
+    workspacePasswordCache = next;
+    persistSession();
+  }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+function showChangeCenterPw() {
+  if (!currentCenter) { alert('센터를 먼저 선택하세요.'); return; }
+  const payload = { center_code: currentCenter };
+  if (workspaceUnlocked) {
+    payload.workspace_password = workspacePasswordCache;
+  } else {
+    const cur = prompt('현재 센터 비밀번호:');
+    if (cur === null) return;
+    payload.current_password = cur;
+  }
+  const next = prompt('새 비밀번호(숫자 6자리):');
+  if (next === null) return;
+  payload.new_password = next;
+  fetch(SB_FUNCTION_URL + '?action=change-center-password', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify(payload)
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.success) { alert('변경 실패: ' + data.error); return; }
+    alert('비밀번호가 변경되었습니다.');
+  }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+function addCenterPrompt() {
+  const code = prompt('새 센터 코드를 입력하세요 (영문/숫자, 예: samsung):');
+  if (!code) return;
+  const name = prompt('센터 이름을 입력하세요 (예: 삼성화재):');
+  if (!name) return;
+  fetch(SB_FUNCTION_URL + '?action=center-create', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_password: workspacePasswordCache, center_code: code.trim(), center_name: name.trim() })
+  }).then(function(r) { return r.json(); }).then(async function(data) {
+    if (!data.success) { alert('추가 실패: ' + data.error); return; }
+    await loadCentersMeta();
+    alert('센터가 추가되었습니다. 기본 비밀번호는 000000입니다. (데이터입력 양식은 별도 설정 필요)');
+    renderSidebar();
+  }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+function renameCenterPrompt(code) {
+  const meta = allCentersMeta.find(function(c) { return c.center_code === code; });
+  const name = prompt('새 센터 이름을 입력하세요:', meta ? meta.center_name : '');
+  if (!name) return;
+  fetch(SB_FUNCTION_URL + '?action=center-update', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_password: workspacePasswordCache, center_code: code, center_name: name.trim() })
+  }).then(function(r) { return r.json(); }).then(async function(data) {
+    if (!data.success) { alert('수정 실패: ' + data.error); return; }
+    await loadCentersMeta();
+    renderSidebar();
+    if (code === currentCenter) renderMain();
+  }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+function deleteCenterPrompt(code) {
+  const meta = allCentersMeta.find(function(c) { return c.center_code === code; });
+  if (!confirm((meta ? meta.center_name : code) + ' 센터를 삭제하시겠습니까?\n등록된 실적 데이터는 DB에 남지만 목록에서는 사라집니다.')) return;
+  fetch(SB_FUNCTION_URL + '?action=center-delete', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_password: workspacePasswordCache, center_code: code })
+  }).then(function(r) { return r.json(); }).then(async function(data) {
+    if (!data.success) { alert('삭제 실패: ' + data.error); return; }
+    delete centerTokenMap[code];
+    unlockedCenters.delete(code);
+    persistSession();
+    await loadCentersMeta();
+    if (currentCenter === code) currentCenter = null;
+    await refreshAfterAuthChange();
+  }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+function moveCenterOrder(code, dir) {
+  const sorted = allCentersMeta.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+  const idx = sorted.findIndex(function(c) { return c.center_code === code; });
+  const swapIdx = idx + dir;
+  if (swapIdx < 0 || swapIdx >= sorted.length) return;
+  const a = sorted[idx], b = sorted[swapIdx];
+  const tmp = a.sort_order; a.sort_order = b.sort_order; b.sort_order = tmp;
+  allCentersMeta = allCentersMeta.map(function(c) {
+    if (c.center_code === a.center_code) return Object.assign({}, c, { sort_order: a.sort_order });
+    if (c.center_code === b.center_code) return Object.assign({}, c, { sort_order: b.sort_order });
+    return c;
+  });
+  renderSidebar();
+  fetch(SB_FUNCTION_URL + '?action=center-reorder', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      workspace_password: workspacePasswordCache,
+      orders: [{ center_code: a.center_code, sort_order: a.sort_order }, { center_code: b.center_code, sort_order: b.sort_order }]
+    })
+  }).then(function(r) { return r.json(); }).then(function(data) {
+    if (!data.success) alert('순서 변경 실패: ' + data.error);
+  }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+async function init() {
+  restoreSession();
+  await loadCentersMeta();
+  if (workspaceUnlocked) { await tryWorkspaceLogin(workspacePasswordCache, true); }
+  const available = allCentersMeta.filter(function(c) { return workspaceUnlocked || unlockedCenters.has(c.center_code); });
+  if (available.length > 0) currentCenter = available[0].center_code;
+  renderTopbarAuth();
+  loadColPrefs();
+  renderSidebar();
+  if (currentCenter) await loadOverviewForCurrent();
+  renderMain();
+}
+
+async function loadOverviewForCurrent() {
   try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview', { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
+    const centerParam = workspaceUnlocked ? '' : ('&center=' + encodeURIComponent(currentCenter));
+    const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview' + centerParam, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
     const data = await res.json();
-    if (data.success) { allCenters = data.centers || []; allRows = data.rows || []; }
+    if (data.success) { allRows = data.rows || []; }
   } catch (e) {
     document.getElementById('main').innerHTML = '<div class="empty">데이터 로드 실패: ' + e.message + '</div>';
   }
@@ -217,16 +456,37 @@ async function loadOverview() {
 
 function renderSidebar() {
   const list = document.getElementById('centerList');
-  if (allCenters.length === 0) { list.innerHTML = '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
-  list.innerHTML = allCenters.map(function(c) {
-    return '<div class="center-item ' + (c.center_code === currentCenter ? 'active' : '') + '" onclick="selectCenter(\'' + c.center_code + '\')"><span class="dot"></span><span>' + c.center_name + '</span></div>';
-  }).join('');
+  if (allCentersMeta.length === 0) { list.innerHTML = '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
+
+  const sorted = allCentersMeta.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+
+  list.innerHTML = sorted.map(function(c, idx) {
+    const isUnlocked = workspaceUnlocked || unlockedCenters.has(c.center_code);
+    const lockIcon = isUnlocked ? '' : '🔒 ';
+    const activeCls = c.center_code === currentCenter ? 'active' : '';
+    const adminControls = workspaceUnlocked
+      ? '<span style="display:flex;gap:2px;" onclick="event.stopPropagation();">'
+        + '<button class="mv" onclick="moveCenterOrder(\'' + c.center_code + '\',-1)" ' + (idx === 0 ? 'disabled' : '') + '>▲</button>'
+        + '<button class="mv" onclick="moveCenterOrder(\'' + c.center_code + '\',1)" ' + (idx === sorted.length - 1 ? 'disabled' : '') + '>▼</button>'
+        + '<button class="mv" onclick="renameCenterPrompt(\'' + c.center_code + '\')" title="이름변경">✎</button>'
+        + '<button class="mv" onclick="deleteCenterPrompt(\'' + c.center_code + '\')" title="삭제">✕</button>'
+        + '</span>'
+      : '';
+    return '<div class="center-item ' + activeCls + '" onclick="selectCenter(\'' + c.center_code + '\')">'
+      + '<span><span class="dot"></span> ' + lockIcon + c.center_name + '</span>'
+      + adminControls
+      + '</div>';
+  }).join('')
+  + (workspaceUnlocked ? '<div class="add-center" style="cursor:pointer;color:#FE2E36;font-weight:600;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '');
 }
 
-function selectCenter(code) {
+async function selectCenter(code) {
+  if (!workspaceUnlocked && !unlockedCenters.has(code)) { promptCenterPassword(code); return; }
   currentCenter = code;
   loadColPrefs();
   renderSidebar();
+  renderTopbarAuth();
+  await loadOverviewForCurrent();
   renderMain();
 }
 
@@ -241,6 +501,10 @@ function toggleBackupPanel() {
 }
 
 function renderMain() {
+  if (!currentCenter) {
+    document.getElementById('main').innerHTML = '<div class="empty" style="padding:100px 24px;">왼쪽에서 센터를 선택해 비밀번호를 입력하거나,<br>상단의 "워크스페이스 로그인"으로 전체 센터를 확인하세요.</div>';
+    return;
+  }
   if (currentMainTab === 'dashboard') renderDashboard();
   else if (currentMainTab === 'issues') renderIssues();
   else renderEntry();
@@ -936,31 +1200,41 @@ function statusLabel(s) { return { success: '완료', pending: '분석중', need
 // ============================================
 // 이슈 및 히스토리 탭
 // ============================================
+let editingIssueId = null;
+let allIssuesCache = [];
+
 async function renderIssues() {
   const main = document.getElementById('main');
   if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
-  const token = CENTER_TOKENS[currentCenter];
+  const token = centerTokenMap[currentCenter];
   if (!token) { main.innerHTML = '<div class="empty">이 센터는 아직 토큰이 등록되지 않았습니다.</div>'; return; }
 
+  editingIssueId = null;
   const centerInfo = allCenters.find(function(c) { return c.center_code === currentCenter; });
   const today = new Date().toISOString().slice(0, 10);
 
-  main.innerHTML = '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
-    + '<h3>' + (centerInfo ? centerInfo.center_name : '') + ' · 이슈 등록</h3>'
+  main.innerHTML = '<div class="panel" style="max-width:720px;margin-bottom:16px;" id="issueFormPanel">'
+    + '<h3 id="issueFormTitle">' + (centerInfo ? centerInfo.center_name : '') + ' · 이슈 등록</h3>'
     + '<div class="entry-row"><label>날짜</label><input type="date" id="issueDate" value="' + today + '"></div>'
     + '<div class="entry-row" style="align-items:flex-start;"><label style="padding-top:8px;">제목</label>'
     + '<input type="text" id="issueTitle" placeholder="예: 6/15 SL 급락, 신입 5명 입사 등" style="flex:1;padding:8px 10px;border:1px solid #d9dce1;border-radius:6px;font-size:13px;"></div>'
     + '<textarea id="issueContent" class="paste-box" style="font-family:inherit;min-height:80px;" placeholder="상세 내용(선택)"></textarea>'
-    + '<button class="btn-primary" onclick="submitIssue()">등록</button>'
+    + '<button class="btn-primary" id="issueSubmitBtn" onclick="submitIssue()">등록</button>'
+    + '<button class="btn-ghost" id="issueCancelBtn" style="display:none;" onclick="cancelEditIssue()">취소</button>'
     + '<div class="status-msg" id="issueStatus"></div>'
     + '</div>'
-    + '<div class="panel"><h3>히스토리 (최신순)</h3><div id="issueList"><div class="loading">불러오는 중...</div></div></div>';
+    + '<div class="panel">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+    + '<h3 style="margin:0;">히스토리 (최신순)</h3>'
+    + '<input type="text" id="issueSearch" placeholder="제목·내용 검색" oninput="filterIssueList()" style="padding:7px 10px;border:1px solid #d9dce1;border-radius:6px;font-size:13px;width:220px;">'
+    + '</div>'
+    + '<div id="issueList"><div class="loading">불러오는 중...</div></div></div>';
 
   await loadIssueList();
 }
 
 async function loadIssueList() {
-  const token = CENTER_TOKENS[currentCenter];
+  const token = centerTokenMap[currentCenter];
   const listEl = document.getElementById('issueList');
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=issues-list&token=' + encodeURIComponent(token), {
@@ -968,30 +1242,71 @@ async function loadIssueList() {
     });
     const data = await res.json();
     if (!data.success) { listEl.innerHTML = '<div class="empty">불러오기 실패: ' + data.error + '</div>'; return; }
-    renderIssueList(data.issues || []);
+    allIssuesCache = data.issues || [];
+    filterIssueList();
   } catch (e) {
     listEl.innerHTML = '<div class="empty">불러오기 오류: ' + e.message + '</div>';
   }
 }
 
-function renderIssueList(issues) {
-  const listEl = document.getElementById('issueList');
-  if (issues.length === 0) { listEl.innerHTML = '<div class="empty">등록된 이슈/히스토리가 없습니다.</div>'; return; }
+function filterIssueList() {
+  const searchEl = document.getElementById('issueSearch');
+  const keyword = searchEl ? searchEl.value.trim().toLowerCase() : '';
+  const filtered = !keyword ? allIssuesCache : allIssuesCache.filter(function(item) {
+    const inTitle = (item.title || '').toLowerCase().includes(keyword);
+    const inContent = (item.content || '').toLowerCase().includes(keyword);
+    return inTitle || inContent;
+  });
+  renderIssueList(filtered, keyword);
+}
 
-  listEl.innerHTML = issues.map(function(item) {
+function renderIssueList(issues, keyword) {
+  const listEl = document.getElementById('issueList');
+  if (allIssuesCache.length === 0) { listEl.innerHTML = '<div class="empty">등록된 이슈/히스토리가 없습니다.</div>'; return; }
+  if (issues.length === 0) { listEl.innerHTML = '<div class="empty">검색 결과가 없습니다.</div>'; return; }
+
+  listEl.innerHTML = '<div style="font-size:12px;color:#9aa1ac;margin-bottom:6px;">' + issues.length + '건' + (keyword ? ' (검색: "' + keyword + '")' : '') + '</div>'
+    + issues.map(function(item) {
     return '<div style="padding:12px 4px;border-top:1px solid #f0f1f3;">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
       + '<div><span style="font-weight:700;font-size:13px;">' + item.title + '</span>'
       + '<span style="color:#9aa1ac;font-size:12px;margin-left:8px;">' + item.issue_date + '</span></div>'
+      + '<div style="display:flex;gap:10px;">'
+      + '<button style="border:none;background:none;color:#5b6472;font-size:12px;cursor:pointer;" onclick="startEditIssue(\'' + item.id + '\')">수정</button>'
       + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteIssue(\'' + item.id + '\')">삭제</button>'
+      + '</div>'
       + '</div>'
       + (item.content ? '<div style="font-size:13px;color:#3c4250;margin-top:6px;white-space:pre-wrap;">' + item.content + '</div>' : '')
       + '</div>';
   }).join('');
 }
 
+function startEditIssue(id) {
+  const item = allIssuesCache.find(function(i) { return i.id === id; });
+  if (!item) return;
+  editingIssueId = id;
+  document.getElementById('issueDate').value = item.issue_date;
+  document.getElementById('issueTitle').value = item.title;
+  document.getElementById('issueContent').value = item.content || '';
+  document.getElementById('issueFormTitle').textContent = '이슈 수정';
+  document.getElementById('issueSubmitBtn').textContent = '수정 저장';
+  document.getElementById('issueCancelBtn').style.display = 'inline-block';
+  document.getElementById('issueFormPanel').scrollIntoView({ behavior: 'smooth', block: 'start' });
+}
+
+function cancelEditIssue() {
+  editingIssueId = null;
+  document.getElementById('issueDate').value = new Date().toISOString().slice(0, 10);
+  document.getElementById('issueTitle').value = '';
+  document.getElementById('issueContent').value = '';
+  document.getElementById('issueFormTitle').textContent = (allCenters.find(function(c) { return c.center_code === currentCenter; }) || {}).center_name + ' · 이슈 등록';
+  document.getElementById('issueSubmitBtn').textContent = '등록';
+  document.getElementById('issueCancelBtn').style.display = 'none';
+  document.getElementById('issueStatus').textContent = '';
+}
+
 async function submitIssue() {
-  const token = CENTER_TOKENS[currentCenter];
+  const token = centerTokenMap[currentCenter];
   const issueDate = document.getElementById('issueDate').value;
   const title = document.getElementById('issueTitle').value.trim();
   const content = document.getElementById('issueContent').value.trim();
@@ -1000,28 +1315,33 @@ async function submitIssue() {
   if (!title) { statusEl.className = 'status-msg err'; statusEl.textContent = '제목을 입력해 주세요.'; return; }
 
   statusEl.className = 'status-msg';
-  statusEl.textContent = '등록 중...';
+  statusEl.textContent = editingIssueId ? '수정 중...' : '등록 중...';
   try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=issues-create', {
+    const action = editingIssueId ? 'issues-update' : 'issues-create';
+    const payload = editingIssueId
+      ? { token: token, id: editingIssueId, issue_date: issueDate, title: title, content: content }
+      : { token: token, issue_date: issueDate, title: title, content: content };
+
+    const res = await fetch(SB_FUNCTION_URL + '?action=' + action, {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ token: token, issue_date: issueDate, title: title, content: content })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
-    if (!data.success) throw new Error(data.error || '등록 실패');
+    if (!data.success) throw new Error(data.error || (editingIssueId ? '수정 실패' : '등록 실패'));
+
     statusEl.className = 'status-msg ok';
-    statusEl.textContent = '등록되었습니다.';
-    document.getElementById('issueTitle').value = '';
-    document.getElementById('issueContent').value = '';
+    statusEl.textContent = editingIssueId ? '수정되었습니다.' : '등록되었습니다.';
+    cancelEditIssue();
     await loadIssueList();
   } catch (e) {
     statusEl.className = 'status-msg err';
-    statusEl.textContent = '등록 실패: ' + e.message;
+    statusEl.textContent = (editingIssueId ? '수정 실패: ' : '등록 실패: ') + e.message;
   }
 }
 
 async function deleteIssue(id) {
   if (!confirm('이 이슈를 삭제하시겠습니까?')) return;
-  const token = CENTER_TOKENS[currentCenter];
+  const token = centerTokenMap[currentCenter];
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=issues-delete', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
@@ -1029,6 +1349,7 @@ async function deleteIssue(id) {
     });
     const data = await res.json();
     if (!data.success) { alert('삭제 실패: ' + data.error); return; }
+    if (editingIssueId === id) cancelEditIssue();
     await loadIssueList();
   } catch (e) { alert('삭제 오류: ' + e.message); }
 }
@@ -1064,7 +1385,7 @@ function renderInputGuide() {
 async function renderEntry() {
   const main = document.getElementById('main');
   if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
-  const token = CENTER_TOKENS[currentCenter];
+  const token = centerTokenMap[currentCenter];
   if (!token) { main.innerHTML = '<div class="empty">이 센터는 아직 데이터입력 토큰이 등록되지 않았습니다.</div>'; return; }
 
   const thisYear = new Date().getFullYear();
@@ -1159,7 +1480,7 @@ function parseGroups() {
 
 async function saveAllRows() {
   const statusEl = document.getElementById('manualStatus');
-  const token = CENTER_TOKENS[currentCenter];
+  const token = centerTokenMap[currentCenter];
   let success = 0, fail = 0;
   const failDates = [];
   statusEl.className = 'status-msg';
@@ -1233,7 +1554,7 @@ async function restoreData(jsonText) {
   let success = 0, skipped = 0;
   for (let i = 0; i < records.length; i++) {
     const rec = records[i];
-    const token = CENTER_TOKENS[rec.center_code];
+    const token = centerTokenMap[rec.center_code];
     if (!token || !rec.report_date) { skipped++; continue; }
     const values = {};
     Object.entries(rec.attendance_data || {}).forEach(function(entry) { values[entry[0]] = { value: entry[1], group: 'attendance' }; });
