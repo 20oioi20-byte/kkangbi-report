@@ -159,12 +159,12 @@ const KR_HOLIDAYS_2026 = [
 const CENTER_KPI_DEFS = {
   'kbsonhae': [
     { label: '전체재직인원(TO대비)', type: 'staff', attKey: '총원' },
-    { section: '제휴상담', label: '근태', type: 'count', attKey: '제휴CS_소계' },
+    { section: '제휴상담', label: '근태', type: 'people', attKey: '제휴CS_소계' },
     { label: '실적·인입호', type: 'count', perfKey: '제휴상담_인입호' },
     { label: '실적·응대호', type: 'count', perfKey: '제휴상담_응답호' },
     { label: '응답율', type: 'rate', perfKey: '제휴상담_응답율' },
     { label: 'SL', type: 'rate', perfKey: '제휴상담_SL' },
-    { section: '장기손사', label: '근태', type: 'count', attKey: '장기사고_소계' },
+    { section: '장기손사', label: '근태', type: 'people', attKey: '장기사고_소계' },
     { label: '실적·인입호', type: 'count', perfKey: '장기손사_인입호' },
     { label: '실적·응대호', type: 'count', perfKey: '장기손사_응답호' },
     { label: '응답율', type: 'rate', perfKey: '장기손사_응답율' },
@@ -787,7 +787,8 @@ function renderDashboard() {
     chartBoxes += '<div class="mini-chart-box"><div class="title">' + group.title + ' · ' + barTitle + ' · ' + lineTitle + '</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div>' + summaryHtml + '</div>';
     copyButtonsHtml += '<button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyChartImage(' + i + ')">' + group.title + ' 복사</button>';
   }
-  const chartsClass = aggView === 'daily' ? 'mini-charts vertical' : 'mini-charts';
+  const wideRange = viewMode === 'cumulative' || viewMode === 'quarter' || viewMode === 'half';
+  const chartsClass = (aggView === 'daily' || wideRange) ? 'mini-charts vertical' : 'mini-charts';
 
   main.innerHTML = ''
     + '<div class="month-bar">'
@@ -894,7 +895,7 @@ function extractNum(row, field, key) {
 
 function getAvgForDef(def, rows) {
   if (def.type === 'staff') return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
-  if (def.type === 'count') {
+  if (def.type === 'count' || def.type === 'people') {
     const field = def.attKey ? 'attendance_data' : 'performance_data';
     const key = def.attKey || def.perfKey;
     return avgExcludingHolidays(rows, function(r) { return extractNum(r, field, key); });
@@ -908,9 +909,19 @@ function formatKpiValue(def, avg) {
     const to = TO_TARGET[currentCenter] || null;
     return avg.toFixed(1) + '명' + (to ? ' (' + (avg / to * 100).toFixed(0) + '%)' : '');
   }
+  if (def.type === 'people') return Math.round(avg).toLocaleString() + '명';
   if (def.type === 'count') return Math.round(avg).toLocaleString() + '건';
   if (def.type === 'number') return avg.toFixed(1);
   return avg.toFixed(1) + '%';
+}
+
+// 전월비/전년동월비의 절대 차이값을 각 지표 단위에 맞게 표기 (근태=명, 실적=건, 응답율/SL=%p)
+function formatDiffAbs(def, diff) {
+  const abs = Math.abs(diff);
+  if (def.type === 'staff' || def.type === 'people') return Math.round(abs).toLocaleString() + '명';
+  if (def.type === 'count') return Math.round(abs).toLocaleString() + '건';
+  if (def.type === 'number') return abs.toFixed(1);
+  return abs.toFixed(1) + '%p';
 }
 
 let lastTrendLines = [];
@@ -927,17 +938,20 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
     const dailyDisplay = formatKpiValue(def, dailyAvg);
     const cumDisplay = formatKpiValue(def, cumAvg);
 
-    function pctHtml(base, compareLabel) {
-      if (dailyAvg === null || base === null || base === 0) return '';
-      const pct = ((dailyAvg - base) / base * 100);
-      const up = pct >= 0;
-      return compareLabel + ' <span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + Math.abs(pct).toFixed(1) + '%</span>';
+    function compareSegment(base, compareLabel) {
+      if (dailyAvg === null || base === null) return '';
+      const diff = dailyAvg - base;
+      const up = diff >= 0;
+      const absStr = formatDiffAbs(def, diff);
+      const pctStr = base !== 0 ? Math.abs(diff / base * 100).toFixed(1) + '%' : '-';
+      return compareLabel + ' <span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</span>' + absStr + ', ' + pctStr;
     }
 
-    const momHtml = pctHtml(prevMonthAvg, '전월比');
-    const yoyHtml = pctHtml(prevYearAvg, '전년동월比');
-    const compareParts = [momHtml, yoyHtml].filter(function(s) { return s; });
-    const compareHtml = compareParts.length ? '<div class="sub">' + compareParts.join(' &nbsp;·&nbsp; ') + '</div>' : '';
+    const momText = compareSegment(prevMonthAvg, '전월比');
+    const yoyText = compareSegment(prevYearAvg, '전년동월比');
+    const parts = [dailyDisplay, '누적평균 ' + cumDisplay];
+    if (momText) parts.push(momText);
+    if (yoyText) parts.push(yoyText);
 
     lastTrendLines.push(def.label + '\t' + dailyDisplay
       + '\t' + (prevMonthAvg !== null ? formatKpiValue(def, prevMonthAvg) : '-')
@@ -948,10 +962,10 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
       ? '<div style="font-size:11px;font-weight:700;color:#60584C;background:#FFF6DC;padding:5px 6px;margin-top:8px;border-radius:5px;">' + def.section + '</div>'
       : '';
 
-    return sectionHtml + '<div class="trend-row"><span class="label">' + def.label + '</span>'
-      + '<span class="vals"><div class="main">' + dailyDisplay + '</div>'
-      + compareHtml
-      + '<div class="sub">누적 ' + cumDisplay + '</div></span></div>';
+    return sectionHtml + '<div class="trend-row" style="display:block;padding:8px 4px;">'
+      + '<span class="label" style="font-weight:600;">' + def.label + '</span>'
+      + '&nbsp; ' + parts.join(' &nbsp;/&nbsp; ')
+      + '</div>';
   }).join('');
 }
 
