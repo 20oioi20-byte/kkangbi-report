@@ -475,12 +475,25 @@ async function init() {
   renderMain();
 }
 
+let categorySchemaCache = {};
+
 async function loadOverviewForCurrent() {
   try {
     const centerParam = workspaceUnlocked ? '' : ('&center=' + encodeURIComponent(currentCenter));
     const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview' + centerParam, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
     const data = await res.json();
     if (data.success) { allRows = data.rows || []; }
+
+    if (categorySchemaCache[currentCenter] === undefined) {
+      const token = centerTokenMap[currentCenter];
+      if (token) {
+        const sres = await fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(token), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
+        const sdata = await sres.json();
+        categorySchemaCache[currentCenter] = sdata.success ? (sdata.category_schema || []) : [];
+      } else {
+        categorySchemaCache[currentCenter] = [];
+      }
+    }
   } catch (e) {
     document.getElementById('main').innerHTML = '<div class="empty">데이터 로드 실패: ' + e.message + '</div>';
   }
@@ -790,6 +803,7 @@ function renderDashboard() {
     + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
+    + renderCategoryPiePanel(centerRows)
     + '<div class="split">'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
@@ -806,6 +820,7 @@ function renderDashboard() {
 
 
   drawMiniCharts(sortedTarget);
+  drawCategoryPieChart(centerRows);
 
   bindColToggleButton();
 
@@ -1005,6 +1020,68 @@ function formatChartLabel(bucketLabel) {
   if (isNaN(d.getTime())) return bucketLabel;
   const dow = ['일', '월', '화', '수', '목', '금', '토'][d.getDay()];
   return d.getDate() + '일(' + dow + ')';
+}
+
+// ============================================
+// 업무유형별 인입현황 - 원형그래프 (최신 일자 기준 인입건수 비율)
+// ============================================
+let categoryPieChartInstance = null;
+
+function renderCategoryPiePanel(centerRows) {
+  const schema = categorySchemaCache[currentCenter] || [];
+  if (schema.length === 0) return '';
+
+  const totalKey = schema[0].key; // 첫 항목("합계")은 파이차트 대상에서 제외
+  const sorted = centerRows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
+  const latest = sorted.find(function(r) { return r.performance_data && r.performance_data[totalKey] !== undefined; });
+
+  if (!latest) {
+    return '<div class="panel" style="margin-bottom:18px;"><h3>업무유형별 인입건수 비율</h3><div class="empty">등록된 데이터가 없습니다.</div></div>';
+  }
+
+  return '<div class="panel" style="margin-bottom:18px;">'
+    + '<h3>업무유형별 인입건수 비율 (' + latest.report_date + ' 기준)</h3>'
+    + '<div style="display:flex;gap:24px;align-items:center;flex-wrap:wrap;">'
+    + '<div style="width:260px;height:260px;"><canvas id="categoryPieChart"></canvas></div>'
+    + '<div class="table-scroll" style="flex:1;min-width:240px;">' + buildCategoryShareTable(latest, schema, totalKey) + '</div>'
+    + '</div></div>';
+}
+
+function buildCategoryShareTable(row, schema, totalKey) {
+  const total = parseFloat(String(row.performance_data[totalKey] || '0').replace(/,/g, '')) || 0;
+  const rows = schema.slice(1).map(function(c) {
+    const n = parseFloat(String(row.performance_data[c.key] || '0').replace(/,/g, '')) || 0;
+    const pct = total ? (n / total * 100).toFixed(1) : '0.0';
+    return '<tr><td>' + c.key + '</td><td>' + n.toLocaleString() + '건</td><td>' + pct + '%</td></tr>';
+  }).join('');
+  return '<table><thead><tr><th>업무유형</th><th>건수</th><th>비중</th></tr></thead><tbody>' + rows + '</tbody></table>';
+}
+
+function drawCategoryPieChart(centerRows) {
+  if (categoryPieChartInstance) { categoryPieChartInstance.destroy(); categoryPieChartInstance = null; }
+  const canvas = document.getElementById('categoryPieChart');
+  if (!canvas) return;
+
+  const schema = categorySchemaCache[currentCenter] || [];
+  if (schema.length === 0) return;
+  const totalKey = schema[0].key;
+
+  const sorted = centerRows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
+  const latest = sorted.find(function(r) { return r.performance_data && r.performance_data[totalKey] !== undefined; });
+  if (!latest) return;
+
+  const labels = schema.slice(1).map(function(c) { return c.key; });
+  const values = schema.slice(1).map(function(c) { return parseFloat(String(latest.performance_data[c.key] || '0').replace(/,/g, '')) || 0; });
+  const palette = ['#FFBC00', '#60584C', '#8A8478', '#B7C4D6', '#9B9E9F', '#545045', '#D9C89A', '#C7B299', '#A9A9A9', '#E8D9B5', '#7A7062', '#C9C0B0'];
+
+  categoryPieChartInstance = new Chart(canvas, {
+    type: 'pie',
+    data: { labels: labels, datasets: [{ data: values, backgroundColor: palette }] },
+    options: {
+      responsive: true, maintainAspectRatio: false,
+      plugins: { legend: { display: false } }
+    }
+  });
 }
 
 function drawMiniCharts(records) {
@@ -1416,8 +1493,8 @@ const PYEONGTAEK_SAMPLE_ROW = ['1,871','1,859','99.4','12','18.0','103.3'];
 
 // 센터별 사용설명(가이드 이미지 + 예시행) 매핑 - 새 센터 추가 시 여기에 등록
 const CENTER_GUIDES = {
-  'kbsonhae': { image: KBSONHAE_GUIDE_IMAGE, sample: KBSONHAE_SAMPLE_ROW },
-  'pyeongtaek': { image: PYEONGTAEK_GUIDE_IMAGE, sample: PYEONGTAEK_SAMPLE_ROW }
+  'kbsonhae': { image: KBSONHAE_GUIDE_IMAGE, sample: KBSONHAE_SAMPLE_ROW, date: '6/29' },
+  'pyeongtaek': { image: PYEONGTAEK_GUIDE_IMAGE, sample: PYEONGTAEK_SAMPLE_ROW, date: '6/1' }
 };
 
 function renderInputGuide() {
@@ -1434,13 +1511,13 @@ function renderInputGuide() {
   return '<details class="panel" style="max-width:100%;margin-bottom:16px;">'
     + '<summary style="cursor:pointer;font-weight:700;font-size:14px;">사용설명 보기 (원본 양식 예시 · 항목 대응표)</summary>'
     + '<div style="margin-top:14px;">'
-    + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>1) 원본 엑셀 양식 예시</b> — 아래처럼 "일자" 행 전체(총원부터 마지막 칸까지)를 그대로 복사하시면 됩니다.</p>'
+    + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>1) 원본 양식 예시</b> (<span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준) — 아래처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
     + '<img src="' + guide.image + '" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:16px;">'
-    + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>2) 항목 대응표</b> (총 31개 항목, 예시는 6/29 데이터 기준)</p>'
+    + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>2) 항목 대응표</b> (총 ' + rowSchema.length + '개 항목, 예시는 <span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
     + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;">'
     + '<table><thead><tr><th>순서</th><th>표준 항목명</th><th>예시값</th></tr></thead><tbody>' + rows + '</tbody></table>'
     + '</div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:10px;">※ 병합된 셀(예: "재적인원" 큰 제목)은 무시하고, 실제 숫자가 들어있는 맨 아래 줄 기준으로 순서를 맞추면 됩니다.</p>'
+    + '<p style="font-size:12px;color:#9aa1ac;margin-top:10px;">※ 병합된 셀(예: 큰 제목 행)은 무시하고, 실제 숫자가 들어있는 맨 아래 줄 기준으로 순서를 맞추면 됩니다.</p>'
     + '</div></details>';
 }
 
@@ -1603,16 +1680,139 @@ async function renderEntry() {
     + '<button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>'
     + '<div class="status-msg" id="manualStatus"></div>'
     + '<div id="templateArea" style="margin-top:16px;"></div>'
-    + '</div>';
+    + '</div>'
+    + '<div id="categoryEntryArea"></div>';
 
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(token), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
     const data = await res.json();
     rowSchema = data.success ? (data.row_schema || []) : [];
+    categorySchema = data.success ? (data.category_schema || []) : [];
     if (rowSchema.length === 0) document.getElementById('templateArea').innerHTML = '<p style="color:#c94040;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>';
     const guideArea = document.getElementById('inputGuideArea');
     if (guideArea) guideArea.innerHTML = renderInputGuide();
+    const catArea = document.getElementById('categoryEntryArea');
+    if (catArea) catArea.innerHTML = renderCategoryEntryPanel();
   } catch (e) { document.getElementById('templateArea').innerHTML = '<p class="empty">양식을 불러오지 못했습니다.</p>'; }
+}
+
+let categorySchema = [];
+let categoryParsedRows = [];
+
+function renderCategoryEntryPanel() {
+  if (!categorySchema || categorySchema.length === 0) return '';
+  const thisYear = new Date().getFullYear();
+  return '<div class="entry-wrap panel" style="margin-top:16px;">'
+    + '<h3>업무유형별 인입현황 입력</h3>'
+    + '<div class="entry-row"><label>기준 연도</label><input type="number" id="categoryEntryYear" value="' + thisYear + '" style="width:90px;"></div>'
+    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">날짜 다음에 "합계"부터 "기타"까지 건수만 순서대로 붙여넣으세요 (응대율/비중은 자동 계산됩니다)</p>'
+    + '<textarea class="paste-box" id="categoryPasteBox" style="min-height:70px;" placeholder="6/1	1493	99	235	261	240	184	45	75	80	16	11	219	28"></textarea>'
+    + '<button class="btn-secondary" onclick="parseCategoryPaste()">양식에 반영</button>'
+    + '<button class="btn-primary" id="categorySaveBtn" style="display:none;" onclick="saveCategoryRows()">전체 저장</button>'
+    + '<div class="status-msg" id="categoryStatus"></div>'
+    + '<div id="categoryTemplateArea" style="margin-top:16px;"></div>'
+    + '</div>';
+}
+
+function parseCategoryPaste() {
+  const raw = document.getElementById('categoryPasteBox').value;
+  const statusEl = document.getElementById('categoryStatus');
+  const year = document.getElementById('categoryEntryYear').value;
+  const lines = raw.split('\n').map(function(l) { return l.replace(/\r$/, ''); }).filter(function(l) { return l.trim() !== ''; });
+  if (lines.length === 0) return;
+
+  const errors = [];
+  categoryParsedRows = [];
+  lines.forEach(function(line, li) {
+    const tokens = line.split('\t').map(function(t) { return t.trim(); });
+    const dateToken = tokens[0];
+    const values = tokens.slice(1);
+    if (values.length !== categorySchema.length) { errors.push('줄 ' + (li + 1) + ' (' + (dateToken || '날짜없음') + '): 항목 수 ' + values.length + '개 / 필요 ' + categorySchema.length + '개 — 제외됩니다.'); return; }
+    const isoDate = toIsoDate(dateToken, year);
+    if (!isoDate) { errors.push('줄 ' + (li + 1) + ': 날짜 인식 실패("' + dateToken + '") — 제외됩니다.'); return; }
+    categoryParsedRows.push({ date: isoDate, values: values });
+  });
+
+  statusEl.className = errors.length ? 'status-msg err' : 'status-msg';
+  statusEl.innerHTML = errors.length ? errors.join('<br>') : '';
+  renderCategoryPreview();
+  document.getElementById('categorySaveBtn').style.display = categoryParsedRows.length ? 'inline-block' : 'none';
+}
+
+function renderCategoryPreview() {
+  const area = document.getElementById('categoryTemplateArea');
+  if (categoryParsedRows.length === 0) { area.innerHTML = '<p class="empty">반영할 데이터가 없습니다.</p>'; return; }
+
+  const totalIdx = 0; // "합계"는 항상 첫 항목
+  const headCells = categorySchema.map(function(c) { return '<th style="text-align:center;">' + c.key + '</th>'; }).join('');
+  const bodyRows = categoryParsedRows.map(function(row, ri) {
+    const total = parseFloat(String(row.values[totalIdx]).replace(/,/g, '')) || 0;
+    const cells = row.values.map(function(v, ci) {
+      return '<td><input type="text" class="category-input" data-row="' + ri + '" data-idx="' + ci + '" data-key="' + categorySchema[ci].key + '" value="' + v + '" style="width:64px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;" oninput="renderCategoryShareRow(' + ri + ')"></td>';
+    }).join('');
+    const shares = row.values.map(function(v, ci) {
+      if (ci === totalIdx || total === 0) return '<td style="color:#9aa1ac;">-</td>';
+      const n = parseFloat(String(v).replace(/,/g, '')) || 0;
+      return '<td style="color:#9aa1ac;" id="catShare_' + ri + '_' + ci + '">' + (n / total * 100).toFixed(1) + '%</td>';
+    }).join('');
+    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">' + row.date + ' (건수)</td>' + cells + '</tr>'
+      + '<tr><td style="position:sticky;left:0;background:#fff;color:#9aa1ac;">비중(%)</td>' + shares + '</tr>';
+  }).join('');
+
+  area.innerHTML = '<div class="table-scroll"><table>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>' + headCells + '</tr></thead>'
+    + '<tbody>' + bodyRows + '</tbody></table></div>'
+    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + categoryParsedRows.length + '개 날짜 · 비중(%)은 합계 대비 자동 계산되며 저장 시 함께 기록됩니다</p>';
+}
+
+function renderCategoryShareRow(ri) {
+  const total = parseFloat((document.querySelector('.category-input[data-row="' + ri + '"][data-idx="0"]') || {}).value || '0') || 0;
+  categorySchema.forEach(function(c, ci) {
+    if (ci === 0) return;
+    const el = document.getElementById('catShare_' + ri + '_' + ci);
+    if (!el) return;
+    const inp = document.querySelector('.category-input[data-row="' + ri + '"][data-idx="' + ci + '"]');
+    const n = parseFloat((inp && inp.value) || '0') || 0;
+    el.textContent = total ? (n / total * 100).toFixed(1) + '%' : '-';
+  });
+}
+
+async function saveCategoryRows() {
+  const statusEl = document.getElementById('categoryStatus');
+  const token = centerTokenMap[currentCenter];
+  let success = 0, fail = 0;
+  const failDates = [];
+  statusEl.className = 'status-msg';
+
+  for (let idx = 0; idx < categoryParsedRows.length; idx++) {
+    const row = categoryParsedRows[idx];
+    const inputs = document.querySelectorAll('.category-input[data-row="' + idx + '"]');
+    const values = {};
+    const total = parseFloat((document.querySelector('.category-input[data-row="' + idx + '"][data-idx="0"]') || {}).value || '0') || 0;
+    inputs.forEach(function(inp) {
+      values[inp.dataset.key] = { value: inp.value, group: 'performance' };
+      if (inp.dataset.idx !== '0') {
+        const n = parseFloat(inp.value || '0') || 0;
+        values[inp.dataset.key + '_비중'] = { value: total ? (n / total * 100).toFixed(1) : '0', group: 'performance' };
+      }
+    });
+    statusEl.textContent = '저장 중... (' + (success + fail + 1) + '/' + categoryParsedRows.length + ')';
+    try {
+      const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, report_date: row.date, values: values })
+      });
+      const data = await res.json();
+      if (data.success) success++; else { fail++; failDates.push(row.date); }
+    } catch (e) { fail++; failDates.push(row.date); }
+  }
+  statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
+  statusEl.textContent = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
+  document.getElementById('categoryPasteBox').value = '';
+  document.getElementById('categorySaveBtn').style.display = 'none';
+  categoryParsedRows = [];
+  document.getElementById('categoryTemplateArea').innerHTML = '';
+  await loadOverviewForCurrent();
 }
 
 function parseMultiPaste() {
