@@ -53,6 +53,27 @@
   .alert-chip { background: #fff; border: 1px solid #f3dfb2; color: #8a6414; font-size: 12px; padding: 6px 12px; border-radius: 20px; white-space: nowrap; }
 
   .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
+
+  .ws-kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px; }
+  .ws-kpi-card { background: #fff; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); border-left: 3px solid #FE2E36; }
+  .ws-kpi-card.warn { border-left-color: #c94040; background: #fdecea; }
+  .ws-kpi-card .l { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
+  .ws-kpi-card .v { font-size: 26px; font-weight: 700; color: #1c1f26; }
+  .ws-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .ws-card { background: #fff; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; border: 1px solid transparent; transition: border-color .12s; }
+  .ws-card:hover { border-color: #FE2E36; }
+  .ws-card.warn { border: 1px solid #f0b4b4; background: #fffaf9; }
+  .ws-card .ws-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
+  .ws-card .ws-title { font-size: 14px; font-weight: 700; color: #1c1f26; }
+  .ws-badge { font-size: 11px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
+  .ws-badge.ok { background: #eaf7ee; color: #1a8f4c; }
+  .ws-badge.warn { background: #fdecea; color: #c94040; }
+  .ws-badge.pending { background: #f0f1f3; color: #9aa1ac; }
+  .ws-card .ws-stat { font-size: 12px; color: #5b6472; margin: 2px 0; }
+  .ws-card .ws-stat b { color: #1c1f26; }
+  .ws-card .ws-stat.warn-text { color: #c94040; font-weight: 600; }
+  .ws-add-card { border: 1px dashed #d9dce1; border-radius: 12px; display: flex; align-items: center; justify-content: center; min-height: 96px; color: #9aa1ac; font-size: 12px; cursor: pointer; }
+  .ws-add-card:hover { border-color: #FE2E36; color: #FE2E36; }
   .summary-card2 { background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
 
   .kbj-kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px; }
@@ -191,7 +212,8 @@ const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 20 }; // 평택시청: 투입
 // 센터별 전체 정원 정보 (전체 운영 요약 카드의 각주 표시용)
 const CENTER_TO_INFO = {
   'kbsonhae': { total: 178, counselor: 178, staffAttKey: '총원', note: '' },
-  'pyeongtaek': { total: 24, counselor: 20, staffAttKey: '투입인원', note: '관리자 4명 제외, 상담사 20명 기준' }
+  'pyeongtaek': { total: 24, counselor: 20, staffAttKey: '투입인원', note: '관리자 4명 제외, 상담사 20명 기준' },
+  'kbjeongbi': { total: 15, counselor: 14, staffAttKey: '재직인원', note: '관리자 1명 포함' }
 };
 
 const KR_HOLIDAYS_2026 = [
@@ -436,6 +458,8 @@ function promptWorkspaceLogin() {
 function lockWorkspace() {
   workspaceUnlocked = false;
   workspacePasswordCache = '';
+  viewingWorkspaceOverview = false;
+  viewingSettingsPage = false;
   persistSession();
   refreshAfterAuthChange();
 }
@@ -461,13 +485,16 @@ function promptCenterPassword(code) {
 }
 
 async function refreshAfterAuthChange() {
+  if (!workspaceUnlocked) { viewingWorkspaceOverview = false; viewingSettingsPage = false; }
   const available = allCentersMeta.filter(function(c) { return workspaceUnlocked || unlockedCenters.has(c.center_code); });
-  if (!available.find(function(c) { return c.center_code === currentCenter; })) {
+  if (!viewingWorkspaceOverview && !viewingSettingsPage && !available.find(function(c) { return c.center_code === currentCenter; })) {
     currentCenter = available.length ? available[0].center_code : null;
   }
   renderTopbarAuth();
   renderSidebar();
-  if (currentCenter) { await loadOverviewForCurrent(); } else { allRows = []; }
+  if (!viewingWorkspaceOverview && !viewingSettingsPage) {
+    if (currentCenter) { await loadOverviewForCurrent(); } else { allRows = []; }
+  }
   renderMain();
 }
 
@@ -621,11 +648,16 @@ async function init() {
   const autoUnlocked = await tryDomainAutoUnlock();
   if (!autoUnlocked && workspaceUnlocked) { await tryWorkspaceLogin(workspacePasswordCache, true); }
   const available = allCentersMeta.filter(function(c) { return workspaceUnlocked || unlockedCenters.has(c.center_code); });
-  if (available.length > 0) currentCenter = available[0].center_code;
+  if (workspaceUnlocked) {
+    viewingWorkspaceOverview = true;
+  } else if (available.length > 0) {
+    currentCenter = available[0].center_code;
+  }
   renderTopbarAuth();
   loadColPrefs();
   renderSidebar();
-  if (currentCenter) await loadOverviewForCurrent();
+  if (viewingWorkspaceOverview) { await loadAllCentersOverview(); }
+  else if (currentCenter) { await loadOverviewForCurrent(); }
   renderMain();
 }
 
@@ -653,16 +685,27 @@ async function loadOverviewForCurrent() {
   }
 }
 
+let viewingWorkspaceOverview = false;
+let viewingSettingsPage = false;
+let monthlyToCache = {};
+let kpiSettingsCache = {};
+
 function renderSidebar() {
   const list = document.getElementById('centerList');
-  if (allCentersMeta.length === 0) { list.innerHTML = '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
+  const overviewHtml = workspaceUnlocked
+    ? '<div class="center-item ' + (viewingWorkspaceOverview ? 'active' : '') + '" onclick="selectWorkspaceOverview()" style="font-weight:700;border-bottom:1px solid #f0f1f3;margin-bottom:4px;">'
+      + '<span class="center-name-text"><span class="dot" style="background:#FE2E36;"></span> 📊 전체 현황</span>'
+      + '</div>'
+    : '';
+
+  if (allCentersMeta.length === 0) { list.innerHTML = overviewHtml + '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
 
   const sorted = allCentersMeta.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
 
-  list.innerHTML = sorted.map(function(c, idx) {
+  list.innerHTML = overviewHtml + sorted.map(function(c, idx) {
     const isUnlocked = workspaceUnlocked || unlockedCenters.has(c.center_code);
     const lockIcon = isUnlocked ? '' : '🔒 ';
-    const activeCls = c.center_code === currentCenter ? 'active' : '';
+    const activeCls = (!viewingWorkspaceOverview && c.center_code === currentCenter) ? 'active' : '';
     const adminControls = workspaceUnlocked
       ? '<span class="center-admin-controls" onclick="event.stopPropagation();">'
         + '<button class="mv" onclick="moveCenterOrder(\'' + c.center_code + '\',-1)" title="위로" ' + (idx === 0 ? 'disabled' : '') + '>▲</button>'
@@ -681,7 +724,8 @@ function renderSidebar() {
       + adminControls
       + '</div>';
   }).join('')
-  + (workspaceUnlocked ? '<div class="add-center" style="cursor:pointer;color:#FE2E36;font-weight:600;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '');
+  + (workspaceUnlocked ? '<div class="add-center" style="cursor:pointer;color:#FE2E36;font-weight:600;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
+  + (workspaceUnlocked ? '<div class="add-center ' + (viewingSettingsPage ? 'active' : '') + '" style="cursor:pointer;color:#5b6472;font-weight:600;" onclick="selectSettingsPage()">⚙ 설정</div>' : '');
 }
 
 function toggleCenterMenu(evt, code) {
@@ -697,8 +741,64 @@ function closeCenterMenus() {
 }
 document.addEventListener('click', closeCenterMenus);
 
+async function loadAllCentersOverview() {
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const data = await res.json();
+    if (data.success) { allRows = data.rows || []; }
+  } catch (e) {
+    document.getElementById('main').innerHTML = '<div class="empty">데이터 로드 실패: ' + e.message + '</div>';
+  }
+}
+
+async function selectWorkspaceOverview() {
+  viewingWorkspaceOverview = true;
+  viewingSettingsPage = false;
+  renderSidebar();
+  renderTopbarAuth();
+  await loadAllCentersOverview();
+  renderMain();
+}
+
+async function selectSettingsPage() {
+  viewingWorkspaceOverview = false;
+  viewingSettingsPage = true;
+  renderSidebar();
+  renderTopbarAuth();
+  await loadAllSettingsData();
+  renderMain();
+}
+
+async function loadAllSettingsData() {
+  try {
+    const toRes = await fetch(SB_FUNCTION_URL + '?action=list-monthly-to&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const kpiRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-settings&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const toData = await toRes.json();
+    const kpiData = await kpiRes.json();
+
+    monthlyToCache = {};
+    (toData.settings || []).forEach(function(s) {
+      if (!monthlyToCache[s.center_code]) monthlyToCache[s.center_code] = [];
+      monthlyToCache[s.center_code].push(s);
+    });
+
+    kpiSettingsCache = {};
+    (kpiData.settings || []).forEach(function(s) {
+      if (!kpiSettingsCache[s.center_code]) kpiSettingsCache[s.center_code] = [];
+      kpiSettingsCache[s.center_code].push(s);
+    });
+  } catch (e) { /* 실패 시 캐시가 비워진 채 진행됨(설정 없음으로 처리) */ }
+}
+
+function getMonthlyTO(centerCode, yearMonth) {
+  const list = monthlyToCache[centerCode] || [];
+  return list.find(function(s) { return s.year_month === yearMonth; }) || null;
+}
+
 async function selectCenter(code) {
   if (!workspaceUnlocked && !unlockedCenters.has(code)) { promptCenterPassword(code); return; }
+  viewingSettingsPage = false;
+  viewingWorkspaceOverview = false;
   currentCenter = code;
   loadColPrefs();
   renderSidebar();
@@ -718,6 +818,8 @@ function toggleBackupPanel() {
 }
 
 function renderMain() {
+  if (viewingWorkspaceOverview) { renderWorkspaceOverview(); return; }
+  if (viewingSettingsPage) { renderSettingsPage(); return; }
   if (!currentCenter) {
     document.getElementById('main').innerHTML = '<div class="empty" style="padding:100px 24px;">왼쪽에서 센터를 선택해 비밀번호를 입력하거나,<br>상단의 "워크스페이스 로그인"으로 전체 센터를 확인하세요.</div>';
     return;
@@ -927,6 +1029,271 @@ function refreshTablePanel() {
   const newTableScroll = panel.querySelector('.table-scroll');
   if (newTableScroll) newTableScroll.scrollLeft = tableScrollLeft;
   window.scrollTo(0, scrollY);
+}
+
+// ============================================
+// 워크스페이스 전체 현황 (상단 종합지표 + 카드 그리드, KT 스타일)
+// 센터가 추가/삭제/변경되어도 등록된 설정(CENTER_TO_INFO, CENTER_CHART_CONFIG)만
+// 있으면 자동으로 카드가 생기고, 없으면 "준비중"으로 처리되어 유연하게 대응한다.
+// ============================================
+function computeCenterHeadline(code, rows) {
+  const savedCenter = currentCenter;
+  currentCenter = code; // resolveMetric 등 계산지표 함수가 currentCenter를 참조하므로 임시 전환
+  try {
+    const toInfo = CENTER_TO_INFO[code];
+    const chartConfig = CENTER_CHART_CONFIG[code];
+    const sorted = rows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
+    const latest = sorted[0] || null;
+
+    if (!latest) return { status: 'pending', staffText: null, headline: null, updated: null };
+
+    // TO: 설정 화면에서 등록한 "월별 TO"가 있으면 최우선 사용, 없으면 기본값(CENTER_TO_INFO) 사용
+    const ym = latest.report_date.slice(0, 7);
+    const monthlyTO = getMonthlyTO(code, ym);
+    let staffText = null;
+    const staffAttKey = toInfo ? toInfo.staffAttKey : null;
+    const staffVal = staffAttKey ? extractNum(latest, 'attendance_data', staffAttKey) : null;
+    if (monthlyTO) {
+      const totalTO = (monthlyTO.to_manager || 0) + (monthlyTO.to_counselor || 0);
+      if (staffVal !== null && totalTO) {
+        staffText = staffVal + '명 / ' + totalTO + '명 (' + (staffVal / totalTO * 100).toFixed(0) + '%)';
+      } else if (totalTO) {
+        staffText = '정원 ' + totalTO + '명 (관리자 ' + monthlyTO.to_manager + '·상담사 ' + monthlyTO.to_counselor + ')';
+      }
+    } else if (toInfo && staffVal !== null) {
+      staffText = staffVal + '명 / ' + toInfo.total + '명 (' + (staffVal / toInfo.total * 100).toFixed(0) + '%)';
+    }
+
+    // 핵심지표: 설정 화면에서 등록한 목표치가 있으면 최우선 사용(첫 번째 항목), 없으면 차트 기준선으로 대체
+    const customKpis = (kpiSettingsCache[code] || []).slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+    let headline = null, isWarn = false;
+    const hasConfig = customKpis.length > 0 || !!chartConfig;
+
+    if (customKpis.length > 0) {
+      const primary = customKpis[0];
+      const val = resolveMetric(latest, primary.metric_key);
+      if (val !== null) {
+        headline = primary.metric_label + ' ' + val.toFixed(1) + (Math.abs(val) <= 100 ? '%' : '');
+        if (primary.target_value !== null && primary.target_value !== undefined) isWarn = val < primary.target_value;
+      }
+    } else if (chartConfig && chartConfig.groups && chartConfig.groups.length) {
+      const group = chartConfig.groups.find(function(g) { return g.threshold; }) || chartConfig.groups[0];
+      if (group.threshold) {
+        const val = resolveMetric(latest, group.threshold.key);
+        if (val !== null) {
+          const idx = group.lineKeys.indexOf(group.threshold.key);
+          const lbl = idx >= 0 ? group.lineLabels[idx].replace('(%)', '') : group.threshold.label;
+          headline = lbl + ' ' + val.toFixed(1) + '%';
+          isWarn = val < group.threshold.value;
+        }
+      } else if (group.lineKeys && group.lineKeys.length) {
+        const val = resolveMetric(latest, group.lineKeys[0]);
+        if (val !== null) headline = group.lineLabels[0].replace('(%)', '') + ' ' + val.toFixed(1) + '%';
+      } else if (group.barKeys && group.barKeys.length) {
+        const val = resolveMetric(latest, group.barKeys[0]);
+        if (val !== null) headline = group.barLabels[0] + ' ' + Math.round(val).toLocaleString() + '건';
+      }
+    }
+
+    const status = !hasConfig ? 'pending' : (isWarn ? 'warn' : 'ok');
+    return { status: status, staffText: staffText, headline: headline, updated: latest.report_date };
+  } finally {
+    currentCenter = savedCenter;
+  }
+}
+
+function renderWorkspaceOverview() {
+  const main = document.getElementById('main');
+  const sorted = allCentersMeta.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+
+  const centerStats = sorted.map(function(c) {
+    const rows = allRows.filter(function(r) { return r.center_code === c.center_code; });
+    const h = computeCenterHeadline(c.center_code, rows);
+    return Object.assign({ code: c.center_code, name: c.center_name }, h);
+  });
+
+  const totalCenters = centerStats.length;
+  const warnCount = centerStats.filter(function(s) { return s.status === 'warn'; }).length;
+  const totalStaffCount = centerStats.filter(function(s) { return s.staffText; }).length;
+
+  const kpiHtml = '<div class="ws-kpi-strip">'
+    + '<div class="ws-kpi-card"><div class="l">전체 센터</div><div class="v">' + totalCenters + '개</div></div>'
+    + '<div class="ws-kpi-card"><div class="l">데이터 등록 센터</div><div class="v">' + totalStaffCount + '개</div></div>'
+    + '<div class="ws-kpi-card' + (warnCount > 0 ? ' warn' : '') + '"><div class="l">주의 센터</div><div class="v">' + warnCount + '개</div></div>'
+    + '</div>';
+
+  // 상태 기준 자동정렬은 제거하고, 센터 목록과 동일한 고정 순서(sort_order)를 그대로 사용.
+  // 순서를 바꾸고 싶으면 카드의 ▲▼ 버튼(사이드바 순서와 동일하게 연동)으로 직접 변경한다.
+  const badgeText = { ok: '정상', warn: '주의', pending: '준비중' };
+  const cardsHtml = centerStats.map(function(s, idx) {
+    const reorderHtml = workspaceUnlocked
+      ? '<span onclick="event.stopPropagation();" style="display:flex;gap:2px;">'
+        + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',-1);selectWorkspaceOverview();" title="앞으로" ' + (idx === 0 ? 'disabled' : '') + '>◀</button>'
+        + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',1);selectWorkspaceOverview();" title="뒤로" ' + (idx === centerStats.length - 1 ? 'disabled' : '') + '>▶</button>'
+        + '</span>'
+      : '';
+    return '<div class="ws-card' + (s.status === 'warn' ? ' warn' : '') + '" onclick="selectCenter(\'' + s.code + '\')">'
+      + '<div class="ws-head"><span class="ws-title">' + s.name + '</span><span style="display:flex;gap:6px;align-items:center;"><span class="ws-badge ' + s.status + '">' + badgeText[s.status] + '</span>' + reorderHtml + '</span></div>'
+      + (s.staffText ? '<div class="ws-stat">재직인원 <b>' + s.staffText + '</b></div>' : '<div class="ws-stat">재직 데이터 없음</div>')
+      + (s.headline ? '<div class="ws-stat' + (s.status === 'warn' ? ' warn-text' : '') + '">' + s.headline + '</div>' : (s.status === 'pending' ? '<div class="ws-stat">핵심지표 미설정 (설정에서 등록 가능)</div>' : ''))
+      + (s.updated ? '<div class="ws-stat" style="color:#c3c7cd;">최근 업데이트 ' + s.updated + '</div>' : '')
+      + '</div>';
+  }).join('');
+
+  main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
+    + '<h2 style="margin:0;font-size:20px;">워크스페이스 전체 현황</h2>'
+    + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview()">새로고침</button>'
+    + '</div>'
+    + kpiHtml
+    + '<div class="ws-card-grid">' + cardsHtml + (workspaceUnlocked ? '<div class="ws-add-card" onclick="addCenterPrompt()">+ 센터 추가 시 자동으로 카드가 생깁니다</div>' : '') + '</div>'
+    + '</div>';
+}
+
+// ============================================
+// 센터별 설정 페이지 (월별 TO, 핵심지표 목표치)
+// ============================================
+function renderSettingsPage() {
+  const main = document.getElementById('main');
+  const sorted = allCentersMeta.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+  const currentYM = new Date().toISOString().slice(0, 7);
+
+  const sections = sorted.map(function(c) {
+    const toList = (monthlyToCache[c.center_code] || []).slice().sort(function(a, b) { return b.year_month.localeCompare(a.year_month); });
+    const toRows = toList.map(function(t) {
+      return '<tr><td>' + t.year_month + '</td><td>' + t.to_manager + '명</td><td>' + t.to_counselor + '명</td><td>' + (t.to_manager + t.to_counselor) + '명</td>'
+        + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadMonthlyToForEdit(\'' + c.center_code + '\',\'' + t.year_month + '\')">수정</button> '
+        + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteMonthlyTo(\'' + t.id + '\')">삭제</button></td></tr>';
+    }).join('');
+
+    const kpiList = (kpiSettingsCache[c.center_code] || []).slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+    const kpiRows = kpiList.map(function(k) {
+      return '<tr><td>' + k.metric_label + '</td><td style="font-family:monospace;font-size:12px;">' + k.metric_key + '</td><td>' + (k.target_value !== null ? k.target_value : '없음') + '</td>'
+        + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadKpiSettingForEdit(\'' + k.id + '\')">수정</button> '
+        + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteKpiSetting(\'' + k.id + '\')">삭제</button></td></tr>';
+    }).join('');
+
+    return '<details class="panel" style="margin-bottom:16px;" open>'
+      + '<summary style="cursor:pointer;font-weight:700;font-size:15px;">' + c.center_name + '</summary>'
+      + '<div style="margin-top:16px;">'
+
+      + '<h4 style="margin:0 0 8px;">월별 TO 설정</h4>'
+      + '<div class="entry-row"><label>연월</label><input type="month" id="toMonth_' + c.center_code + '" value="' + currentYM + '"></div>'
+      + '<div class="entry-row"><label>관리자</label><input type="number" id="toManager_' + c.center_code + '" value="0" style="width:80px;"></div>'
+      + '<div class="entry-row"><label>상담사</label><input type="number" id="toCounselor_' + c.center_code + '" value="0" style="width:80px;"></div>'
+      + '<button class="btn-secondary" onclick="saveMonthlyTo(\'' + c.center_code + '\')">저장</button>'
+      + (toRows ? '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>연월</th><th>관리자</th><th>상담사</th><th>합계(TO)</th><th></th></tr></thead><tbody>' + toRows + '</tbody></table></div>' : '<p class="empty" style="margin-top:10px;">등록된 월별 TO가 없습니다. (미등록 시 기본값 사용)</p>')
+
+      + '<h4 style="margin:20px 0 8px;">주요지표 목표치 설정</h4>'
+      + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 8px;">첫 번째로 등록된 지표가 전체 현황 카드의 "핵심지표"로 표시됩니다. 목표값을 비워두면 "목표 없음"으로 처리됩니다.</p>'
+      + '<div class="entry-row"><label>라벨</label><input type="text" id="kpiLabel_' + c.center_code + '" placeholder="예: 응답율" style="width:140px;"></div>'
+      + '<div class="entry-row"><label>지표 키</label><input type="text" id="kpiKey_' + c.center_code + '" placeholder="예: 제휴상담_응답율" style="width:180px;"></div>'
+      + '<div class="entry-row"><label>목표값</label><input type="number" id="kpiTarget_' + c.center_code + '" placeholder="없음(공란)" style="width:100px;"></div>'
+      + '<input type="hidden" id="kpiEditId_' + c.center_code + '" value="">'
+      + '<button class="btn-secondary" onclick="saveKpiSetting(\'' + c.center_code + '\')">추가/저장</button>'
+      + '<button class="btn-ghost" onclick="clearKpiForm(\'' + c.center_code + '\')">취소</button>'
+      + (kpiRows ? '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>라벨</th><th>지표 키</th><th>목표값</th><th></th></tr></thead><tbody>' + kpiRows + '</tbody></table></div>' : '<p class="empty" style="margin-top:10px;">등록된 핵심지표가 없습니다. (등록 전까지는 기존 차트 기준선을 사용합니다)</p>')
+
+      + '</div></details>';
+  }).join('');
+
+  main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
+    + '<h2 style="margin-bottom:16px;">센터별 설정</h2>'
+    + sections
+    + '</div>';
+}
+
+async function saveMonthlyTo(centerCode) {
+  const yearMonth = document.getElementById('toMonth_' + centerCode).value;
+  const manager = document.getElementById('toManager_' + centerCode).value;
+  const counselor = document.getElementById('toCounselor_' + centerCode).value;
+  if (!yearMonth) { alert('연월을 선택해 주세요.'); return; }
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=save-monthly-to', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, center_code: centerCode, year_month: yearMonth, to_manager: Number(manager) || 0, to_counselor: Number(counselor) || 0 })
+    });
+    const data = await res.json();
+    if (!data.success) { alert('저장 실패: ' + data.error); return; }
+    await loadAllSettingsData();
+    renderMain();
+  } catch (e) { alert('오류: ' + e.message); }
+}
+
+function loadMonthlyToForEdit(centerCode, yearMonth) {
+  const s = getMonthlyTO(centerCode, yearMonth);
+  if (!s) return;
+  document.getElementById('toMonth_' + centerCode).value = yearMonth;
+  document.getElementById('toManager_' + centerCode).value = s.to_manager;
+  document.getElementById('toCounselor_' + centerCode).value = s.to_counselor;
+}
+
+async function deleteMonthlyTo(id) {
+  if (!confirm('이 월별 TO 설정을 삭제하시겠습니까?')) return;
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=delete-monthly-to', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, id: id })
+    });
+    const data = await res.json();
+    if (!data.success) { alert('삭제 실패: ' + data.error); return; }
+    await loadAllSettingsData();
+    renderMain();
+  } catch (e) { alert('오류: ' + e.message); }
+}
+
+async function saveKpiSetting(centerCode) {
+  const label = document.getElementById('kpiLabel_' + centerCode).value.trim();
+  const key = document.getElementById('kpiKey_' + centerCode).value.trim();
+  const targetRaw = document.getElementById('kpiTarget_' + centerCode).value;
+  const editId = document.getElementById('kpiEditId_' + centerCode).value;
+  if (!label || !key) { alert('라벨과 지표 키를 입력해 주세요.'); return; }
+  try {
+    const payload = { workspace_password: workspacePasswordCache, center_code: centerCode, metric_key: key, metric_label: label, target_value: targetRaw === '' ? null : Number(targetRaw), sort_order: 0 };
+    if (editId) payload.id = editId;
+    const res = await fetch(SB_FUNCTION_URL + '?action=save-kpi-setting', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+    if (!data.success) { alert('저장 실패: ' + data.error); return; }
+    clearKpiForm(centerCode);
+    await loadAllSettingsData();
+    renderMain();
+  } catch (e) { alert('오류: ' + e.message); }
+}
+
+function clearKpiForm(centerCode) {
+  document.getElementById('kpiLabel_' + centerCode).value = '';
+  document.getElementById('kpiKey_' + centerCode).value = '';
+  document.getElementById('kpiTarget_' + centerCode).value = '';
+  document.getElementById('kpiEditId_' + centerCode).value = '';
+}
+
+function loadKpiSettingForEdit(id) {
+  let target = null, centerCode = null;
+  Object.keys(kpiSettingsCache).forEach(function(cc) {
+    (kpiSettingsCache[cc] || []).forEach(function(k) { if (k.id === id) { target = k; centerCode = cc; } });
+  });
+  if (!target) return;
+  document.getElementById('kpiLabel_' + centerCode).value = target.metric_label;
+  document.getElementById('kpiKey_' + centerCode).value = target.metric_key;
+  document.getElementById('kpiTarget_' + centerCode).value = target.target_value !== null ? target.target_value : '';
+  document.getElementById('kpiEditId_' + centerCode).value = target.id;
+}
+
+async function deleteKpiSetting(id) {
+  if (!confirm('이 핵심지표 설정을 삭제하시겠습니까?')) return;
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=delete-kpi-setting', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, id: id })
+    });
+    const data = await res.json();
+    if (!data.success) { alert('삭제 실패: ' + data.error); return; }
+    await loadAllSettingsData();
+    renderMain();
+  } catch (e) { alert('오류: ' + e.message); }
 }
 
 function renderDashboard() {
