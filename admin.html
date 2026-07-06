@@ -192,6 +192,7 @@
   <div class="maintab active" data-tab="dashboard" onclick="switchMainTab('dashboard')">대시보드</div>
   <div class="maintab" data-tab="entry" onclick="switchMainTab('entry')">데이터입력</div>
   <div class="maintab" data-tab="issues" onclick="switchMainTab('issues')">이슈 및 히스토리</div>
+  <div class="maintab" data-tab="settings" onclick="switchMainTab('settings')" id="settingsMainTab">TO 및 목표값설정</div>
 </div>
 
 <div class="layout">
@@ -666,19 +667,19 @@ let categorySchemaCache = {};
 async function loadOverviewForCurrent() {
   try {
     const centerParam = workspaceUnlocked ? '' : ('&center=' + encodeURIComponent(currentCenter));
-    const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview' + centerParam + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
-    const data = await res.json();
+    const needsSchema = categorySchemaCache[currentCenter] === undefined;
+    const token = centerTokenMap[currentCenter];
+
+    const overviewPromise = fetch(SB_FUNCTION_URL + '?action=admin-overview' + centerParam + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' }).then(function(r) { return r.json(); });
+    const schemaPromise = (needsSchema && token)
+      ? fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(token) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' }).then(function(r) { return r.json(); })
+      : Promise.resolve(null);
+
+    const [data, sdata] = await Promise.all([overviewPromise, schemaPromise]);
     if (data.success) { allRows = data.rows || []; }
 
-    if (categorySchemaCache[currentCenter] === undefined) {
-      const token = centerTokenMap[currentCenter];
-      if (token) {
-        const sres = await fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(token) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
-        const sdata = await sres.json();
-        categorySchemaCache[currentCenter] = sdata.success ? (sdata.category_schema || []) : [];
-      } else {
-        categorySchemaCache[currentCenter] = [];
-      }
+    if (needsSchema) {
+      categorySchemaCache[currentCenter] = (sdata && sdata.success) ? (sdata.category_schema || []) : [];
     }
   } catch (e) {
     document.getElementById('main').innerHTML = '<div class="empty">데이터 로드 실패: ' + e.message + '</div>';
@@ -725,7 +726,7 @@ function renderSidebar() {
       + '</div>';
   }).join('')
   + (workspaceUnlocked ? '<div class="add-center" style="cursor:pointer;color:#FE2E36;font-weight:600;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
-  + (workspaceUnlocked ? '<div class="add-center ' + (viewingSettingsPage ? 'active' : '') + '" style="cursor:pointer;color:#5b6472;font-weight:600;" onclick="selectSettingsPage()">⚙ 설정</div>' : '');
+  ;
 }
 
 function toggleCenterMenu(evt, code) {
@@ -819,13 +820,13 @@ function toggleBackupPanel() {
 
 function renderMain() {
   if (viewingWorkspaceOverview) { renderWorkspaceOverview(); return; }
-  if (viewingSettingsPage) { renderSettingsPage(); return; }
   if (!currentCenter) {
     document.getElementById('main').innerHTML = '<div class="empty" style="padding:100px 24px;">왼쪽에서 센터를 선택해 비밀번호를 입력하거나,<br>상단의 "워크스페이스 로그인"으로 전체 센터를 확인하세요.</div>';
     return;
   }
   if (currentMainTab === 'dashboard') renderDashboard();
   else if (currentMainTab === 'issues') renderIssues();
+  else if (currentMainTab === 'settings') renderCenterSettingsTab();
   else renderEntry();
 }
 
@@ -1109,7 +1110,7 @@ function renderWorkspaceOverview() {
   const centerStats = sorted.map(function(c) {
     const rows = allRows.filter(function(r) { return r.center_code === c.center_code; });
     const h = computeCenterHeadline(c.center_code, rows);
-    return Object.assign({ code: c.center_code, name: c.center_name }, h);
+    return Object.assign({ code: c.center_code, name: c.center_name, rows: rows }, h);
   });
 
   const totalCenters = centerStats.length;
@@ -1132,11 +1133,19 @@ function renderWorkspaceOverview() {
         + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',1);selectWorkspaceOverview();" title="뒤로" ' + (idx === centerStats.length - 1 ? 'disabled' : '') + '>▶</button>'
         + '</span>'
       : '';
+    const trendCfg = CENTER_CARD_TREND[s.code];
+    const trendHtml = trendCfg
+      ? '<div style="height:46px;margin-top:8px;"><canvas id="wsSpark_' + s.code + '"></canvas></div>'
+        + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">' + trendCfg.series.map(function(sr, i) {
+          return '<span style="font-size:10px;color:' + WS_SPARK_COLORS[i % WS_SPARK_COLORS.length] + ';">● ' + sr.label + '</span>';
+        }).join('') + '</div>'
+      : '';
     return '<div class="ws-card' + (s.status === 'warn' ? ' warn' : '') + '" onclick="selectCenter(\'' + s.code + '\')">'
       + '<div class="ws-head"><span class="ws-title">' + s.name + '</span><span style="display:flex;gap:6px;align-items:center;"><span class="ws-badge ' + s.status + '">' + badgeText[s.status] + '</span>' + reorderHtml + '</span></div>'
       + (s.staffText ? '<div class="ws-stat">재직인원 <b>' + s.staffText + '</b></div>' : '<div class="ws-stat">재직 데이터 없음</div>')
       + (s.headline ? '<div class="ws-stat' + (s.status === 'warn' ? ' warn-text' : '') + '">' + s.headline + '</div>' : (s.status === 'pending' ? '<div class="ws-stat">핵심지표 미설정 (설정에서 등록 가능)</div>' : ''))
       + (s.updated ? '<div class="ws-stat" style="color:#c3c7cd;">최근 업데이트 ' + s.updated + '</div>' : '')
+      + trendHtml
       + '</div>';
   }).join('');
 
@@ -1148,59 +1157,150 @@ function renderWorkspaceOverview() {
     + kpiHtml
     + '<div class="ws-card-grid">' + cardsHtml + (workspaceUnlocked ? '<div class="ws-add-card" onclick="addCenterPrompt()">+ 센터 추가 시 자동으로 카드가 생깁니다</div>' : '') + '</div>'
     + '</div>';
+
+  drawWorkspaceSparklines(centerStats);
+}
+
+// 센터별 카드 미니 추이그래프 구성 (월별 집계, mode: avg=일평균 / sum=월합계)
+const CENTER_CARD_TREND = {
+  'kbsonhae': { mode: 'avg', months: 6, series: [{ label: '제휴상담', key: '제휴상담_인입호' }, { label: '장기손사', key: '장기손사_인입호' }] },
+  'kbjeongbi': { mode: 'sum', months: 6, series: [{ label: '고지의무', key: '접수_고지의무' }, { label: '통지의무', key: '접수_통지의무' }, { label: '목적물소멸', key: '접수_목적물소멸' }] },
+  'pyeongtaek': { mode: 'avg', months: 6, series: [{ label: '요청호', key: '요청호' }] }
+};
+const WS_SPARK_COLORS = ['#FE2E36', '#2f6fd1', '#e0a500'];
+let wsSparkCharts = [];
+
+function drawWorkspaceSparklines(centerStats) {
+  wsSparkCharts.forEach(function(c) { if (c) c.destroy(); });
+  wsSparkCharts = [];
+
+  const savedCenter = currentCenter;
+  centerStats.forEach(function(s) {
+    const cfg = CENTER_CARD_TREND[s.code];
+    const canvas = document.getElementById('wsSpark_' + s.code);
+    if (!cfg || !canvas) return;
+    currentCenter = s.code; // resolveMetric이 currentCenter를 참조
+
+    const byMonth = {};
+    s.rows.forEach(function(r) { const ym = r.report_date.slice(0, 7); if (!byMonth[ym]) byMonth[ym] = []; byMonth[ym].push(r); });
+    const months = Object.keys(byMonth).sort().slice(-cfg.months);
+
+    const datasets = cfg.series.map(function(sr, i) {
+      const data = months.map(function(ym) {
+        const rows = byMonth[ym];
+        const vals = rows.map(function(r) { return resolveMetric(r, sr.key); }).filter(function(n) { return n !== null && !isNaN(n); });
+        if (vals.length === 0) return null;
+        const sum = vals.reduce(function(a, b) { return a + b; }, 0);
+        return cfg.mode === 'sum' ? sum : (sum / vals.length);
+      });
+      return { label: sr.label, data: data, borderColor: WS_SPARK_COLORS[i % WS_SPARK_COLORS.length], backgroundColor: 'transparent', borderWidth: 1.5, tension: 0.3, pointRadius: 0 };
+    });
+
+    wsSparkCharts.push(new Chart(canvas, {
+      type: 'line',
+      data: { labels: months.map(function(m) { return m.slice(5) + '월'; }), datasets: datasets },
+      options: {
+        responsive: true, maintainAspectRatio: false,
+        plugins: { legend: { display: false } },
+        scales: { y: { display: false }, x: { display: false } }
+      }
+    }));
+  });
+  currentCenter = savedCenter;
 }
 
 // ============================================
 // 센터별 설정 페이지 (월별 TO, 핵심지표 목표치)
 // ============================================
-function renderSettingsPage() {
+async function renderCenterSettingsTab() {
   const main = document.getElementById('main');
-  const sorted = allCentersMeta.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+  main.innerHTML = '<div class="empty" style="padding:60px 0;">불러오는 중...</div>';
+  await loadCenterSettingsData(currentCenter);
+
+  const c = allCentersMeta.find(function(x) { return x.center_code === currentCenter; });
   const currentYM = new Date().toISOString().slice(0, 7);
 
-  const sections = sorted.map(function(c) {
-    const toList = (monthlyToCache[c.center_code] || []).slice().sort(function(a, b) { return b.year_month.localeCompare(a.year_month); });
-    const toRows = toList.map(function(t) {
-      return '<tr><td>' + t.year_month + '</td><td>' + t.to_manager + '명</td><td>' + t.to_counselor + '명</td><td>' + (t.to_manager + t.to_counselor) + '명</td>'
-        + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadMonthlyToForEdit(\'' + c.center_code + '\',\'' + t.year_month + '\')">수정</button> '
-        + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteMonthlyTo(\'' + t.id + '\')">삭제</button></td></tr>';
-    }).join('');
+  const toList = (monthlyToCache[currentCenter] || []).slice().sort(function(a, b) { return b.year_month.localeCompare(a.year_month); });
+  const toRows = toList.map(function(t) {
+    return '<tr><td>' + t.year_month + '</td><td>' + t.to_manager + '명</td><td>' + t.to_counselor + '명</td><td>' + (t.to_manager + t.to_counselor) + '명</td>'
+      + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadMonthlyToForEdit(\'' + currentCenter + '\',\'' + t.year_month + '\')">수정</button> '
+      + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteMonthlyTo(\'' + t.id + '\')">삭제</button></td></tr>';
+  }).join('');
 
-    const kpiList = (kpiSettingsCache[c.center_code] || []).slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
-    const kpiRows = kpiList.map(function(k) {
-      return '<tr><td>' + k.metric_label + '</td><td style="font-family:monospace;font-size:12px;">' + k.metric_key + '</td><td>' + (k.target_value !== null ? k.target_value : '없음') + '</td>'
-        + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadKpiSettingForEdit(\'' + k.id + '\')">수정</button> '
-        + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteKpiSetting(\'' + k.id + '\')">삭제</button></td></tr>';
-    }).join('');
+  // 지표 키를 직접 타이핑하지 않도록, 이 센터에 실제로 존재하는 항목을 드롭다운으로 제공
+  const metricOptions = buildMetricOptionsForCenter(currentCenter);
+  const optionsHtml = '<option value="">직접 선택...</option>' + metricOptions.map(function(o) {
+    return '<option value="' + o.key + '">' + o.label + '</option>';
+  }).join('');
 
-    return '<details class="panel" style="margin-bottom:16px;" open>'
-      + '<summary style="cursor:pointer;font-weight:700;font-size:15px;">' + c.center_name + '</summary>'
-      + '<div style="margin-top:16px;">'
-
-      + '<h4 style="margin:0 0 8px;">월별 TO 설정</h4>'
-      + '<div class="entry-row"><label>연월</label><input type="month" id="toMonth_' + c.center_code + '" value="' + currentYM + '"></div>'
-      + '<div class="entry-row"><label>관리자</label><input type="number" id="toManager_' + c.center_code + '" value="0" style="width:80px;"></div>'
-      + '<div class="entry-row"><label>상담사</label><input type="number" id="toCounselor_' + c.center_code + '" value="0" style="width:80px;"></div>'
-      + '<button class="btn-secondary" onclick="saveMonthlyTo(\'' + c.center_code + '\')">저장</button>'
-      + (toRows ? '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>연월</th><th>관리자</th><th>상담사</th><th>합계(TO)</th><th></th></tr></thead><tbody>' + toRows + '</tbody></table></div>' : '<p class="empty" style="margin-top:10px;">등록된 월별 TO가 없습니다. (미등록 시 기본값 사용)</p>')
-
-      + '<h4 style="margin:20px 0 8px;">주요지표 목표치 설정</h4>'
-      + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 8px;">첫 번째로 등록된 지표가 전체 현황 카드의 "핵심지표"로 표시됩니다. 목표값을 비워두면 "목표 없음"으로 처리됩니다.</p>'
-      + '<div class="entry-row"><label>라벨</label><input type="text" id="kpiLabel_' + c.center_code + '" placeholder="예: 응답율" style="width:140px;"></div>'
-      + '<div class="entry-row"><label>지표 키</label><input type="text" id="kpiKey_' + c.center_code + '" placeholder="예: 제휴상담_응답율" style="width:180px;"></div>'
-      + '<div class="entry-row"><label>목표값</label><input type="number" id="kpiTarget_' + c.center_code + '" placeholder="없음(공란)" style="width:100px;"></div>'
-      + '<input type="hidden" id="kpiEditId_' + c.center_code + '" value="">'
-      + '<button class="btn-secondary" onclick="saveKpiSetting(\'' + c.center_code + '\')">추가/저장</button>'
-      + '<button class="btn-ghost" onclick="clearKpiForm(\'' + c.center_code + '\')">취소</button>'
-      + (kpiRows ? '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>라벨</th><th>지표 키</th><th>목표값</th><th></th></tr></thead><tbody>' + kpiRows + '</tbody></table></div>' : '<p class="empty" style="margin-top:10px;">등록된 핵심지표가 없습니다. (등록 전까지는 기존 차트 기준선을 사용합니다)</p>')
-
-      + '</div></details>';
+  const kpiList = (kpiSettingsCache[currentCenter] || []).slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+  const kpiRows = kpiList.map(function(k, i) {
+    return '<tr><td>' + (i === 0 ? '<span class="ws-badge ok" style="margin-right:6px;">핵심</span>' : '') + k.metric_label + '</td>'
+      + '<td style="font-family:monospace;font-size:12px;">' + k.metric_key + '</td><td>' + (k.target_value !== null ? k.target_value : '없음') + '</td>'
+      + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadKpiSettingForEdit(\'' + k.id + '\')">수정</button> '
+      + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteKpiSetting(\'' + k.id + '\')">삭제</button></td></tr>';
   }).join('');
 
   main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
-    + '<h2 style="margin-bottom:16px;">센터별 설정</h2>'
-    + sections
+    + '<h2 style="margin-bottom:16px;">' + (c ? c.center_name : '') + ' · TO 및 목표값설정</h2>'
+
+    + '<div class="panel" style="margin-bottom:16px;">'
+    + '<h3 style="margin-bottom:6px;">월별 TO 설정</h3>'
+    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">해당 월의 관리자·상담사 정원을 등록하면, 대시보드의 재직인원(TO대비) 계산에 자동 반영됩니다.</p>'
+    + '<div class="entry-row"><label>연월</label><input type="month" id="toMonth_' + currentCenter + '" value="' + currentYM + '"></div>'
+    + '<div class="entry-row"><label>관리자</label><input type="number" id="toManager_' + currentCenter + '" value="0" style="width:80px;"></div>'
+    + '<div class="entry-row"><label>상담사</label><input type="number" id="toCounselor_' + currentCenter + '" value="0" style="width:80px;"></div>'
+    + '<button class="btn-secondary" onclick="saveMonthlyTo(\'' + currentCenter + '\')">저장</button>'
+    + (toRows ? '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>연월</th><th>관리자</th><th>상담사</th><th>합계(TO)</th><th></th></tr></thead><tbody>' + toRows + '</tbody></table></div>' : '<p class="empty" style="margin-top:10px;">등록된 월별 TO가 없습니다. (미등록 시 기본값 사용)</p>')
+    + '</div>'
+
+    + '<div class="panel">'
+    + '<h3 style="margin-bottom:6px;">주요지표 목표치 설정</h3>'
+    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">목록 맨 위(첫 번째) 지표가 전체 현황 카드의 "핵심지표"로 표시됩니다. 목표값을 비워두면 "목표 없음"으로 처리됩니다.</p>'
+    + '<div class="entry-row"><label>지표 선택</label><select id="kpiKeySelect_' + currentCenter + '" onchange="onKpiKeySelected(\'' + currentCenter + '\')" style="min-width:220px;">' + optionsHtml + '</select></div>'
+    + '<div class="entry-row"><label>지표 키</label><input type="text" id="kpiKey_' + currentCenter + '" placeholder="위에서 선택하거나 직접 입력" style="width:200px;"></div>'
+    + '<div class="entry-row"><label>표시 라벨</label><input type="text" id="kpiLabel_' + currentCenter + '" placeholder="예: 응답율" style="width:140px;"></div>'
+    + '<div class="entry-row"><label>목표값</label><input type="number" id="kpiTarget_' + currentCenter + '" placeholder="없음(공란)" style="width:100px;"></div>'
+    + '<input type="hidden" id="kpiEditId_' + currentCenter + '" value="">'
+    + '<button class="btn-secondary" onclick="saveKpiSetting(\'' + currentCenter + '\')">추가/저장</button>'
+    + '<button class="btn-ghost" onclick="clearKpiForm(\'' + currentCenter + '\')">취소</button>'
+    + (kpiRows ? '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>라벨</th><th>지표 키</th><th>목표값</th><th></th></tr></thead><tbody>' + kpiRows + '</tbody></table></div>' : '<p class="empty" style="margin-top:10px;">등록된 핵심지표가 없습니다. (등록 전까지는 기존 차트 기준선을 사용합니다)</p>')
+    + '</div>'
     + '</div>';
+}
+
+// 센터의 row_schema/계산지표를 기반으로 드롭다운 선택지 구성 (오타 방지)
+function buildMetricOptionsForCenter(centerCode) {
+  const options = [];
+  (rowSchema || []).filter(function(col) { return col.group === 'performance'; }).forEach(function(col) {
+    options.push({ key: col.key, label: col.key });
+  });
+  const computed = CENTER_COMPUTED_METRICS[centerCode];
+  if (computed) {
+    Object.keys(computed).forEach(function(k) { options.push({ key: k, label: k + ' (계산지표)' }); });
+  }
+  return options;
+}
+
+function onKpiKeySelected(centerCode) {
+  const select = document.getElementById('kpiKeySelect_' + centerCode);
+  const val = select.value;
+  if (!val) return;
+  document.getElementById('kpiKey_' + centerCode).value = val;
+  if (!document.getElementById('kpiLabel_' + centerCode).value) {
+    document.getElementById('kpiLabel_' + centerCode).value = val.replace(/_/g, ' ');
+  }
+}
+
+async function loadCenterSettingsData(centerCode) {
+  try {
+    const toRes = await fetch(SB_FUNCTION_URL + '?action=list-monthly-to&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const kpiRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-settings&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const toData = await toRes.json();
+    const kpiData = await kpiRes.json();
+    monthlyToCache[centerCode] = toData.settings || [];
+    kpiSettingsCache[centerCode] = kpiData.settings || [];
+  } catch (e) { /* 실패 시 해당 센터는 "설정 없음"으로 표시됨 */ }
 }
 
 async function saveMonthlyTo(centerCode) {
@@ -1211,11 +1311,11 @@ async function saveMonthlyTo(centerCode) {
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=save-monthly-to', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_password: workspacePasswordCache, center_code: centerCode, year_month: yearMonth, to_manager: Number(manager) || 0, to_counselor: Number(counselor) || 0 })
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[centerCode], center_code: centerCode, year_month: yearMonth, to_manager: Number(manager) || 0, to_counselor: Number(counselor) || 0 })
     });
     const data = await res.json();
     if (!data.success) { alert('저장 실패: ' + data.error); return; }
-    await loadAllSettingsData();
+    await loadCenterSettingsData(currentCenter);
     renderMain();
   } catch (e) { alert('오류: ' + e.message); }
 }
@@ -1233,11 +1333,11 @@ async function deleteMonthlyTo(id) {
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=delete-monthly-to', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_password: workspacePasswordCache, id: id })
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], id: id })
     });
     const data = await res.json();
     if (!data.success) { alert('삭제 실패: ' + data.error); return; }
-    await loadAllSettingsData();
+    await loadCenterSettingsData(currentCenter);
     renderMain();
   } catch (e) { alert('오류: ' + e.message); }
 }
@@ -1249,7 +1349,7 @@ async function saveKpiSetting(centerCode) {
   const editId = document.getElementById('kpiEditId_' + centerCode).value;
   if (!label || !key) { alert('라벨과 지표 키를 입력해 주세요.'); return; }
   try {
-    const payload = { workspace_password: workspacePasswordCache, center_code: centerCode, metric_key: key, metric_label: label, target_value: targetRaw === '' ? null : Number(targetRaw), sort_order: 0 };
+    const payload = { workspace_password: workspacePasswordCache, token: centerTokenMap[centerCode], center_code: centerCode, metric_key: key, metric_label: label, target_value: targetRaw === '' ? null : Number(targetRaw), sort_order: 0 };
     if (editId) payload.id = editId;
     const res = await fetch(SB_FUNCTION_URL + '?action=save-kpi-setting', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
@@ -1258,7 +1358,7 @@ async function saveKpiSetting(centerCode) {
     const data = await res.json();
     if (!data.success) { alert('저장 실패: ' + data.error); return; }
     clearKpiForm(centerCode);
-    await loadAllSettingsData();
+    await loadCenterSettingsData(currentCenter);
     renderMain();
   } catch (e) { alert('오류: ' + e.message); }
 }
@@ -1291,7 +1391,7 @@ async function deleteKpiSetting(id) {
     });
     const data = await res.json();
     if (!data.success) { alert('삭제 실패: ' + data.error); return; }
-    await loadAllSettingsData();
+    await loadCenterSettingsData(currentCenter);
     renderMain();
   } catch (e) { alert('오류: ' + e.message); }
 }
