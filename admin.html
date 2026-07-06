@@ -226,14 +226,18 @@ const CENTER_KPI_DEFS = {
   ],
   'kbjeongbi': [
     { label: '전체재직인원(TO대비)', type: 'staff', attKey: '재직인원' },
+    { section: '총합계', label: '접수', type: 'count', perfKey: '통합_접수' },
+    { label: '처리', type: 'count', perfKey: '통합_처리' },
+    { label: '처리율', type: 'rate', perfKey: '통합_처리율' },
     { section: '고지의무', label: '접수', type: 'count', perfKey: '접수_고지의무' },
     { label: '처리', type: 'count', perfKey: '처리_고지의무' },
     { label: '처리율', type: 'rate', perfKey: '고지의무_처리율' },
-    { label: '준수율', type: 'rate', perfKey: '고지의무_준수율' },
     { section: '통지의무', label: '접수', type: 'count', perfKey: '접수_통지의무' },
     { label: '처리', type: 'count', perfKey: '처리_통지의무' },
     { label: '처리율', type: 'rate', perfKey: '통지의무_처리율' },
-    { label: '준수율', type: 'rate', perfKey: '통지의무_준수율' },
+    { section: '목적물소멸', label: '접수', type: 'count', perfKey: '접수_목적물소멸' },
+    { label: '처리', type: 'count', perfKey: '처리_목적물소멸' },
+    { label: '처리율', type: 'rate', perfKey: '목적물소멸_처리율' },
   ],
 };
 
@@ -258,8 +262,32 @@ const CENTER_COMPUTED_METRICS = {
       const denom = (proc || 0) + (unproc || 0);
       return denom ? (proc / denom * 100) : null;
     },
+    '목적물소멸_처리율': function(r) {
+      const acc = extractNum(r, 'performance_data', '접수_목적물소멸'), proc = extractNum(r, 'performance_data', '처리_목적물소멸');
+      return (acc !== null && acc !== 0 && proc !== null) ? (proc / acc * 100) : null;
+    },
+    // Total = 고지의무 + 통지의무 + 목적물소멸 (기타 제외)
+    '통합_접수': function(r) {
+      const a = extractNum(r, 'performance_data', '접수_고지의무') || 0, b = extractNum(r, 'performance_data', '접수_통지의무') || 0, c = extractNum(r, 'performance_data', '접수_목적물소멸') || 0;
+      return a + b + c;
+    },
+    '통합_처리': function(r) {
+      const a = extractNum(r, 'performance_data', '처리_고지의무') || 0, b = extractNum(r, 'performance_data', '처리_통지의무') || 0, c = extractNum(r, 'performance_data', '처리_목적물소멸') || 0;
+      return a + b + c;
+    },
+    '통합_처리율': function(r) {
+      const a = extractNum(r, 'performance_data', '접수_고지의무') || 0, b = extractNum(r, 'performance_data', '접수_통지의무') || 0, c = extractNum(r, 'performance_data', '접수_목적물소멸') || 0;
+      const acc = a + b + c;
+      const pa = extractNum(r, 'performance_data', '처리_고지의무') || 0, pb = extractNum(r, 'performance_data', '처리_통지의무') || 0, pc = extractNum(r, 'performance_data', '처리_목적물소멸') || 0;
+      const proc = pa + pb + pc;
+      return acc ? (proc / acc * 100) : null;
+    },
   },
 };
+
+function sumMetric(rows, key) {
+  return rows.reduce(function(sum, r) { const v = resolveMetric(r, key); return sum + (v || 0); }, 0);
+}
 
 // 성능 데이터 키를 값으로 변환: 계산지표로 등록돼 있으면 계산식 사용, 아니면 원본 값 그대로 조회
 function resolveMetric(row, key) {
@@ -312,19 +340,13 @@ const CENTER_CHART_CONFIG = {
     ]
   },
   'kbjeongbi': {
-    barColors: ['#8A8478', '#FFBC00', '#B7C4D6'],
+    barColors: ['#60584C', '#FFBC00', '#8A8478', '#B7C4D6'],
     lineColor: '#545045',
     groups: [
-      {
-        title: '고지의무', barKeys: ['접수_고지의무', '처리_고지의무'], barLabels: ['접수', '처리'],
-        lineKeys: ['고지의무_처리율', '고지의무_준수율'], lineLabels: ['처리율(%)', '준수율(%)'],
-        threshold: { key: '고지의무_준수율', value: 80, label: '준수율기준(80)' }
-      },
-      {
-        title: '통지의무', barKeys: ['접수_통지의무', '처리_통지의무'], barLabels: ['접수', '처리'],
-        lineKeys: ['통지의무_처리율', '통지의무_준수율'], lineLabels: ['처리율(%)', '준수율(%)'],
-        threshold: { key: '통지의무_준수율', value: 80, label: '준수율기준(80)' }
-      },
+      { title: '총합계', barKeys: ['통합_접수'], barLabels: ['접수건'], lineKeys: [], lineLabels: [] },
+      { title: '고지의무', barKeys: ['접수_고지의무'], barLabels: ['접수건'], lineKeys: [], lineLabels: [] },
+      { title: '통지의무', barKeys: ['접수_통지의무'], barLabels: ['접수건'], lineKeys: [], lineLabels: [] },
+      { title: '목적물소멸', barKeys: ['접수_목적물소멸'], barLabels: ['접수건'], lineKeys: [], lineLabels: [] },
     ]
   },
 };
@@ -996,11 +1018,12 @@ function renderDashboard() {
     + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
-    + renderSummaryCards(monthRows, cumulativeRows, prevMonthRows)
+    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiSummaryCards2(monthRows, cumulativeRows) : renderSummaryCards(monthRows, cumulativeRows, prevMonthRows))
     + '<div class="split">'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
     + '</div>'
+    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiDueDateTables(monthRows) : '')
     + renderCategoryOverviewPanel(centerRows, monthRows, prevMonthRows)
     + renderCategoryTrendPanel(centerRows)
     + '<div class="agg-tabs">'
@@ -1407,6 +1430,72 @@ function drawKbjeongbiDonut(centerRows) {
   kbjComplianceDonut2 = drawComplianceDonut('kbjComplianceChart2', jVal('통지의무_변경기한일_처리건'), jVal('통지의무_변경기한일_미처리건'));
 }
 
+// ============================================
+// KB손보정비 전용: 4개 카테고리(총합계/고지의무/통지의무/목적물소멸) 요약카드
+// ============================================
+const KBJ_CATEGORY_CARDS = [
+  { title: 'Total 현황', icon: '📊', accKey: '통합_접수', procKey: '통합_처리' },
+  { title: '고지의무 현황', icon: '📋', accKey: '접수_고지의무', procKey: '처리_고지의무' },
+  { title: '통지의무 현황', icon: '📨', accKey: '접수_통지의무', procKey: '처리_통지의무' },
+  { title: '목적물소멸 현황', icon: '🏠', accKey: '접수_목적물소멸', procKey: '처리_목적물소멸' },
+];
+
+function renderKbjeongbiSummaryCards2(monthRows, cumulativeRows) {
+  const cards = KBJ_CATEGORY_CARDS.map(function(c, i) {
+    const dailyAcc = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, c.accKey); });
+    const dailyProc = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, c.procKey); });
+    const cumAcc = sumMetric(cumulativeRows, c.accKey);
+    const cumProc = sumMetric(cumulativeRows, c.procKey);
+    const cumRate = cumAcc ? (cumProc / cumAcc * 100) : null;
+    const cumUnproc = cumAcc - cumProc;
+    const cardId = 'kbjSumCard' + i;
+    return '<div class="summary-card2" id="' + cardId + '">'
+      + '<div class="sc-head"><span class="sc-title">' + c.icon + ' ' + c.title + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">복사</button></div>'
+      + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
+      + '<div class="sc-stat"><div class="l">일평균 접수건</div><div class="v">' + (dailyAcc !== null ? dailyAcc.toFixed(1) : '-') + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">누적 접수건</div><div class="v">' + cumAcc.toLocaleString() + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">일평균 처리건</div><div class="v">' + (dailyProc !== null ? dailyProc.toFixed(1) : '-') + '건</div></div>'
+      + '</div>'
+      + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">'
+      + '<div class="sc-stat"><div class="l">누적 처리건</div><div class="v">' + cumProc.toLocaleString() + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">누적 처리율</div><div class="v">' + (cumRate !== null ? cumRate.toFixed(1) + '%' : '-') + '</div></div>'
+      + '<div class="sc-stat"><div class="l">누적 미처리건</div><div class="v warn">' + cumUnproc.toLocaleString() + '건</div></div>'
+      + '</div>'
+      + '</div>';
+  }).join('');
+  return '<div class="summary-cards">' + cards + '</div>';
+}
+
+// ============================================
+// KB손보정비 전용: 변경기한일 일자별 현황(대상건/처리건/처리율)
+// ============================================
+function renderKbjeongbiDueDateTable(label, targetKey, procKey, monthRows) {
+  const sorted = monthRows.filter(function(r) { return r.performance_data && r.performance_data[targetKey] !== undefined; })
+    .slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
+  if (sorted.length === 0) return '<div class="panel"><h3>' + label + ' 변경기한일 일자별 현황</h3><div class="empty">등록된 데이터가 없습니다.</div></div>';
+
+  const rows = sorted.map(function(r) {
+    const target = resolveMetric(r, targetKey) || 0;
+    const proc = resolveMetric(r, procKey) || 0;
+    const rate = target ? (proc / target * 100) : 0;
+    const md = r.report_date.match(/-(\d{2})-(\d{2})$/);
+    const dateLabel = md ? (Number(md[1]) + '/' + Number(md[2])) : r.report_date;
+    return '<tr><td>' + dateLabel + '</td><td>' + target.toLocaleString() + '건</td><td>' + proc.toLocaleString() + '건</td>'
+      + '<td><span style="background:#fdecea;color:#c94040;font-weight:700;padding:3px 10px;border-radius:12px;font-size:12px;">' + rate.toFixed(1) + '%</span></td></tr>';
+  }).join('');
+
+  return '<div class="panel"><h3 style="margin-bottom:10px;">' + label + ' 변경기한일 일자별 현황</h3>'
+    + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;"><table><thead><tr><th>일자</th><th>대상건</th><th>처리건</th><th>처리율</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+    + '</div>';
+}
+
+function renderKbjeongbiDueDateTables(monthRows) {
+  return '<div class="kbj-split2">'
+    + renderKbjeongbiDueDateTable('고지의무', '고지의무_변경기한일_대상건', '고지의무_변경기한일_처리건', monthRows)
+    + renderKbjeongbiDueDateTable('통지의무', '통지의무_변경기한일_대상건', '통지의무_변경기한일_처리건', monthRows)
+    + '</div>';
+}
+
 function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
   const toInfo = CENTER_TO_INFO[currentCenter];
   const chartConfig = CENTER_CHART_CONFIG[currentCenter];
@@ -1720,7 +1809,7 @@ function drawMiniCharts(records) {
     group.barKeys.forEach(function(key, bi) {
       const label = group.barLabels[bi];
       if (label === excludeBarLabel) return;
-      datasets.push({ type: 'bar', label: label, data: countSeries(key), backgroundColor: barColors[bi % barColors.length], yAxisID: 'yCount', order: 3 });
+      datasets.push({ type: 'bar', label: label, data: countSeries(key), backgroundColor: barColors[(i + bi) % barColors.length], yAxisID: 'yCount', order: 3 });
     });
 
     group.lineKeys.forEach(function(key, li) {
