@@ -534,10 +534,28 @@ function moveCenterOrder(code, dir) {
   }).catch(function(e) { alert('오류: ' + e.message); });
 }
 
+async function tryDomainAutoUnlock() {
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=domain-auto-unlock', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({})
+    });
+    const data = await res.json();
+    if (data.success && data.valid) {
+      workspaceUnlocked = true;
+      centerTokenMap = {};
+      (data.centers || []).forEach(function(c) { centerTokenMap[c.center_code] = c.upload_token; });
+      return true;
+    }
+  } catch (e) { /* 무시하고 일반 로그인 절차로 진행 */ }
+  return false;
+}
+
 async function init() {
   restoreSession();
   await loadCentersMeta();
-  if (workspaceUnlocked) { await tryWorkspaceLogin(workspacePasswordCache, true); }
+  const autoUnlocked = await tryDomainAutoUnlock();
+  if (!autoUnlocked && workspaceUnlocked) { await tryWorkspaceLogin(workspacePasswordCache, true); }
   const available = allCentersMeta.filter(function(c) { return workspaceUnlocked || unlockedCenters.has(c.center_code); });
   if (available.length > 0) currentCenter = available[0].center_code;
   renderTopbarAuth();
