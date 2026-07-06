@@ -364,8 +364,8 @@ async function tryWorkspaceLogin(password, silent) {
 }
 
 function promptWorkspaceLogin() {
-  const pw = prompt('워크스페이스 비밀번호(6자리)를 입력하세요:');
-  if (pw === null) return;
+  const pw = (prompt('워크스페이스 비밀번호(6자리)를 입력하세요:') || '').trim();
+  if (!pw) return;
   tryWorkspaceLogin(pw, false).then(function(ok) { if (ok) refreshAfterAuthChange(); });
 }
 
@@ -378,8 +378,8 @@ function lockWorkspace() {
 
 function promptCenterPassword(code) {
   const meta = allCentersMeta.find(function(c) { return c.center_code === code; });
-  const pw = prompt((meta ? meta.center_name : code) + ' 비밀번호(6자리)를 입력하세요:');
-  if (pw === null) return;
+  const pw = (prompt((meta ? meta.center_name : code) + ' 비밀번호(6자리)를 입력하세요:') || '').trim();
+  if (!pw) return;
   fetch(SB_FUNCTION_URL + '?action=verify-center-password', {
     method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ center_code: code, password: pw })
@@ -425,10 +425,10 @@ function renderTopbarAuth() {
 }
 
 function showChangeWorkspacePw() {
-  const cur = prompt('현재 워크스페이스 비밀번호:');
-  if (cur === null) return;
-  const next = prompt('새 비밀번호(숫자 6자리):');
-  if (next === null) return;
+  const cur = (prompt('현재 워크스페이스 비밀번호:') || '').trim();
+  if (!cur) return;
+  const next = (prompt('새 비밀번호(숫자 6자리):') || '').trim();
+  if (!next) return;
   fetch(SB_FUNCTION_URL + '?action=change-workspace-password', {
     method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ current_password: cur, new_password: next })
@@ -446,12 +446,12 @@ function showChangeCenterPw() {
   if (workspaceUnlocked) {
     payload.workspace_password = workspacePasswordCache;
   } else {
-    const cur = prompt('현재 센터 비밀번호:');
-    if (cur === null) return;
+    const cur = (prompt('현재 센터 비밀번호:') || '').trim();
+    if (!cur) return;
     payload.current_password = cur;
   }
-  const next = prompt('새 비밀번호(숫자 6자리):');
-  if (next === null) return;
+  const next = (prompt('새 비밀번호(숫자 6자리):') || '').trim();
+  if (!next) return;
   payload.new_password = next;
   fetch(SB_FUNCTION_URL + '?action=change-center-password', {
     method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
