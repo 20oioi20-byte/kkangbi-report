@@ -225,22 +225,56 @@ const CENTER_KPI_DEFS = {
     { label: 'CPD', type: 'number', perfKey: 'CPD' },
   ],
   'kbjeongbi': [
-    { label: '접수 Total', type: 'count', perfKey: '접수_Total' },
-    { label: '처리 Total', type: 'count', perfKey: '처리_Total' },
-    { label: '고지의무 접수', type: 'count', perfKey: '접수_고지의무' },
-    { label: '통지의무 접수', type: 'count', perfKey: '접수_통지의무' },
-    { label: '고지의무 처리', type: 'count', perfKey: '처리_고지의무' },
-    { label: '통지의무 처리', type: 'count', perfKey: '처리_통지의무' },
+    { label: '전체재직인원(TO대비)', type: 'staff', attKey: '재직인원' },
+    { section: '고지의무', label: '접수', type: 'count', perfKey: '접수_고지의무' },
+    { label: '처리', type: 'count', perfKey: '처리_고지의무' },
+    { label: '처리율', type: 'rate', perfKey: '고지의무_처리율' },
+    { label: '준수율', type: 'rate', perfKey: '고지의무_준수율' },
+    { section: '통지의무', label: '접수', type: 'count', perfKey: '접수_통지의무' },
+    { label: '처리', type: 'count', perfKey: '처리_통지의무' },
+    { label: '처리율', type: 'rate', perfKey: '통지의무_처리율' },
+    { label: '준수율', type: 'rate', perfKey: '통지의무_준수율' },
   ],
 };
+
+// 저장된 원본 항목만으로는 부족한 "처리율/준수율" 등은 센터별 계산식으로 산출
+const CENTER_COMPUTED_METRICS = {
+  'kbjeongbi': {
+    '고지의무_처리율': function(r) {
+      const acc = extractNum(r, 'performance_data', '접수_고지의무'), proc = extractNum(r, 'performance_data', '처리_고지의무');
+      return (acc !== null && acc !== 0 && proc !== null) ? (proc / acc * 100) : null;
+    },
+    '통지의무_처리율': function(r) {
+      const acc = extractNum(r, 'performance_data', '접수_통지의무'), proc = extractNum(r, 'performance_data', '처리_통지의무');
+      return (acc !== null && acc !== 0 && proc !== null) ? (proc / acc * 100) : null;
+    },
+    '고지의무_준수율': function(r) {
+      const proc = extractNum(r, 'performance_data', '고지의무_변경기한일_처리건'), unproc = extractNum(r, 'performance_data', '고지의무_변경기한일_미처리건');
+      const denom = (proc || 0) + (unproc || 0);
+      return denom ? (proc / denom * 100) : null;
+    },
+    '통지의무_준수율': function(r) {
+      const proc = extractNum(r, 'performance_data', '통지의무_변경기한일_처리건'), unproc = extractNum(r, 'performance_data', '통지의무_변경기한일_미처리건');
+      const denom = (proc || 0) + (unproc || 0);
+      return denom ? (proc / denom * 100) : null;
+    },
+  },
+};
+
+// 성능 데이터 키를 값으로 변환: 계산지표로 등록돼 있으면 계산식 사용, 아니면 원본 값 그대로 조회
+function resolveMetric(row, key) {
+  const fn = CENTER_COMPUTED_METRICS[currentCenter] && CENTER_COMPUTED_METRICS[currentCenter][key];
+  if (fn) return fn(row);
+  return extractNum(row, 'performance_data', key);
+}
 
 // 센터별 지표 추이 차트 구성 - 새 센터 추가 시 여기에 등록
 // group: { title, barKeys(막대,합계/평균), barLabels, lineKeys(선), lineLabels, threshold: {key, value, label} }
 // 센터별 대시보드 테마 색상 (KB손보부천은 기존 브랜드 색상 유지, 평택시청은 평택시 시그니처 컬러 반영)
 // main: pantone 320C(teal), sub: pantone 072C(navy) 기준
 const CENTER_DASH_THEME = {
-  'pyeongtaek': { accent: '#009DA5', dark: '#303192', soft: '#E6F6F7' },
-  'kbjeongbi': { accent: '#FFBC00', dark: '#545045', soft: '#FFF6DC' }
+  'pyeongtaek': { accent: '#009DA5', dark: '#303192', soft: '#E6F6F7' }
+  // kbjeongbi는 KB손보부천과 동일하게 기본(KT) 테마를 사용하도록 별도 등록하지 않음
 };
 const DEFAULT_DASH_THEME = { accent: '#FE2E36', dark: '#1c1f26', soft: '#FFE8E9' };
 
@@ -278,12 +312,18 @@ const CENTER_CHART_CONFIG = {
     ]
   },
   'kbjeongbi': {
-    barColors: ['#D9C89A', '#c94040'],
+    barColors: ['#8A8478', '#FFBC00', '#B7C4D6'],
     lineColor: '#545045',
     groups: [
       {
-        title: '일별 실적 추이', barKeys: ['접수_Total', '처리_Total'], barLabels: ['접수 Total', '처리 Total'],
-        lineKeys: [], lineLabels: []
+        title: '고지의무', barKeys: ['접수_고지의무', '처리_고지의무'], barLabels: ['접수', '처리'],
+        lineKeys: ['고지의무_처리율', '고지의무_준수율'], lineLabels: ['처리율(%)', '준수율(%)'],
+        threshold: { key: '고지의무_준수율', value: 80, label: '준수율기준(80)' }
+      },
+      {
+        title: '통지의무', barKeys: ['접수_통지의무', '처리_통지의무'], barLabels: ['접수', '처리'],
+        lineKeys: ['통지의무_처리율', '통지의무_준수율'], lineLabels: ['처리율(%)', '준수율(%)'],
+        threshold: { key: '통지의무_준수율', value: 80, label: '준수율기준(80)' }
       },
     ]
   },
@@ -303,7 +343,7 @@ let allCenters = [];
 let allRows = [];
 let currentCenter = null;
 let currentMonth = new Date().toISOString().slice(0, 7);
-let viewMode = 'cumulative';
+let viewMode = 'single';
 let aggView = 'daily';
 let currentMainTab = 'dashboard';
 let rowSchema = [];
@@ -956,7 +996,7 @@ function renderDashboard() {
     + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
-    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiExtraDashboard(centerRows, monthRows, prevMonthRows) : renderSummaryCards(monthRows, cumulativeRows, prevMonthRows))
+    + renderSummaryCards(monthRows, cumulativeRows, prevMonthRows)
     + '<div class="split">'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
@@ -977,7 +1017,7 @@ function renderDashboard() {
 
   drawMiniCharts(sortedTarget);
   drawCategoryPieChart(centerRows);
-  if (currentCenter === 'kbjeongbi') drawKbjeongbiDonut(centerRows);
+  
   ['catOverviewDetails', 'catTrendDetails'].forEach(function(id) {
     const el = document.getElementById(id);
     if (el) {
@@ -1022,7 +1062,7 @@ function renderChartSummary(group, records, excludeBarLabel) {
   group.barKeys.forEach(function(key, i) {
     const label = group.barLabels[i];
     if (label === excludeBarLabel) return;
-    const avg = avgExcludingHolidays(records, function(r) { return extractNum(r, 'performance_data', key); });
+    const avg = avgExcludingHolidays(records, function(r) { return resolveMetric(r, key); });
     stats.push({ l: '평균 ' + label, v: avg !== null ? Math.round(avg).toLocaleString() : '-' });
   });
 
@@ -1030,7 +1070,7 @@ function renderChartSummary(group, records, excludeBarLabel) {
     const label = group.lineLabels[i];
     const isThresholdLine = group.threshold && group.threshold.key === key;
     const vals = records.filter(function(r) { return !isWeekendOrHoliday(r.report_date); })
-      .map(function(r) { return extractNum(r, 'performance_data', key); })
+      .map(function(r) { return resolveMetric(r, key); })
       .filter(function(n) { return n !== null && !isNaN(n); });
     const avg = vals.length ? vals.reduce(function(a, b) { return a + b; }, 0) / vals.length : null;
     const isPct = /응답율|응대율|율/.test(label);
@@ -1067,7 +1107,7 @@ function getAvgForDef(def, rows) {
     const key = def.attKey || def.perfKey;
     return avgExcludingHolidays(rows, function(r) { return extractNum(r, field, key); });
   }
-  return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'performance_data', def.perfKey); });
+  return avgExcludingHolidays(rows, function(r) { return resolveMetric(r, def.perfKey); });
 }
 
 function formatKpiValue(def, avg) {
@@ -1393,15 +1433,15 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
     + '</div>';
 
   const groupCards = chartConfig.groups.map(function(group, gi) {
-    const inboundAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', group.barKeys[0]); });
-    const answeredAvg = group.barKeys[1] ? avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', group.barKeys[1]); }) : null;
-    const rateAvg = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', group.lineKeys[0]); });
-    const secondAvg = group.lineKeys[1] ? avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'performance_data', group.lineKeys[1]); }) : null;
+    const inboundAvg = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, group.barKeys[0]); });
+    const answeredAvg = group.barKeys[1] ? avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, group.barKeys[1]); }) : null;
+    const rateAvg = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, group.lineKeys[0]); });
+    const secondAvg = group.lineKeys[1] ? avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, group.lineKeys[1]); }) : null;
 
     let missText = '-';
     if (group.threshold) {
       const vals = monthRows.filter(function(r) { return !isWeekendOrHoliday(r.report_date); })
-        .map(function(r) { return extractNum(r, 'performance_data', group.threshold.key); })
+        .map(function(r) { return resolveMetric(r, group.threshold.key); })
         .filter(function(n) { return n !== null && !isNaN(n); });
       const below = vals.filter(function(v) { return v < group.threshold.value; }).length;
       missText = vals.length ? below + '/' + vals.length + '일' : '-';
@@ -1660,12 +1700,12 @@ function drawMiniCharts(records) {
   function sumSeries(key) {
     return bucketKeys.map(function(bk) {
       const rows = buckets[bk];
-      const nums = rows.map(function(r) { return extractNum(r, 'performance_data', key); }).filter(function(n) { return n !== null && !isNaN(n); });
+      const nums = rows.map(function(r) { return resolveMetric(r, key); }).filter(function(n) { return n !== null && !isNaN(n); });
       return nums.length ? nums.reduce(function(a, b) { return a + b; }, 0) : null;
     });
   }
   function avgSeries(key) {
-    return bucketKeys.map(function(bk) { return avgExcludingHolidays(buckets[bk], function(r) { return extractNum(r, 'performance_data', key); }); });
+    return bucketKeys.map(function(bk) { return avgExcludingHolidays(buckets[bk], function(r) { return resolveMetric(r, key); }); });
   }
   // 일별은 막대가 하루 실측치이므로 합계=평균과 동일하나, 주/요일/월별 집계 막대는 평균값으로 표기
   const countSeries = aggView === 'daily' ? sumSeries : avgSeries;
@@ -2982,7 +3022,7 @@ function loadRowForEdit(idx) {
 // 재직 및 투입현황 반자동 입력 (TO/재직인원 자동값 + 상담사 투입인원만 수동 입력)
 // ============================================
 const ATTENDANCE_SEMI_AUTO = {
-  'kbjeongbi': { defaultTO: 15, defaultStaff: 15, defaultManual: 15, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
+  'kbjeongbi': { defaultTO: 15, defaultStaff: 15, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
 };
 
 let attRangeRows = [];
