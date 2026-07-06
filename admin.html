@@ -2813,7 +2813,8 @@ async function renderEntry() {
     + '<div id="templateArea" style="margin-top:16px;"></div>'
     + '</div>'
     + '<div id="attendanceEntryArea"></div>'
-    + '<div id="categoryEntryArea"></div>';
+    + '<div id="categoryEntryArea"></div>'
+    + '<div id="dataManageArea"></div>';
 
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(token), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY } });
@@ -2827,7 +2828,110 @@ async function renderEntry() {
     if (attArea) attArea.innerHTML = renderAttendanceSemiAutoPanel();
     const catArea = document.getElementById('categoryEntryArea');
     if (catArea) catArea.innerHTML = renderCategoryEntryPanel();
+    const dmArea = document.getElementById('dataManageArea');
+    if (dmArea) dmArea.innerHTML = renderDataManagePanel();
   } catch (e) { document.getElementById('templateArea').innerHTML = '<p class="empty">양식을 불러오지 못했습니다.</p>'; }
+}
+
+// ============================================
+// 저장된 데이터 일괄 조회 · 삭제 · 수정
+// ============================================
+let dmQueryResults = [];
+
+function renderDataManagePanel() {
+  const today = new Date().toISOString().slice(0, 10);
+  return '<div class="entry-wrap panel" style="margin-top:16px;">'
+    + '<h3>저장된 데이터 조회 · 일괄 삭제 · 수정</h3>'
+    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">기간을 지정해 저장된 데이터를 조회한 뒤, 잘못 입력된 날짜를 선택해 삭제하거나 위쪽 입력칸으로 불러와 수정할 수 있습니다.</p>'
+    + '<div class="entry-row"><label>시작일</label><input type="date" id="dmStart" value="' + today + '"></div>'
+    + '<div class="entry-row"><label>종료일</label><input type="date" id="dmEnd" value="' + today + '"></div>'
+    + '<button class="btn-secondary" onclick="queryDataManage()">조회</button>'
+    + '<div class="status-msg" id="dmStatus"></div>'
+    + '<div id="dmResultArea" style="margin-top:14px;"></div>'
+    + '</div>';
+}
+
+function queryDataManage() {
+  const start = document.getElementById('dmStart').value;
+  const end = document.getElementById('dmEnd').value;
+  const statusEl = document.getElementById('dmStatus');
+  if (!start || !end) { statusEl.className = 'status-msg err'; statusEl.textContent = '시작일과 종료일을 모두 선택해 주세요.'; return; }
+  if (start > end) { statusEl.className = 'status-msg err'; statusEl.textContent = '시작일이 종료일보다 늦을 수 없습니다.'; return; }
+
+  dmQueryResults = allRows.filter(function(r) { return r.report_date >= start && r.report_date <= end; })
+    .sort(function(a, b) { return a.report_date.localeCompare(b.report_date); });
+
+  statusEl.className = 'status-msg';
+  statusEl.textContent = dmQueryResults.length + '건 조회되었습니다.';
+  renderDataManageResult();
+}
+
+function renderDataManageResult() {
+  const area = document.getElementById('dmResultArea');
+  if (dmQueryResults.length === 0) { area.innerHTML = '<p class="empty">해당 기간에 저장된 데이터가 없습니다.</p>'; return; }
+
+  const rows = dmQueryResults.map(function(r, i) {
+    const perfCount = r.performance_data ? Object.keys(r.performance_data).length : 0;
+    const attCount = r.attendance_data ? Object.keys(r.attendance_data).length : 0;
+    return '<tr>'
+      + '<td><input type="checkbox" class="dm-check" data-idx="' + i + '"></td>'
+      + '<td>' + r.report_date + '</td>'
+      + '<td>근태 ' + attCount + '개 · 실적 ' + perfCount + '개 항목</td>'
+      + '<td>' + (r.parsed_note || '-') + '</td>'
+      + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadRowForEdit(' + i + ')">수정하기</button></td>'
+      + '</tr>';
+  }).join('');
+
+  area.innerHTML = '<div style="margin-bottom:8px;">'
+    + '<button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="dmToggleAll(true)">전체 선택</button> '
+    + '<button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="dmToggleAll(false)">전체 해제</button> '
+    + '<button class="btn-primary" style="background:#c94040;padding:6px 12px;font-size:12px;" onclick="deleteSelectedDates()">선택 삭제</button>'
+    + '</div>'
+    + '<div class="table-scroll"><table><thead><tr><th></th><th>날짜</th><th>저장된 데이터</th><th>비고</th><th>수정</th></tr></thead><tbody>' + rows + '</tbody></table></div>';
+}
+
+function dmToggleAll(checked) {
+  document.querySelectorAll('.dm-check').forEach(function(cb) { cb.checked = checked; });
+}
+
+async function deleteSelectedDates() {
+  const checked = Array.from(document.querySelectorAll('.dm-check:checked'));
+  if (checked.length === 0) { alert('삭제할 날짜를 선택해 주세요.'); return; }
+  const dates = checked.map(function(cb) { return dmQueryResults[Number(cb.dataset.idx)].report_date; });
+  if (!confirm(dates.length + '개 날짜(' + dates.join(', ') + ')의 데이터를 삭제하시겠습니까?\n이 작업은 되돌릴 수 없습니다.')) return;
+
+  const statusEl = document.getElementById('dmStatus');
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '삭제 중...';
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=delete-dates', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: centerTokenMap[currentCenter], dates: dates })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '삭제 실패');
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = dates.length + '개 날짜가 삭제되었습니다.';
+    await loadOverviewForCurrent();
+    queryDataManage();
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '삭제 실패: ' + e.message;
+  }
+}
+
+function loadRowForEdit(idx) {
+  const row = dmQueryResults[idx];
+  if (!row || !rowSchema || rowSchema.length === 0) return;
+  const values = rowSchema.map(function(col) {
+    const src = col.group === 'attendance' ? row.attendance_data : row.performance_data;
+    return (src && src[col.key] !== undefined) ? src[col.key] : '';
+  });
+  const md = row.report_date.match(/^\d{4}-(\d{2})-(\d{2})$/);
+  const dateLabel = md ? (Number(md[1]) + '/' + Number(md[2])) : row.report_date;
+  document.getElementById('pasteBox').value = dateLabel + '\t' + values.join('\t');
+  document.getElementById('pasteBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
+  alert(row.report_date + ' 데이터를 위쪽 붙여넣기 칸에 불러왔습니다. 값을 수정한 뒤 "양식에 반영" → "전체 저장"을 눌러주세요.');
 }
 
 // ============================================
@@ -2849,9 +2953,11 @@ function renderAttendanceSemiAutoPanel() {
     + '<div class="entry-row"><label>시작일</label><input type="date" id="attStart" value="' + today + '"></div>'
     + '<div class="entry-row"><label>종료일</label><input type="date" id="attEnd" value="' + today + '"></div>'
     + '<button class="btn-secondary" onclick="generateAttRangeRows()">기간 적용</button>'
-    + '<button class="btn-primary" id="attSaveBtn" style="display:none;" onclick="saveAttRangeRows()">전체 저장</button>'
+    + '<button class="btn-primary" id="attSaveBtn" style="display:none;" onclick="saveAttRangeRows()">근태만 저장</button>'
+    + '<button class="btn-primary" id="attCombinedSaveBtn" style="display:none;background:#1a8f4c;" onclick="saveAttAndPerfCombined()">실적+근태 일괄 반영</button>'
     + '<div class="status-msg" id="attStatus"></div>'
     + '<div id="attTemplateArea" style="margin-top:14px;"></div>'
+    + '<div id="attCombinedPreview" style="margin-top:14px;"></div>'
     + '</div>';
 }
 
@@ -2876,6 +2982,8 @@ function generateAttRangeRows() {
   statusEl.textContent = attRangeRows.length + '일(주말·공휴일 제외)이 대상으로 지정되었습니다.';
   renderAttRangeTemplate();
   document.getElementById('attSaveBtn').style.display = attRangeRows.length ? 'inline-block' : 'none';
+  document.getElementById('attCombinedSaveBtn').style.display = attRangeRows.length ? 'inline-block' : 'none';
+  document.getElementById('attCombinedPreview').innerHTML = '';
 }
 
 function renderAttRangeTemplate() {
@@ -2896,6 +3004,77 @@ function renderAttRangeTemplate() {
     + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table></div>'
     + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 값은 직접 클릭해 수정할 수 있습니다</p>';
+}
+
+// 근태 날짜범위를 기준으로, 그 범위 안에 있는 날짜의 실적(위쪽 붙여넣기)까지 함께 저장.
+// 근태 범위에 없는 날짜의 실적 데이터는 자동으로 제외한다.
+async function saveAttAndPerfCombined() {
+  const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
+  const statusEl = document.getElementById('attStatus');
+  const token = centerTokenMap[currentCenter];
+  if (attRangeRows.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 기간을 적용해 주세요.'; return; }
+
+  parseMultiPaste(); // 위쪽 실적 붙여넣기 내용을 최신 상태로 반영
+
+  const perfByDate = {};
+  parsedRows.forEach(function(r, idx) { perfByDate[r.date] = idx; });
+  const excludedPerfOnly = parsedRows.filter(function(r) { return attRangeRows.indexOf(r.date) === -1; }).map(function(r) { return r.date; });
+
+  const BATCH_SIZE = 5;
+  let success = 0, fail = 0;
+  const failDates = [];
+
+  for (let start = 0; start < attRangeRows.length; start += BATCH_SIZE) {
+    const batchIdx = [];
+    for (let i = start; i < Math.min(start + BATCH_SIZE, attRangeRows.length); i++) batchIdx.push(i);
+    statusEl.className = 'status-msg';
+    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, attRangeRows.length) + '/' + attRangeRows.length + ')';
+
+    const results = await Promise.all(batchIdx.map(function(idx) {
+      const date = attRangeRows[idx];
+      const toVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="to"]').value;
+      const staffVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="staff"]').value;
+      const manualVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]').value;
+
+      const values = {};
+      values[cfg.toKey] = { value: toVal, group: 'attendance' };
+      values[cfg.staffKey] = { value: staffVal, group: 'attendance' };
+      values[cfg.manualKey] = { value: manualVal, group: 'attendance' };
+
+      const perfIdx = perfByDate[date];
+      if (perfIdx !== undefined) {
+        const inputs = document.querySelectorAll('.template-input[data-row="' + perfIdx + '"]');
+        inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+      }
+
+      return fetch(SB_FUNCTION_URL + '?action=manual-entry', {
+        method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ token: token, report_date: date, values: values })
+      }).then(function(res) { return res.json(); })
+        .then(function(data) { return { date: date, ok: !!data.success }; })
+        .catch(function() { return { date: date, ok: false }; });
+    }));
+
+    results.forEach(function(r) { if (r.ok) success++; else { fail++; failDates.push(r.date); } });
+  }
+
+  const perfMatchedCount = attRangeRows.filter(function(d) { return perfByDate[d] !== undefined; }).length;
+  let msg = success + '건 저장 완료 (근태 ' + attRangeRows.length + '일 중 실적 동반 반영 ' + perfMatchedCount + '일)';
+  if (fail) msg += ', ' + fail + '건 실패(' + failDates.join(', ') + ')';
+  if (excludedPerfOnly.length) msg += '. 근태 범위에 없어 제외된 실적 날짜: ' + excludedPerfOnly.join(', ');
+
+  statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
+  statusEl.textContent = msg;
+
+  attRangeRows = [];
+  document.getElementById('attTemplateArea').innerHTML = '';
+  document.getElementById('attSaveBtn').style.display = 'none';
+  document.getElementById('attCombinedSaveBtn').style.display = 'none';
+  document.getElementById('pasteBox').value = '';
+  document.getElementById('manualSaveBtn').style.display = 'none';
+  parsedRows = [];
+  document.getElementById('templateArea').innerHTML = '';
+  await loadOverviewForCurrent();
 }
 
 async function saveAttRangeRows() {
