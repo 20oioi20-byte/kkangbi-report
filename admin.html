@@ -226,18 +226,10 @@ const CENTER_KPI_DEFS = {
   ],
   'kbjeongbi': [
     { label: '전체재직인원(TO대비)', type: 'staff', attKey: '재직인원' },
-    { section: '총합계', label: '접수', type: 'count', perfKey: '통합_접수' },
-    { label: '처리', type: 'count', perfKey: '통합_처리' },
-    { label: '처리율', type: 'rate', perfKey: '통합_처리율' },
-    { section: '고지의무', label: '접수', type: 'count', perfKey: '접수_고지의무' },
-    { label: '처리', type: 'count', perfKey: '처리_고지의무' },
-    { label: '처리율', type: 'rate', perfKey: '고지의무_처리율' },
-    { section: '통지의무', label: '접수', type: 'count', perfKey: '접수_통지의무' },
-    { label: '처리', type: 'count', perfKey: '처리_통지의무' },
-    { label: '처리율', type: 'rate', perfKey: '통지의무_처리율' },
-    { section: '목적물소멸', label: '접수', type: 'count', perfKey: '접수_목적물소멸' },
-    { label: '처리', type: 'count', perfKey: '처리_목적물소멸' },
-    { label: '처리율', type: 'rate', perfKey: '목적물소멸_처리율' },
+    { section: '총합계', label: '접수건', type: 'count', perfKey: '통합_접수' },
+    { section: '고지의무', label: '접수건', type: 'count', perfKey: '접수_고지의무' },
+    { section: '통지의무', label: '접수건', type: 'count', perfKey: '접수_통지의무' },
+    { section: '목적물소멸', label: '접수건', type: 'count', perfKey: '접수_목적물소멸' },
   ],
 };
 
@@ -300,10 +292,10 @@ function resolveMetric(row, key) {
 // group: { title, barKeys(막대,합계/평균), barLabels, lineKeys(선), lineLabels, threshold: {key, value, label} }
 // 센터별 대시보드 테마 색상 (KB손보부천은 기존 브랜드 색상 유지, 평택시청은 평택시 시그니처 컬러 반영)
 // main: pantone 320C(teal), sub: pantone 072C(navy) 기준
-const CENTER_DASH_THEME = {
-  'pyeongtaek': { accent: '#009DA5', dark: '#303192', soft: '#E6F6F7' }
-  // kbjeongbi는 KB손보부천과 동일하게 기본(KT) 테마를 사용하도록 별도 등록하지 않음
-};
+// 기간 토글(단월/분기누적/반기누적/연초누적)은 전 센터 공통으로 KT 기본색을 사용한다.
+// 센터별 브랜드 색상은 차트(CENTER_CHART_CONFIG)와 원형그래프 팔레트에서만 반영하며,
+// 이 토글 UI에는 앞으로도 별도 등록하지 않는다.
+const CENTER_DASH_THEME = {};
 const DEFAULT_DASH_THEME = { accent: '#FE2E36', dark: '#1c1f26', soft: '#FFE8E9' };
 
 function getDashTheme() {
@@ -340,13 +332,14 @@ const CENTER_CHART_CONFIG = {
     ]
   },
   'kbjeongbi': {
-    barColors: ['#60584C', '#FFBC00', '#8A8478', '#B7C4D6'],
+    barColors: ['#60584C', '#FFBC00', '#B7C4D6'],
     lineColor: '#545045',
     groups: [
-      { title: '총합계', barKeys: ['통합_접수'], barLabels: ['접수건'], lineKeys: [], lineLabels: [] },
-      { title: '고지의무', barKeys: ['접수_고지의무'], barLabels: ['접수건'], lineKeys: [], lineLabels: [] },
-      { title: '통지의무', barKeys: ['접수_통지의무'], barLabels: ['접수건'], lineKeys: [], lineLabels: [] },
-      { title: '목적물소멸', barKeys: ['접수_목적물소멸'], barLabels: ['접수건'], lineKeys: [], lineLabels: [] },
+      {
+        title: '접수건 구성', stacked: true,
+        barKeys: ['접수_고지의무', '접수_통지의무', '접수_목적물소멸'], barLabels: ['고지의무', '통지의무', '목적물소멸'],
+        lineKeys: [], lineLabels: []
+      },
     ]
   },
 };
@@ -1023,7 +1016,7 @@ function renderDashboard() {
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
     + '</div>'
-    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiDueDateTables(monthRows) : '')
+    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiDueDateTables(sortedTarget) : '')
     + renderCategoryOverviewPanel(centerRows, monthRows, prevMonthRows)
     + renderCategoryTrendPanel(centerRows)
     + '<div class="agg-tabs">'
@@ -1126,9 +1119,8 @@ function extractNum(row, field, key) {
 function getAvgForDef(def, rows) {
   if (def.type === 'staff') return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
   if (def.type === 'count' || def.type === 'people') {
-    const field = def.attKey ? 'attendance_data' : 'performance_data';
-    const key = def.attKey || def.perfKey;
-    return avgExcludingHolidays(rows, function(r) { return extractNum(r, field, key); });
+    if (def.attKey) return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
+    return avgExcludingHolidays(rows, function(r) { return resolveMetric(r, def.perfKey); });
   }
   return avgExcludingHolidays(rows, function(r) { return resolveMetric(r, def.perfKey); });
 }
@@ -1469,30 +1461,46 @@ function renderKbjeongbiSummaryCards2(monthRows, cumulativeRows) {
 // ============================================
 // KB손보정비 전용: 변경기한일 일자별 현황(대상건/처리건/처리율)
 // ============================================
-function renderKbjeongbiDueDateTable(label, targetKey, procKey, monthRows) {
-  const sorted = monthRows.filter(function(r) { return r.performance_data && r.performance_data[targetKey] !== undefined; })
-    .slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
-  if (sorted.length === 0) return '<div class="panel"><h3>' + label + ' 변경기한일 일자별 현황</h3><div class="empty">등록된 데이터가 없습니다.</div></div>';
+function renderKbjeongbiDueDateTable(label, targetKey, procKey, records) {
+  const valid = records.filter(function(r) { return r.performance_data && r.performance_data[targetKey] !== undefined; });
+  if (valid.length === 0) return '<div class="panel"><h3>' + label + ' 변경기한일 ' + aggLabel(aggView) + ' 현황</h3><div class="empty">등록된 데이터가 없습니다.</div></div>';
 
-  const rows = sorted.map(function(r) {
-    const target = resolveMetric(r, targetKey) || 0;
-    const proc = resolveMetric(r, procKey) || 0;
-    const rate = target ? (proc / target * 100) : 0;
-    const md = r.report_date.match(/-(\d{2})-(\d{2})$/);
-    const dateLabel = md ? (Number(md[1]) + '/' + Number(md[2])) : r.report_date;
-    return '<tr><td>' + dateLabel + '</td><td>' + target.toLocaleString() + '건</td><td>' + proc.toLocaleString() + '건</td>'
+  let bucketEntries;
+  if (aggView === 'daily') {
+    bucketEntries = valid.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); })
+      .map(function(r) {
+        const md = r.report_date.match(/-(\d{2})-(\d{2})$/);
+        return { label: md ? (Number(md[1]) + '/' + Number(md[2])) : r.report_date, rows: [r] };
+      });
+  } else {
+    const buckets = groupByBucket(valid, aggView);
+    bucketEntries = Object.keys(buckets).map(function(k) { return { label: k, rows: buckets[k] }; });
+    if (aggView !== 'dow') bucketEntries.reverse(); // 최신 순 (요일별은 월~일 고정 순서 유지)
+  }
+
+  const rows = bucketEntries.map(function(b) {
+    const targetSum = b.rows.reduce(function(s, r) { return s + (resolveMetric(r, targetKey) || 0); }, 0);
+    const procSum = b.rows.reduce(function(s, r) { return s + (resolveMetric(r, procKey) || 0); }, 0);
+    const days = b.rows.length;
+    const targetAvg = days ? targetSum / days : 0;
+    const procAvg = days ? procSum / days : 0;
+    const rate = targetSum ? (procSum / targetSum * 100) : 0;
+    const showAvg = aggView !== 'daily';
+    return '<tr><td>' + b.label + '</td>'
+      + '<td>' + targetSum.toLocaleString() + '건' + (showAvg ? ' <span style="color:#9aa1ac;font-size:11px;">(일평균 ' + targetAvg.toFixed(1) + ')</span>' : '') + '</td>'
+      + '<td>' + procSum.toLocaleString() + '건' + (showAvg ? ' <span style="color:#9aa1ac;font-size:11px;">(일평균 ' + procAvg.toFixed(1) + ')</span>' : '') + '</td>'
       + '<td><span style="background:#fdecea;color:#c94040;font-weight:700;padding:3px 10px;border-radius:12px;font-size:12px;">' + rate.toFixed(1) + '%</span></td></tr>';
   }).join('');
 
-  return '<div class="panel"><h3 style="margin-bottom:10px;">' + label + ' 변경기한일 일자별 현황</h3>'
-    + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;"><table><thead><tr><th>일자</th><th>대상건</th><th>처리건</th><th>처리율</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
+  return '<div class="panel"><h3 style="margin-bottom:10px;">' + label + ' 변경기한일 ' + aggLabel(aggView) + ' 현황</h3>'
+    + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;"><table><thead><tr><th>' + (aggView === 'daily' ? '일자' : '기간') + '</th><th>대상건</th><th>처리건</th><th>처리율</th></tr></thead><tbody>' + rows + '</tbody></table></div>'
     + '</div>';
 }
 
-function renderKbjeongbiDueDateTables(monthRows) {
+function renderKbjeongbiDueDateTables(records) {
   return '<div class="kbj-split2">'
-    + renderKbjeongbiDueDateTable('고지의무', '고지의무_변경기한일_대상건', '고지의무_변경기한일_처리건', monthRows)
-    + renderKbjeongbiDueDateTable('통지의무', '통지의무_변경기한일_대상건', '통지의무_변경기한일_처리건', monthRows)
+    + renderKbjeongbiDueDateTable('고지의무', '고지의무_변경기한일_대상건', '고지의무_변경기한일_처리건', records)
+    + renderKbjeongbiDueDateTable('통지의무', '통지의무_변경기한일_대상건', '통지의무_변경기한일_처리건', records)
     + '</div>';
 }
 
@@ -1853,9 +1861,9 @@ function drawMiniCharts(records) {
         interaction: { mode: 'index', intersect: false },
         plugins: { legend: { display: true, position: 'bottom', labels: { boxWidth: 8, font: { size: 10 } } } },
         scales: {
-          yCount: { position: 'left', beginAtZero: true, ticks: { font: { size: 9 } } },
+          yCount: { position: 'left', beginAtZero: true, stacked: !!group.stacked, ticks: { font: { size: 9 } } },
           yRate: { position: 'right', min: 0, max: 110, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 } } },
-          x: { ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true } }
+          x: { stacked: !!group.stacked, ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true } }
         }
       }
     });
