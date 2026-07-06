@@ -60,6 +60,11 @@
   .ws-kpi-card .l { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
   .ws-kpi-card .v { font-size: 26px; font-weight: 700; color: #1c1f26; }
   .ws-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
+  .ws-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+  .ws-table th { text-align: left; padding: 10px 14px; color: #9aa1ac; font-weight: 600; font-size: 12px; border-bottom: 1px solid #f0f1f3; }
+  .ws-table td { padding: 12px 14px; border-bottom: 1px solid #f0f1f3; vertical-align: middle; }
+  .ws-row { cursor: pointer; }
+  .ws-row:hover { background: #fafbfc; }
   .ws-card { background: #fff; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; border: 1px solid transparent; transition: border-color .12s; }
   .ws-card:hover { border-color: #FE2E36; }
   .ws-card.warn { border: 1px solid #f0b4b4; background: #fffaf9; }
@@ -1033,10 +1038,29 @@ function refreshTablePanel() {
 }
 
 // ============================================
-// 워크스페이스 전체 현황 (상단 종합지표 + 카드 그리드, KT 스타일)
+// 워크스페이스 전체 현황 (상단 종합지표 + 요약 테이블형, KT 스타일)
 // 센터가 추가/삭제/변경되어도 등록된 설정(CENTER_TO_INFO, CENTER_CHART_CONFIG)만
-// 있으면 자동으로 카드가 생기고, 없으면 "준비중"으로 처리되어 유연하게 대응한다.
+// 있으면 자동으로 행이 생기고, 없으면 "대기"로 처리되어 유연하게 대응한다.
 // ============================================
+
+// 센터별 기본 핵심지표 세트 (설정 화면에서 커스텀 등록을 하지 않았을 때 사용되는 기본값)
+const DEFAULT_HEADLINE_METRICS = {
+  'kbsonhae': [{ label: '제휴상담 SL', key: '제휴상담_SL' }, { label: '장기손사 SL', key: '장기손사_SL' }],
+  'kbjeongbi': [{ label: '고지위반 처리율', key: '고지의무_처리율' }, { label: '통지위반 처리율', key: '통지의무_처리율' }, { label: '목적물소멸 처리율', key: '목적물소멸_처리율' }],
+  'pyeongtaek': [{ label: '응대율', key: '응대율' }, { label: 'CPD', key: 'CPD' }]
+};
+
+// 특정 지표 키에 대해 CENTER_CHART_CONFIG에 등록된 기준선(threshold)이 있으면 반환
+function findThresholdForKey(code, key) {
+  const chartConfig = CENTER_CHART_CONFIG[code];
+  if (!chartConfig || !chartConfig.groups) return null;
+  for (let i = 0; i < chartConfig.groups.length; i++) {
+    const g = chartConfig.groups[i];
+    if (g.threshold && g.threshold.key === key) return g.threshold;
+  }
+  return null;
+}
+
 function computeCenterHeadline(code, rows) {
   const savedCenter = currentCenter;
   currentCenter = code; // resolveMetric 등 계산지표 함수가 currentCenter를 참조하므로 임시 전환
@@ -1046,7 +1070,7 @@ function computeCenterHeadline(code, rows) {
     const sorted = rows.slice().sort(function(a, b) { return b.report_date.localeCompare(a.report_date); });
     const latest = sorted[0] || null;
 
-    if (!latest) return { status: 'pending', staffText: null, headline: null, updated: null };
+    if (!latest) return { status: 'pending', staffText: null, metrics: [], updated: null };
 
     // TO: 설정 화면에서 등록한 "월별 TO"가 있으면 최우선 사용, 없으면 기본값(CENTER_TO_INFO) 사용
     const ym = latest.report_date.slice(0, 7);
@@ -1065,42 +1089,33 @@ function computeCenterHeadline(code, rows) {
       staffText = staffVal + '명 / ' + toInfo.total + '명 (' + (staffVal / toInfo.total * 100).toFixed(0) + '%)';
     }
 
-    // 핵심지표: 설정 화면에서 등록한 목표치가 있으면 최우선 사용(첫 번째 항목), 없으면 차트 기준선으로 대체
+    // 핵심지표: 설정 화면에서 등록한 지표가 있으면 그것(전체)을 사용, 없으면 센터별 기본 지표세트 사용
     const customKpis = (kpiSettingsCache[code] || []).slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
-    let headline = null, isWarn = false;
-    const hasConfig = customKpis.length > 0 || !!chartConfig;
+    const defs = customKpis.length > 0
+      ? customKpis.map(function(k) { return { label: k.metric_label, key: k.metric_key, target: k.target_value }; })
+      : (DEFAULT_HEADLINE_METRICS[code] || []);
+    const hasConfig = defs.length > 0;
 
-    if (customKpis.length > 0) {
-      const primary = customKpis[0];
-      const val = resolveMetric(latest, primary.metric_key);
-      if (val !== null) {
-        headline = primary.metric_label + ' ' + val.toFixed(1) + (Math.abs(val) <= 100 ? '%' : '');
-        if (primary.target_value !== null && primary.target_value !== undefined) isWarn = val < primary.target_value;
-      }
-    } else if (chartConfig && chartConfig.groups && chartConfig.groups.length) {
-      const group = chartConfig.groups.find(function(g) { return g.threshold; }) || chartConfig.groups[0];
-      if (group.threshold) {
-        const val = resolveMetric(latest, group.threshold.key);
-        if (val !== null) {
-          const idx = group.lineKeys.indexOf(group.threshold.key);
-          const lbl = idx >= 0 ? group.lineLabels[idx].replace('(%)', '') : group.threshold.label;
-          headline = lbl + ' ' + val.toFixed(1) + '%';
-          isWarn = val < group.threshold.value;
-        }
-      } else if (group.lineKeys && group.lineKeys.length) {
-        const val = resolveMetric(latest, group.lineKeys[0]);
-        if (val !== null) headline = group.lineLabels[0].replace('(%)', '') + ' ' + val.toFixed(1) + '%';
-      } else if (group.barKeys && group.barKeys.length) {
-        const val = resolveMetric(latest, group.barKeys[0]);
-        if (val !== null) headline = group.barLabels[0] + ' ' + Math.round(val).toLocaleString() + '건';
-      }
-    }
+    const metrics = defs.map(function(d) {
+      const val = resolveMetric(latest, d.key);
+      let target = (d.target !== null && d.target !== undefined) ? d.target : null;
+      if (target === null) { const th = findThresholdForKey(code, d.key); if (th) target = th.value; }
+      const isWarn = (val !== null && target !== null) ? (val < target) : false;
+      return { label: d.label, value: val, target: target, isWarn: isWarn };
+    });
+    const isWarn = metrics.some(function(m) { return m.isWarn; });
 
     const status = !hasConfig ? 'pending' : (isWarn ? 'warn' : 'ok');
-    return { status: status, staffText: staffText, headline: headline, updated: latest.report_date };
+    return { status: status, staffText: staffText, metrics: metrics, updated: latest.report_date };
   } finally {
     currentCenter = savedCenter;
   }
+}
+
+function formatHeadlineMetric(m) {
+  if (m.value === null) return m.label + ' -';
+  const isPct = Math.abs(m.value) <= 100;
+  return m.label + ' ' + m.value.toFixed(1) + (isPct ? '%' : '');
 }
 
 function renderWorkspaceOverview() {
@@ -1114,39 +1129,48 @@ function renderWorkspaceOverview() {
   });
 
   const totalCenters = centerStats.length;
-  const warnCount = centerStats.filter(function(s) { return s.status === 'warn'; }).length;
+  const warnStats = centerStats.filter(function(s) { return s.status === 'warn'; });
   const totalStaffCount = centerStats.filter(function(s) { return s.staffText; }).length;
+
+  // 이슈감지내용: 어떤 센터의 어떤 지표가 기준 미달인지 구체적으로 나열
+  const issueLines = [];
+  warnStats.forEach(function(s) {
+    s.metrics.filter(function(m) { return m.isWarn; }).forEach(function(m) {
+      issueLines.push(s.name + ' ' + m.label + ' ' + m.value.toFixed(1) + '% (목표 ' + m.target + '%↓)');
+    });
+  });
 
   const kpiHtml = '<div class="ws-kpi-strip">'
     + '<div class="ws-kpi-card"><div class="l">전체 센터</div><div class="v">' + totalCenters + '개</div></div>'
     + '<div class="ws-kpi-card"><div class="l">데이터 등록 센터</div><div class="v">' + totalStaffCount + '개</div></div>'
-    + '<div class="ws-kpi-card' + (warnCount > 0 ? ' warn' : '') + '"><div class="l">주의 센터</div><div class="v">' + warnCount + '개</div></div>'
+    + '<div class="ws-kpi-card' + (warnStats.length > 0 ? ' warn' : '') + '"><div class="l">주의 센터</div><div class="v">' + warnStats.length + '개</div>'
+    + (issueLines.length ? '<div style="font-size:11px;color:#c94040;margin-top:6px;line-height:1.5;">' + issueLines.join('<br>') + '</div>' : '')
+    + '</div>'
     + '</div>';
 
   // 상태 기준 자동정렬은 제거하고, 센터 목록과 동일한 고정 순서(sort_order)를 그대로 사용.
-  // 순서를 바꾸고 싶으면 카드의 ▲▼ 버튼(사이드바 순서와 동일하게 연동)으로 직접 변경한다.
-  const badgeText = { ok: '정상', warn: '주의', pending: '준비중' };
-  const cardsHtml = centerStats.map(function(s, idx) {
+  // 순서를 바꾸고 싶으면 행의 ▲▼ 버튼(사이드바 순서와 동일하게 연동)으로 직접 변경한다.
+  const badgeText = { ok: '정상', warn: '주의', pending: '대기' };
+  const rowsHtml = centerStats.map(function(s, idx) {
     const reorderHtml = workspaceUnlocked
-      ? '<span onclick="event.stopPropagation();" style="display:flex;gap:2px;">'
-        + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',-1);selectWorkspaceOverview();" title="앞으로" ' + (idx === 0 ? 'disabled' : '') + '>◀</button>'
-        + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',1);selectWorkspaceOverview();" title="뒤로" ' + (idx === centerStats.length - 1 ? 'disabled' : '') + '>▶</button>'
+      ? '<span onclick="event.stopPropagation();" style="display:inline-flex;gap:2px;margin-left:8px;">'
+        + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',-1);selectWorkspaceOverview();" title="위로" ' + (idx === 0 ? 'disabled' : '') + '>▲</button>'
+        + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',1);selectWorkspaceOverview();" title="아래로" ' + (idx === centerStats.length - 1 ? 'disabled' : '') + '>▼</button>'
         + '</span>'
       : '';
+    const metricsHtml = s.metrics.length
+      ? s.metrics.map(function(m) { return '<div style="' + (m.isWarn ? 'color:#c94040;font-weight:700;' : '') + '">' + formatHeadlineMetric(m) + '</div>'; }).join('')
+      : '<span style="color:#9aa1ac;">데이터 준비중</span>';
     const trendCfg = CENTER_CARD_TREND[s.code];
-    const trendHtml = trendCfg
-      ? '<div style="height:46px;margin-top:8px;"><canvas id="wsSpark_' + s.code + '"></canvas></div>'
-        + '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-top:4px;">' + trendCfg.series.map(function(sr, i) {
-          return '<span style="font-size:10px;color:' + WS_SPARK_COLORS[i % WS_SPARK_COLORS.length] + ';">● ' + sr.label + '</span>';
-        }).join('') + '</div>'
-      : '';
-    return '<div class="ws-card' + (s.status === 'warn' ? ' warn' : '') + '" onclick="selectCenter(\'' + s.code + '\')">'
-      + '<div class="ws-head"><span class="ws-title">' + s.name + '</span><span style="display:flex;gap:6px;align-items:center;"><span class="ws-badge ' + s.status + '">' + badgeText[s.status] + '</span>' + reorderHtml + '</span></div>'
-      + (s.staffText ? '<div class="ws-stat">재직인원 <b>' + s.staffText + '</b></div>' : '<div class="ws-stat">재직 데이터 없음</div>')
-      + (s.headline ? '<div class="ws-stat' + (s.status === 'warn' ? ' warn-text' : '') + '">' + s.headline + '</div>' : (s.status === 'pending' ? '<div class="ws-stat">핵심지표 미설정 (설정에서 등록 가능)</div>' : ''))
-      + (s.updated ? '<div class="ws-stat" style="color:#c3c7cd;">최근 업데이트 ' + s.updated + '</div>' : '')
-      + trendHtml
-      + '</div>';
+    const trendHtml = trendCfg ? '<div style="width:120px;height:34px;"><canvas id="wsSpark_' + s.code + '"></canvas></div>' : '<span style="color:#9aa1ac;font-size:12px;">-</span>';
+
+    return '<tr class="ws-row" onclick="selectCenter(\'' + s.code + '\')">'
+      + '<td style="font-weight:700;">' + s.name + reorderHtml + '</td>'
+      + '<td>' + (s.staffText || '<span style="color:#9aa1ac;">-</span>') + '</td>'
+      + '<td>' + metricsHtml + '</td>'
+      + '<td onclick="event.stopPropagation();">' + trendHtml + '</td>'
+      + '<td><span class="ws-badge ' + s.status + '">' + badgeText[s.status] + '</span></td>'
+      + '</tr>';
   }).join('');
 
   main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
@@ -1155,7 +1179,9 @@ function renderWorkspaceOverview() {
     + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview()">새로고침</button>'
     + '</div>'
     + kpiHtml
-    + '<div class="ws-card-grid">' + cardsHtml + (workspaceUnlocked ? '<div class="ws-add-card" onclick="addCenterPrompt()">+ 센터 추가 시 자동으로 카드가 생깁니다</div>' : '') + '</div>'
+    + '<div class="panel"><div class="table-scroll"><table class="ws-table"><thead><tr><th>센터</th><th>재직(TO대비)</th><th>핵심지표</th><th>추이</th><th>상태</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + (workspaceUnlocked ? '<div style="text-align:center;padding:14px;color:#9aa1ac;font-size:12px;cursor:pointer;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
+    + '</div>'
     + '</div>';
 
   drawWorkspaceSparklines(centerStats);
@@ -2014,6 +2040,9 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
 
     const cardId = 'sumCardGroup' + gi;
     const secondLabel = group.lineLabels[1] || group.lineLabels[0];
+    // "미달일수"는 threshold가 걸린 실제 지표명을 따라가야 한다 (항상 두번째 지표가 아닐 수 있음)
+    const thresholdIdx = group.threshold ? group.lineKeys.indexOf(group.threshold.key) : -1;
+    const thresholdLabel = thresholdIdx >= 0 ? group.lineLabels[thresholdIdx].replace('(%)', '') : secondLabel;
     return '<div class="summary-card2" id="' + cardId + '">'
       + '<div class="sc-head"><span class="sc-title">' + GROUP_ICONS[gi % GROUP_ICONS.length] + ' ' + group.title + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">' + group.title + ' 복사</button></div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
@@ -2023,7 +2052,7 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
       + '</div>'
       + (group.lineKeys[1] ? '<div class="sc-row" style="grid-template-columns:repeat(2,1fr);margin-bottom:0;">'
         + '<div class="sc-stat"><div class="l">' + secondLabel + '</div><div class="v">' + (secondAvg !== null ? secondAvg.toFixed(1) : '-') + '</div></div>'
-        + '<div class="sc-stat"><div class="l">' + secondLabel + ' 미달일수</div><div class="v warn">' + missText + '</div></div>'
+        + '<div class="sc-stat"><div class="l">' + thresholdLabel + ' 미달일수</div><div class="v warn">' + missText + '</div></div>'
         + '</div>' : '')
       + '</div>';
   }).join('');
