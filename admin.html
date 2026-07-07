@@ -3498,7 +3498,9 @@ async function extractLgeExcelAndFill() {
     const rangeNote = (rangeStart || rangeEnd) ? (' · 기간필터 ' + (rangeStart || '처음') + ' ~ ' + (rangeEnd || '끝') + ' 적용(파일 내 전체 ' + result.rows.length + '일 중)') : '';
     statusEl.className = 'status-msg ok';
     statusEl.textContent = '추출 완료 · ' + result.sheetName + ' 시트(' + result.targetGroup + ' Total 기준)에서 ' + parsedRows.length + '일치를 찾았습니다' + rangeNote + '. 아래 표에서 확인 후 "전체 저장"을 눌러주세요.';
-    promptGoToAttendance(rows[0].date, rows[rows.length - 1].date);
+    // 재직현황에는 "실제 데이터가 있던 마지막 날짜"가 아니라 "사용자가 지정한 추출 기간" 그대로를 넘긴다.
+    // (데이터가 없는 날이 껴서 rows의 실제 범위가 좁아져도, 지정한 기간은 그대로 유지되어야 함)
+    promptGoToAttendance(rangeStart || rows[0].date, rangeEnd || rows[rows.length - 1].date);
   } catch (err) {
     statusEl.className = 'status-msg err';
     statusEl.textContent = '추출 실패: ' + (err.message || err);
@@ -4594,8 +4596,14 @@ async function extractAttFile() {
     if (!endEl.value) endEl.value = result.dateKeys[result.dateKeys.length - 1];
     generateAttRangeRows(); // 기간 적용을 자동 실행해 추출된 값으로 표를 바로 채움
 
-    statusEl.className = 'status-msg ok';
-    statusEl.textContent = result.sheetCount + '개 월별시트에서 ' + result.dateKeys.length + '일치 근태를 추출했습니다(파일 내 전체 기간 ' + result.dateKeys[0] + ' ~ ' + result.dateKeys[result.dateKeys.length - 1] + '). 현재 지정된 기간(' + startEl.value + ' ~ ' + endEl.value + ')에 해당하는 값만 표에 반영됩니다.'
+    // 지정한 기간(영업일) 중 실제로 파일에서 매칭된 날짜와, 매칭되지 않아 기본값이 적용된 날짜를 구분해 보여준다.
+    const matched = attRangeRows.filter(function(d) { return !!attExtractedByDate[d]; });
+    const unmatched = attRangeRows.filter(function(d) { return !attExtractedByDate[d]; });
+    let matchNote = ' · 지정기간 영업일 ' + attRangeRows.length + '일 중 파일 매칭 ' + matched.length + '일';
+    if (unmatched.length) matchNote += ', 매칭 실패(기본값 적용) ' + unmatched.length + '일: ' + unmatched.slice(0, 10).join(', ') + (unmatched.length > 10 ? ' 외 ' + (unmatched.length - 10) + '일' : '');
+
+    statusEl.className = unmatched.length ? 'status-msg err' : 'status-msg ok';
+    statusEl.textContent = result.sheetCount + '개 월별시트에서 ' + result.dateKeys.length + '일치 근태를 추출했습니다(파일 내 전체 기간 ' + result.dateKeys[0] + ' ~ ' + result.dateKeys[result.dateKeys.length - 1] + ')' + matchNote + '.'
       + (result.errors.length ? ' (일부 시트 인식 실패: ' + result.errors.join(' / ') + ')' : '');
   } catch (err) {
     statusEl.className = 'status-msg err';
