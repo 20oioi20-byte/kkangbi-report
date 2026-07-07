@@ -3498,7 +3498,7 @@ async function extractLgeExcelAndFill() {
     const rangeNote = (rangeStart || rangeEnd) ? (' · 기간필터 ' + (rangeStart || '처음') + ' ~ ' + (rangeEnd || '끝') + ' 적용(파일 내 전체 ' + result.rows.length + '일 중)') : '';
     statusEl.className = 'status-msg ok';
     statusEl.textContent = '추출 완료 · ' + result.sheetName + ' 시트(' + result.targetGroup + ' Total 기준)에서 ' + parsedRows.length + '일치를 찾았습니다' + rangeNote + '. 아래 표에서 확인 후 "전체 저장"을 눌러주세요.';
-    promptGoToAttendance();
+    promptGoToAttendance(rows[0].date, rows[rows.length - 1].date);
   } catch (err) {
     statusEl.className = 'status-msg err';
     statusEl.textContent = '추출 실패: ' + (err.message || err);
@@ -3949,7 +3949,8 @@ async function extractLongContractAndFill() {
     document.getElementById('pasteBox').value = lines.join('\n');
     statusEl.className = 'status-msg ok';
     statusEl.textContent = dailyRows.length + '일치 추출 완료(원본 ' + records.length + '건). 아래 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.';
-    promptGoToAttendance();
+    const lcDates = dailyRows.map(function(row) { return row.dateKey; }).sort();
+    promptGoToAttendance(lcDates[0], lcDates[lcDates.length - 1]);
   } catch (e) {
     statusEl.className = 'status-msg err';
     statusEl.textContent = '추출 실패: ' + e.message;
@@ -4176,10 +4177,22 @@ function selectEntryMethod(id) {
 }
 
 // 실적 자동추출이 끝난 뒤, 이 센터에 "재직 및 투입현황" 입력이 있으면 이어서 바로 작업하도록 안내하고 이동시킨다
-function promptGoToAttendance() {
+function promptGoToAttendance(rangeStart, rangeEnd) {
   if (!ATTENDANCE_SEMI_AUTO[currentCenter]) return;
   if (confirm('채우기 완료되었습니다. 재직 및 투입현황 입력 후 저장 눌러주세요.\n\n확인을 누르면 재직 및 투입현황 화면으로 이동합니다.')) {
+    // 엑셀 자동추출에서 사용한 기간(시작일~종료일)을 재직 및 투입현황에도 그대로 가져와 바로 이어서 작업할 수 있게 한다.
+    // pendingAttRange는 패널이 다시 그려지는 경우에도 기본값으로 사용되는 안전장치, 아래 직접 DOM 값 설정은 즉시 반영용.
+    if (rangeStart && rangeEnd) pendingAttRange = { start: rangeStart, end: rangeEnd };
     selectEntryMethod('att');
+    if (rangeStart && rangeEnd) {
+      const startEl = document.getElementById('attStart');
+      const endEl = document.getElementById('attEnd');
+      if (startEl && endEl) {
+        startEl.value = rangeStart;
+        endEl.value = rangeEnd;
+        generateAttRangeRows();
+      }
+    }
     const el = document.querySelector('.entry-method-body[data-mid="att"]');
     if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
   }
@@ -4573,13 +4586,16 @@ async function extractAttFile() {
     const result = attxExtractWorkbook(workbook);
     attExtractedByDate = result.byDate;
 
-    // 추출된 날짜 범위를 시작일/종료일에 자동 반영 (이후 직접 기간을 좁히거나 넓혀 재적용 가능)
-    document.getElementById('attStart').value = result.dateKeys[0];
-    document.getElementById('attEnd').value = result.dateKeys[result.dateKeys.length - 1];
+    // 이미 시작일/종료일이 지정돼 있으면(예: 엑셀 자동추출에서 넘어온 기간) 그 기간을 그대로 존중하고,
+    // 비어있을 때만 파일에서 찾은 전체 날짜 범위로 자동 채운다.
+    const startEl = document.getElementById('attStart');
+    const endEl = document.getElementById('attEnd');
+    if (!startEl.value) startEl.value = result.dateKeys[0];
+    if (!endEl.value) endEl.value = result.dateKeys[result.dateKeys.length - 1];
     generateAttRangeRows(); // 기간 적용을 자동 실행해 추출된 값으로 표를 바로 채움
 
     statusEl.className = 'status-msg ok';
-    statusEl.textContent = result.sheetCount + '개 월별시트에서 ' + result.dateKeys.length + '일치 근태를 추출했습니다. 기간을 조정하거나 표에서 값을 직접 수정한 뒤 저장해 주세요.'
+    statusEl.textContent = result.sheetCount + '개 월별시트에서 ' + result.dateKeys.length + '일치 근태를 추출했습니다(파일 내 전체 기간 ' + result.dateKeys[0] + ' ~ ' + result.dateKeys[result.dateKeys.length - 1] + '). 현재 지정된 기간(' + startEl.value + ' ~ ' + endEl.value + ')에 해당하는 값만 표에 반영됩니다.'
       + (result.errors.length ? ' (일부 시트 인식 실패: ' + result.errors.join(' / ') + ')' : '');
   } catch (err) {
     statusEl.className = 'status-msg err';
@@ -4597,16 +4613,21 @@ const ATTENDANCE_SEMI_AUTO = {
   'lge_seongsu': { defaultTO: 19, defaultStaff: 19, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
 };
 
+let pendingAttRange = null; // 엑셀 자동추출에서 넘어온 "적용할 기간" 대기값 - 재직현황 패널을 그릴 때 최우선으로 사용
+
 function renderAttendanceSemiAutoPanel() {
   const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
   if (!cfg) return '';
   const today = new Date().toISOString().slice(0, 10);
+  const startVal = (pendingAttRange && pendingAttRange.start) ? pendingAttRange.start : today;
+  const endVal = (pendingAttRange && pendingAttRange.end) ? pendingAttRange.end : today;
+  pendingAttRange = null; // 1회성 - 사용 후 즉시 초기화
   return '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>일자별 재직 및 투입현황 입력</h3>'
     + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">근태 파일을 업로드하면 날짜별 실제 근무 인원(상담사/관리자)이 자동으로 채워집니다. 파일이 없으면 기간만 지정해도 주말·공휴일을 제외한 영업일마다 기본값(TO·재직인원·' + cfg.manualLabel + ')이 채워지며, 어느 쪽이든 개별 수정이나 체크박스 일괄수정이 가능합니다.</p>'
     + '<div class="entry-row"><label>근태파일 업로드</label><input type="file" id="attFile" accept=".xlsx,.xlsm,.xls" onchange="extractAttFile()"><button class="btn-secondary" onclick="extractAttFile()">다시 추출</button></div>'
-    + '<div class="entry-row"><label>시작일</label><input type="date" id="attStart" value="' + today + '"></div>'
-    + '<div class="entry-row"><label>종료일</label><input type="date" id="attEnd" value="' + today + '"></div>'
+    + '<div class="entry-row"><label>시작일</label><input type="date" id="attStart" value="' + startVal + '"></div>'
+    + '<div class="entry-row"><label>종료일</label><input type="date" id="attEnd" value="' + endVal + '"></div>'
     + '<button class="btn-secondary" onclick="generateAttRangeRows()">기간 적용</button>'
     + '<button class="btn-primary" id="attSaveBtn" style="display:none;" onclick="saveAttRangeRows()">근태만 저장</button>'
     + '<button class="btn-primary" id="attCombinedSaveBtn" style="display:none;background:#1a8f4c;" onclick="saveAttAndPerfCombined()">실적+근태 일괄 반영</button>'
