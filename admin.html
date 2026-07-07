@@ -1273,13 +1273,56 @@ function renderWorkspaceOverview() {
 }
 
 // 센터별 카드 미니 추이그래프 구성 (월별 집계, mode: avg=일평균 / sum=월합계)
+// barSeries: 막대(주로 인입량/접수건 등 물량), lineSeries: 꺾은선(SL/응대율/T-NPS 등 비율·점수)
+// stacked: true면 막대를 누적(스택)으로 쌓음 (센터별 대시보드의 "접수건 구성" 차트와 동일한 방식)
+// sameAxis: true면 막대·선을 같은 축(단위가 같을 때, 예: 건수+합계건수)에 표시, 아니면 선은 오른쪽 보조축(y1) 사용
+// lineAxis: 선 지표의 y축 범위를 직접 지정 (예: 응대율처럼 95% 이상이 정상 구간인 지표는 80~100으로 좁혀서
+//           체감상 변동폭이 과장되어 보이지 않도록 함)
 const CENTER_CARD_TREND = {
-  'kbsonhae': { mode: 'avg', months: 6, series: [{ label: '제휴상담 SL', key: '제휴상담_SL' }, { label: '장기손사 SL', key: '장기손사_SL' }] },
-  'kbjeongbi': { mode: 'avg', months: 6, series: [{ label: '고지위반 처리율', key: '고지의무_처리율' }, { label: '통지위반 처리율', key: '통지의무_처리율' }, { label: '목적물소멸 처리율', key: '목적물소멸_처리율' }] },
-  'pyeongtaek': { mode: 'avg', months: 6, series: [{ label: '응대율', key: '응대율' }] },
-  'lge': { mode: 'avg', months: 6, series: [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT' }] }
+  'kbsonhae': {
+    months: 6,
+    barSeries: [
+      { label: '제휴상담 일평균 인입량', key: '제휴상담_인입호', mode: 'avg' },
+      { label: '장기손사 일평균 인입량', key: '장기손사_인입호', mode: 'avg' }
+    ],
+    lineSeries: [
+      { label: '제휴상담 SL', key: '제휴상담_SL', mode: 'avg' },
+      { label: '장기손사 SL', key: '장기손사_SL', mode: 'avg' }
+    ]
+  },
+  'kbjeongbi': {
+    months: 6,
+    stacked: true,
+    sameAxis: true, // 막대(구성)와 선(합계)이 모두 "건수" 단위라 같은 축 사용
+    barSeries: [
+      { label: '고지의무 접수', key: '접수_고지의무', mode: 'sum' },
+      { label: '통지의무 접수', key: '접수_통지의무', mode: 'sum' },
+      { label: '목적물소멸 접수', key: '접수_목적물소멸', mode: 'sum' }
+    ],
+    lineSeries: [
+      { label: '합계', key: '통합_접수', mode: 'sum' }
+    ]
+  },
+  'pyeongtaek': {
+    months: 6,
+    barSeries: [
+      { label: '일평균 인입량', key: '요청호', mode: 'avg' }
+    ],
+    lineSeries: [
+      { label: '응대율', key: '응대율', mode: 'avg' }
+    ],
+    lineAxis: { min: 80, max: 100 } // 95% 이상이면 정상 수준인 지표라, 축을 80~100으로 좁혀 변동폭 과장을 방지
+  },
+  'lge': {
+    months: 6,
+    lineSeries: [
+      { label: 'T-NPS', key: 'TNPS', mode: 'avg' },
+      { label: '생산성(IN+OUT)', key: '생산성_INOUT', mode: 'avg' }
+    ]
+  }
 };
-const WS_SPARK_COLORS = ['#FE2E36', '#2f6fd1', '#e0a500'];
+const WS_BAR_COLORS = ['#B7C4D6', '#8FAADC', '#D8DEE6'];
+const WS_LINE_COLORS = ['#FE2E36', '#2f6fd1', '#e0a500'];
 let wsSparkCharts = [];
 
 function drawWorkspaceSparklines(centerStats) {
@@ -1297,23 +1340,52 @@ function drawWorkspaceSparklines(centerStats) {
     s.rows.forEach(function(r) { const ym = r.report_date.slice(0, 7); if (!byMonth[ym]) byMonth[ym] = []; byMonth[ym].push(r); });
     const months = Object.keys(byMonth).sort().slice(-cfg.months); // 데이터가 있는 최근 N개월만 사용 → 지표 없는 달은 자연히 생략됨
 
-    const datasets = cfg.series.map(function(sr, i) {
-      const data = months.map(function(ym) {
+    function aggSeries(sr) {
+      return months.map(function(ym) {
         const rows = byMonth[ym];
         const vals = rows.map(function(r) { return resolveMetric(r, sr.key); }).filter(function(n) { return n !== null && !isNaN(n); });
         if (vals.length === 0) return null;
         const sum = vals.reduce(function(a, b) { return a + b; }, 0);
-        return cfg.mode === 'sum' ? sum : (sum / vals.length);
+        return sr.mode === 'sum' ? sum : (sum / vals.length);
       });
+    }
+
+    const barSeries = cfg.barSeries || [];
+    const lineSeries = cfg.lineSeries || [];
+    const lineYAxisId = cfg.sameAxis ? 'y' : 'y1';
+
+    const barDatasets = barSeries.map(function(sr, i) {
       return {
-        label: sr.label, data: data, borderColor: WS_SPARK_COLORS[i % WS_SPARK_COLORS.length],
-        backgroundColor: WS_SPARK_COLORS[i % WS_SPARK_COLORS.length], borderWidth: 2, tension: 0.25,
-        pointRadius: 3, pointHoverRadius: 5, spanGaps: false,
+        type: 'bar', label: sr.label, data: aggSeries(sr), yAxisID: 'y',
+        backgroundColor: WS_BAR_COLORS[i % WS_BAR_COLORS.length], borderWidth: 0,
+        stack: cfg.stacked ? 'vol' : undefined, order: 2
       };
     });
+    const lineDatasets = lineSeries.map(function(sr, i) {
+      return {
+        type: 'line', label: sr.label, data: aggSeries(sr), yAxisID: lineYAxisId,
+        borderColor: WS_LINE_COLORS[i % WS_LINE_COLORS.length], backgroundColor: WS_LINE_COLORS[i % WS_LINE_COLORS.length],
+        borderWidth: 2, tension: 0.25, pointRadius: 3, pointHoverRadius: 5, spanGaps: false, order: 1
+      };
+    });
+    const datasets = barDatasets.concat(lineDatasets);
+
+    const scales = {
+      x: { display: true, ticks: { font: { size: 11 } }, grid: { display: false }, stacked: !!cfg.stacked },
+      y: { display: true, position: 'left', ticks: { font: { size: 10 } }, grid: { color: '#f0f1f3' }, stacked: !!cfg.stacked }
+    };
+    if (!cfg.sameAxis && lineSeries.length > 0) {
+      scales.y1 = {
+        display: true, position: 'right', ticks: { font: { size: 10 } }, grid: { display: false },
+        min: cfg.lineAxis ? cfg.lineAxis.min : undefined, max: cfg.lineAxis ? cfg.lineAxis.max : undefined
+      };
+    } else if (cfg.lineAxis) {
+      scales.y.min = cfg.lineAxis.min;
+      scales.y.max = cfg.lineAxis.max;
+    }
 
     wsSparkCharts.push(new Chart(canvas, {
-      type: 'line',
+      type: 'bar',
       data: { labels: months.map(function(m) { return m.slice(5) + '월'; }), datasets: datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
@@ -1322,10 +1394,7 @@ function drawWorkspaceSparklines(centerStats) {
           legend: { display: true, position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
           tooltip: { enabled: true }
         },
-        scales: {
-          y: { display: true, ticks: { font: { size: 10 } }, grid: { color: '#f0f1f3' } },
-          x: { display: true, ticks: { font: { size: 11 } }, grid: { display: false } }
-        }
+        scales: scales
       }
     }));
   });
