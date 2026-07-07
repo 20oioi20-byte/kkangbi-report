@@ -39,7 +39,22 @@
   .maintab.active { color: #FE2E36; border-bottom-color: #FE2E36; font-weight: 600; }
 
   .layout { display: flex; min-height: calc(100vh - 96px); }
-  .sidebar { width: 200px; background: #fff; border-right: 1px solid #e7e8ec; padding: 16px 0; flex-shrink: 0; }
+  .sidebar { width: 200px; background: #fff; border-right: 1px solid #e7e8ec; padding: 16px 0; flex-shrink: 0; display: flex; flex-direction: column; }
+  .sidebar-header { padding: 4px 20px 14px; border-bottom: 1px solid #f0f1f3; margin-bottom: 10px; }
+  .sidebar-title { font-size: 14px; font-weight: 800; color: #1c1f26; }
+  .sidebar-subtitle { font-size: 11px; color: #9aa1ac; margin-top: 2px; }
+  .sidebar-conn { font-size: 11px; color: #1a8f4c; margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #1a8f4c; box-shadow: 0 0 0 3px rgba(26,143,76,.15); }
+  .sidebar-custom { margin-top: auto; border-top: 1px solid #f0f1f3; padding: 12px 20px; }
+  .sidebar-custom summary { cursor: pointer; font-size: 12px; font-weight: 700; color: #5b6472; list-style: none; }
+  .sidebar-custom summary::-webkit-details-marker { display: none; }
+  .sidebar-custom-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
+  .sidebar-custom-body a { font-size: 12px; color: #3c4250; text-decoration: none; padding: 6px 8px; border-radius: 6px; background: #f8f9fb; }
+  .sidebar-custom-body a:hover { background: #FFE8E9; color: #FE2E36; }
+  .sidebar-custom-key { margin-top: 4px; }
+  .key-row { display: flex; gap: 4px; }
+  .key-row input { flex: 1; min-width: 0; font-size: 10px; padding: 5px 6px; border: 1px solid #e6eaf2; border-radius: 5px; color: #9aa1ac; }
+  .key-row button { border: none; background: #f0f1f3; border-radius: 5px; font-size: 11px; padding: 5px 8px; cursor: pointer; }
   .sidebar .section-label { padding: 6px 20px; font-size: 12px; color: #9aa1ac; }
   .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: #3c4250; display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: nowrap; }
   .center-item .center-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
@@ -229,8 +244,30 @@
 
 <div class="layout">
   <aside class="sidebar">
-    <div class="section-label">센터 목록</div>
+    <div class="sidebar-header">
+      <div class="sidebar-title">📋 깡비서 실적관리</div>
+      <div class="sidebar-subtitle">센터별 KPI·실적 자동관리</div>
+      <div class="sidebar-conn"><span class="conn-dot"></span> Supabase 연결됨</div>
+    </div>
+    <div class="section-label" id="centerListLabel">센터 목록</div>
     <div id="centerList"></div>
+
+    <details class="sidebar-custom">
+      <summary>⚙ 커스터마이징</summary>
+      <div class="sidebar-custom-body">
+        <a href="https://claude.ai/chat/3f1eb3bd-7071-41f6-9bb4-6f3c95c65ca1" target="_blank" rel="noopener">💬 이 채팅방 (Claude 대화)</a>
+        <a href="https://github.com/20oioi20-byte/kkangbi-report/blob/main/admin.html" target="_blank" rel="noopener">🐙 GitHub 저장소 (admin.html)</a>
+        <a href="https://supabase.com/dashboard/project/zbiwyqwjehnogxkzlhxx/sql/92974b5d-555f-48c7-957f-d666b743fd3b" target="_blank" rel="noopener">🗄 Supabase 대시보드</a>
+        <a href="https://vercel.com/kangseongho-s-projects/kkangbi-report" target="_blank" rel="noopener">▲ Vercel 대시보드</a>
+        <div class="sidebar-custom-key">
+          <div style="font-size:11px;color:#9aa1ac;margin-bottom:4px;">Supabase Anon Key (공개용)</div>
+          <div class="key-row">
+            <input type="text" readonly id="sidebarAnonKeyDisplay" value="">
+            <button onclick="copySidebarAnonKey()" title="복사">복사</button>
+          </div>
+        </div>
+      </div>
+    </details>
   </aside>
   <main id="main"><div class="loading">불러오는 중...</div></main>
 </div>
@@ -427,8 +464,9 @@ const CENTER_CHART_CONFIG = {
       },
     ]
   },
+  // LG 브랜드 컬러 가이드 기준: LG RED #A50034 · LG GRAY #6b6b6b · WHITE #FFFFFF, 가이드에 없는 보조색상은 그린 사용
   'lge': {
-    barColors: ['#A50034', '#E6007E', '#B7C4D6'], // LG 브랜드 컬러(마젠타 계열)
+    barColors: ['#6b6b6b', '#2E7D32', '#B7C4D6'],
     lineColor: '#A50034',
     groups: [
       {
@@ -438,8 +476,8 @@ const CENTER_CHART_CONFIG = {
     ]
   },
   'lge_seongsu': {
-    barColors: ['#FF6A00', '#FFA35C', '#B7C4D6'], // AS와 구분되도록 성수기는 오렌지 계열
-    lineColor: '#FF6A00',
+    barColors: ['#6b6b6b', '#2E7D32', '#B7C4D6'],
+    lineColor: '#A50034',
     groups: [
       {
         title: '생산성', barKeys: ['생산성_INOUT', '생산성_IN'], barLabels: ['생산성(IN+OUT)', '생산성(IN)'],
@@ -725,6 +763,8 @@ async function tryDomainAutoUnlock() {
 }
 
 async function init() {
+  const anonKeyEl = document.getElementById('sidebarAnonKeyDisplay');
+  if (anonKeyEl) anonKeyEl.value = SB_ANON_KEY;
   restoreSession();
   await loadCentersMeta();
   const autoUnlocked = await tryDomainAutoUnlock();
@@ -777,7 +817,20 @@ let kpiSettingsCache = {};
 let kpiMonthlyTargetsCache = {};
 let settingsYear = new Date().getFullYear();
 
+function copySidebarAnonKey() {
+  const input = document.getElementById('sidebarAnonKeyDisplay');
+  if (!input) return;
+  navigator.clipboard.writeText(input.value).then(function() {
+    const btn = event.target;
+    const old = btn.textContent;
+    btn.textContent = '복사됨';
+    setTimeout(function() { btn.textContent = old; }, 1500);
+  }).catch(function() { alert('복사에 실패했습니다. 직접 선택해 복사해 주세요.'); });
+}
+
 function renderSidebar() {
+  const listLabel = document.getElementById('centerListLabel');
+  if (listLabel) listLabel.textContent = '센터 (' + allCentersMeta.length + ')';
   const list = document.getElementById('centerList');
   const overviewHtml = workspaceUnlocked
     ? '<div class="center-item ' + (viewingWorkspaceOverview ? 'active' : '') + '" onclick="selectWorkspaceOverview()" style="font-weight:700;border-bottom:1px solid #f0f1f3;margin-bottom:4px;">'
@@ -1375,17 +1428,33 @@ const CENTER_CARD_TREND = {
   },
   'lge': {
     months: 6,
+    stacked: true,
+    barsOnSecondary: true, // T-NPS(선)를 주축에, 생산성(막대)을 보조축에 배치
+    barColors: ['#6b6b6b', '#2E7D32'], // LG GRAY(생산성 IN) + 보조색 그린(생산성 OUT, 가이드에 없는 색이라 그린 사용)
+    lineColors: ['#A50034'], // LG RED
+    barSeries: [
+      { label: '생산성(IN)', key: '생산성_IN', mode: 'avg' },
+      { label: '생산성(OUT)', key: '__생산성_OUT_derived__', mode: 'avg', derivedFrom: { totalKey: '생산성_INOUT', subKey: '생산성_IN' } }
+    ],
     lineSeries: [
-      { label: 'T-NPS', key: 'TNPS', mode: 'avg' },
-      { label: '생산성(IN+OUT)', key: '생산성_INOUT', mode: 'avg' }
-    ]
+      { label: 'T-NPS', key: 'TNPS', mode: 'avg' }
+    ],
+    lineAxis: { min: 0, max: 110 } // T-NPS 주축 고정 범위
   },
   'lge_seongsu': {
     months: 6,
+    stacked: true,
+    barsOnSecondary: true,
+    barColors: ['#6b6b6b', '#2E7D32'],
+    lineColors: ['#A50034'],
+    barSeries: [
+      { label: '생산성(IN)', key: '생산성_IN', mode: 'avg' },
+      { label: '생산성(OUT)', key: '__생산성_OUT_derived__', mode: 'avg', derivedFrom: { totalKey: '생산성_INOUT', subKey: '생산성_IN' } }
+    ],
     lineSeries: [
-      { label: 'T-NPS', key: 'TNPS', mode: 'avg' },
-      { label: '생산성(IN+OUT)', key: '생산성_INOUT', mode: 'avg' }
-    ]
+      { label: 'T-NPS', key: 'TNPS', mode: 'avg' }
+    ],
+    lineAxis: { min: 0, max: 110 }
   }
 };
 // 회색계열 팔레트: 막대(물량)는 옅은 회색, 선(비율/점수)은 짙은 회색~검정으로 대비
@@ -1411,6 +1480,16 @@ function drawWorkspaceSparklines(centerStats) {
     function aggSeries(sr) {
       return months.map(function(ym) {
         const rows = byMonth[ym];
+        // derivedFrom: "총계 - 부분계산" 형태의 파생 시리즈 (예: 생산성(OUT) = 생산성(IN+OUT) - 생산성(IN))
+        // 두 지표를 단순히 더해서 쌓는 게 아니라, IN+OUT 안에 포함된 IN을 구분해서 보여주기 위함
+        if (sr.derivedFrom) {
+          const totals = rows.map(function(r) { return resolveMetric(r, sr.derivedFrom.totalKey); }).filter(function(n) { return n !== null && !isNaN(n); });
+          const subs = rows.map(function(r) { return resolveMetric(r, sr.derivedFrom.subKey); }).filter(function(n) { return n !== null && !isNaN(n); });
+          if (totals.length === 0 || subs.length === 0) return null;
+          const totalAvg = totals.reduce(function(a, b) { return a + b; }, 0) / totals.length;
+          const subAvg = subs.reduce(function(a, b) { return a + b; }, 0) / subs.length;
+          return Math.max(0, totalAvg - subAvg);
+        }
         const vals = rows.map(function(r) { return resolveMetric(r, sr.key); }).filter(function(n) { return n !== null && !isNaN(n); });
         if (vals.length === 0) return null;
         const sum = vals.reduce(function(a, b) { return a + b; }, 0);
@@ -1420,19 +1499,24 @@ function drawWorkspaceSparklines(centerStats) {
 
     const barSeries = cfg.barSeries || [];
     const lineSeries = cfg.lineSeries || [];
-    const lineYAxisId = cfg.sameAxis ? 'y' : 'y1';
+    // barsOnSecondary: true면 막대(생산성 등)를 보조축(y1)에, 선(T-NPS 등)을 주축(y)에 배치 (기본은 반대)
+    const barsOnSecondary = !!cfg.barsOnSecondary;
+    const barYAxisId = barsOnSecondary ? 'y1' : 'y';
+    const lineYAxisId = cfg.sameAxis ? 'y' : (barsOnSecondary ? 'y' : 'y1');
 
+    const barColors = cfg.barColors || WS_BAR_COLORS;
+    const lineColors = cfg.lineColors || WS_LINE_COLORS;
     const barDatasets = barSeries.map(function(sr, i) {
       return {
-        type: 'bar', label: sr.label, data: aggSeries(sr), yAxisID: 'y',
-        backgroundColor: WS_BAR_COLORS[i % WS_BAR_COLORS.length], borderWidth: 0,
+        type: 'bar', label: sr.label, data: aggSeries(sr), yAxisID: barYAxisId,
+        backgroundColor: barColors[i % barColors.length], borderWidth: 0,
         stack: cfg.stacked ? 'vol' : undefined, order: 2
       };
     });
     const lineDatasets = lineSeries.map(function(sr, i) {
       return {
         type: 'line', label: sr.label, data: aggSeries(sr), yAxisID: lineYAxisId,
-        borderColor: WS_LINE_COLORS[i % WS_LINE_COLORS.length], backgroundColor: WS_LINE_COLORS[i % WS_LINE_COLORS.length],
+        borderColor: lineColors[i % lineColors.length], backgroundColor: lineColors[i % lineColors.length],
         borderWidth: 2, tension: 0.25, pointRadius: 3, pointHoverRadius: 5, spanGaps: false, order: 1
       };
     });
@@ -1441,19 +1525,20 @@ function drawWorkspaceSparklines(centerStats) {
     const scales = {
       x: { display: true, ticks: { font: { size: 11 } }, grid: { display: false }, stacked: !!cfg.stacked },
       y: {
-        display: true, position: 'left', grid: { color: '#f0f1f3' }, stacked: !!cfg.stacked,
+        display: true, position: 'left', grid: { color: '#f0f1f3' }, stacked: !!cfg.stacked && !barsOnSecondary,
         ticks: { font: { size: 10 }, callback: function(v) { return Number(v).toFixed(1); } }
       }
     };
-    if (!cfg.sameAxis && lineSeries.length > 0) {
+    // lineAxis(축 범위 고정)는 실제로 선이 그려지는 축에 적용한다 (barsOnSecondary면 주축 y, 아니면 보조축 y1)
+    if (!cfg.sameAxis && (barSeries.length > 0 || lineSeries.length > 0)) {
       scales.y1 = {
-        display: true, position: 'right', grid: { display: false },
-        ticks: { font: { size: 10 }, callback: function(v) { return Number(v).toFixed(1); } },
-        min: cfg.lineAxis ? cfg.lineAxis.min : undefined, max: cfg.lineAxis ? cfg.lineAxis.max : undefined
+        display: true, position: 'right', grid: { display: false }, stacked: !!cfg.stacked && barsOnSecondary,
+        ticks: { font: { size: 10 }, callback: function(v) { return Number(v).toFixed(1); } }
       };
-    } else if (cfg.lineAxis) {
-      scales.y.min = cfg.lineAxis.min;
-      scales.y.max = cfg.lineAxis.max;
+    }
+    if (cfg.lineAxis) {
+      const targetScale = (cfg.sameAxis || barsOnSecondary) ? scales.y : scales.y1;
+      if (targetScale) { targetScale.min = cfg.lineAxis.min; targetScale.max = cfg.lineAxis.max; }
     }
 
     wsSparkCharts.push(new Chart(canvas, {
@@ -4759,11 +4844,21 @@ async function saveAttAndPerfCombined() {
   let success = 0, fail = 0;
   const failDates = [];
 
-  for (let start = 0; start < attRangeRows.length; start += BATCH_SIZE) {
-    const batchIdx = [];
-    for (let i = start; i < Math.min(start + BATCH_SIZE, attRangeRows.length); i++) batchIdx.push(i);
+  // LG전자AS/성수기는 투입인원이 0명인 날짜는 공휴일이 아니어도 저장 대상에서 제외한다.
+  const skipZeroManual = (currentCenter === 'lge' || currentCenter === 'lge_seongsu');
+  const skippedDates = [];
+  const saveIdx = [];
+  attRangeRows.forEach(function(date, idx) {
+    const manualInput = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]');
+    const manualVal = Number(manualInput ? manualInput.value : 0);
+    if (skipZeroManual && manualVal === 0) { skippedDates.push(date); return; }
+    saveIdx.push(idx);
+  });
+
+  for (let start = 0; start < saveIdx.length; start += BATCH_SIZE) {
+    const batchIdx = saveIdx.slice(start, start + BATCH_SIZE);
     statusEl.className = 'status-msg';
-    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, attRangeRows.length) + '/' + attRangeRows.length + ')';
+    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, saveIdx.length) + '/' + saveIdx.length + ')';
 
     const results = await Promise.all(batchIdx.map(function(idx) {
       const date = attRangeRows[idx];
@@ -4797,6 +4892,7 @@ async function saveAttAndPerfCombined() {
   let msg = success + '건 저장 완료 (근태 ' + attRangeRows.length + '일 중 실적 동반 반영 ' + perfMatchedCount + '일)';
   if (fail) msg += ', ' + fail + '건 실패(' + failDates.join(', ') + ')';
   if (excludedPerfOnly.length) msg += '. 근태 범위에 없어 제외된 실적 날짜: ' + excludedPerfOnly.join(', ');
+  if (skippedDates.length) msg += '. 투입인원 0명이라 제외된 날짜 ' + skippedDates.length + '건: ' + skippedDates.join(', ');
 
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
   statusEl.textContent = msg;
@@ -4821,12 +4917,22 @@ async function saveAttRangeRows() {
   let success = 0, fail = 0;
   const failDates = [];
 
-  for (let start = 0; start < attRangeRows.length; start += BATCH_SIZE) {
-    const batchIdx = [];
-    for (let i = start; i < Math.min(start + BATCH_SIZE, attRangeRows.length); i++) batchIdx.push(i);
+  // LG전자AS/성수기는 투입인원이 0명인 날짜(휴무·임시휴점 등)는 공휴일이 아니어도 저장 대상에서 제외한다.
+  const skipZeroManual = (currentCenter === 'lge' || currentCenter === 'lge_seongsu');
+  const skippedDates = [];
+  const saveIdx = [];
+  attRangeRows.forEach(function(date, idx) {
+    const manualInput = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]');
+    const manualVal = Number(manualInput ? manualInput.value : 0);
+    if (skipZeroManual && manualVal === 0) { skippedDates.push(date); return; }
+    saveIdx.push(idx);
+  });
+
+  for (let start = 0; start < saveIdx.length; start += BATCH_SIZE) {
+    const batchIdx = saveIdx.slice(start, start + BATCH_SIZE);
 
     statusEl.className = 'status-msg';
-    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, attRangeRows.length) + '/' + attRangeRows.length + ')';
+    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, saveIdx.length) + '/' + saveIdx.length + ')';
 
     const results = await Promise.all(batchIdx.map(function(idx) {
       const date = attRangeRows[idx];
@@ -4850,8 +4956,10 @@ async function saveAttRangeRows() {
     results.forEach(function(r) { if (r.ok) success++; else { fail++; failDates.push(r.date); } });
   }
 
+  let msg = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
+  if (skippedDates.length) msg += ' · 투입인원 0명이라 제외된 날짜 ' + skippedDates.length + '건: ' + skippedDates.join(', ');
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
-  statusEl.textContent = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
+  statusEl.textContent = msg;
   attRangeRows = [];
   attExtractedByDate = {};
   document.getElementById('attSaveBtn').style.display = 'none';
