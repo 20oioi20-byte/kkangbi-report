@@ -1127,6 +1127,7 @@ function computeCenterHeadline(code, rows) {
       const ry = Number(r.report_date.slice(0, 4));
       return ry === y && r.report_date.slice(0, 7) <= ym;
     });
+    const monthRows = rows.filter(function(r) { return r.report_date.slice(0, 7) === ym; });
 
     const monthlyTO = getMonthlyTO(code, ym);
     let staffText = null;
@@ -1152,12 +1153,13 @@ function computeCenterHeadline(code, rows) {
 
     const metrics = defs.map(function(d) {
       const val = avgExcludingHolidays(cumRows, function(r) { return resolveMetric(r, d.key); });
+      const monthVal = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, d.key); });
       // 지표별 월별 목표치가 등록되어 있으면 최우선 사용 (연도+해당월 기준), 없으면 기존 방식(등록된 단일 목표값 → 차트 기준선)
       let target = getMonthlyKpiTarget(code, d.key, ym);
       if (target === null) target = (d.target !== null && d.target !== undefined) ? d.target : null;
       if (target === null) { const th = findThresholdForKey(code, d.key); if (th) target = th.value; }
       const isWarn = (val !== null && target !== null) ? (val < target) : false;
-      return { label: d.label, value: val, target: target, isWarn: isWarn };
+      return { label: d.label, value: val, monthValue: monthVal, target: target, isWarn: isWarn };
     });
     const isWarn = metrics.some(function(m) { return m.isWarn; });
 
@@ -1169,9 +1171,14 @@ function computeCenterHeadline(code, rows) {
 }
 
 function formatHeadlineMetric(m) {
-  if (m.value === null) return m.label + ' -';
-  const isPct = Math.abs(m.value) <= 100;
-  return m.label + ' ' + m.value.toFixed(1) + (isPct ? '%' : '');
+  const isPct = function(v) { return Math.abs(v) <= 100; };
+  const fmt = function(v) { return v === null ? '-' : v.toFixed(1) + (isPct(v) ? '%' : ''); };
+  if (m.value === null && m.monthValue === null) return m.label + ' -';
+  // 이번달 값과 연초~이번달 누적평균값을 함께 표기해, "왜 이 값이 나왔는지" 산출 기준을 항상 알 수 있게 한다.
+  if (m.monthValue !== null && m.value !== null && m.monthValue.toFixed(1) !== m.value.toFixed(1)) {
+    return m.label + ' ' + fmt(m.monthValue) + ' <span style="color:#9aa1ac;font-weight:400;">(누적 ' + fmt(m.value) + ')</span>';
+  }
+  return m.label + ' ' + fmt(m.value !== null ? m.value : m.monthValue);
 }
 
 function renderWorkspaceOverview() {
@@ -1194,11 +1201,12 @@ function renderWorkspaceOverview() {
     return v.toFixed(1) + (isPct ? '%' : '');
   }
 
-  // 이슈감지내용: 어떤 센터의 어떤 지표가 기준 미달인지 구체적으로 나열 (월별 누적 일평균값 기준)
+  // 이슈감지내용: 어떤 센터의 어떤 지표가 기준 미달인지 구체적으로 나열 (월별 누적 일평균값 기준 판정, 이번달 값도 함께 표기)
   const issueLines = [];
   warnStats.forEach(function(s) {
     s.metrics.filter(function(m) { return m.isWarn; }).forEach(function(m) {
-      issueLines.push(s.name + ' ' + m.label + ' ' + formatPlainNum(m.value) + ' (목표 ' + formatPlainNum(m.target) + '↓)');
+      const monthPart = (m.monthValue !== null && m.monthValue.toFixed(1) !== (m.value === null ? '' : m.value.toFixed(1))) ? ' / 이번달 ' + formatPlainNum(m.monthValue) : '';
+      issueLines.push(s.name + ' ' + m.label + ' 누적 ' + formatPlainNum(m.value) + monthPart + ' (목표 ' + formatPlainNum(m.target) + '↓)');
     });
   });
 
@@ -1223,17 +1231,31 @@ function renderWorkspaceOverview() {
     const metricsHtml = s.metrics.length
       ? s.metrics.map(function(m) { return '<div style="' + (m.isWarn ? 'color:#c94040;font-weight:700;' : '') + '">' + formatHeadlineMetric(m) + '</div>'; }).join('')
       : '<span style="color:#9aa1ac;">데이터 준비중</span>';
-    const trendCfg = CENTER_CARD_TREND[s.code];
-    const trendHtml = trendCfg ? '<div style="width:120px;height:34px;"><canvas id="wsSpark_' + s.code + '"></canvas></div>' : '<span style="color:#9aa1ac;font-size:12px;">-</span>';
 
     return '<tr class="ws-row" onclick="selectCenter(\'' + s.code + '\')">'
       + '<td style="font-weight:700;">' + s.name + reorderHtml + '</td>'
       + '<td>' + (s.staffText || '<span style="color:#9aa1ac;">-</span>') + '</td>'
       + '<td>' + metricsHtml + '</td>'
-      + '<td onclick="event.stopPropagation();">' + trendHtml + '</td>'
       + '<td><span class="ws-badge ' + s.status + '">' + badgeText[s.status] + '</span></td>'
       + '</tr>';
   }).join('');
+
+  // 센터별 추이 카드: 작은 표 셀 안에 스파크라인을 우겨넣던 방식은 축·범례가 없어 가독성이 매우 떨어졌다.
+  // 대신 표 아래에 센터별로 별도 카드를 두어, 각 카드마다 범례·축 눈금·데이터포인트를 모두 보여준다(Small multiples 방식).
+  const trendCardsHtml = centerStats
+    .filter(function(s) { return CENTER_CARD_TREND[s.code]; })
+    .map(function(s) {
+      return '<div class="panel" style="padding:14px 16px;">'
+        + '<div style="font-weight:700;font-size:13px;margin-bottom:8px;">' + s.name + '</div>'
+        + '<div style="height:200px;"><canvas id="wsTrend_' + s.code + '"></canvas></div>'
+        + '</div>';
+    }).join('');
+  const trendSectionHtml = trendCardsHtml
+    ? '<div style="margin-top:16px;">'
+      + '<h3 style="margin:0 0 10px;font-size:15px;">센터별 핵심지표 추이 (최근 6개월, 월평균)</h3>'
+      + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:14px;">' + trendCardsHtml + '</div>'
+      + '</div>'
+    : '';
 
   main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
@@ -1241,9 +1263,10 @@ function renderWorkspaceOverview() {
     + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview()">새로고침</button>'
     + '</div>'
     + kpiHtml
-    + '<div class="panel"><div class="table-scroll"><table class="ws-table"><thead><tr><th>센터</th><th>재직(TO대비)</th><th>핵심지표</th><th>추이</th><th>상태</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
+    + '<div class="panel"><div class="table-scroll"><table class="ws-table"><thead><tr><th>센터</th><th>재직(TO대비)</th><th>핵심지표(이번달/누적)</th><th>상태</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
     + (workspaceUnlocked ? '<div style="text-align:center;padding:14px;color:#9aa1ac;font-size:12px;cursor:pointer;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
     + '</div>'
+    + trendSectionHtml
     + '</div>';
 
   drawWorkspaceSparklines(centerStats);
@@ -1266,13 +1289,13 @@ function drawWorkspaceSparklines(centerStats) {
   const savedCenter = currentCenter;
   centerStats.forEach(function(s) {
     const cfg = CENTER_CARD_TREND[s.code];
-    const canvas = document.getElementById('wsSpark_' + s.code);
+    const canvas = document.getElementById('wsTrend_' + s.code);
     if (!cfg || !canvas) return;
     currentCenter = s.code; // resolveMetric이 currentCenter를 참조
 
     const byMonth = {};
     s.rows.forEach(function(r) { const ym = r.report_date.slice(0, 7); if (!byMonth[ym]) byMonth[ym] = []; byMonth[ym].push(r); });
-    const months = Object.keys(byMonth).sort().slice(-cfg.months);
+    const months = Object.keys(byMonth).sort().slice(-cfg.months); // 데이터가 있는 최근 N개월만 사용 → 지표 없는 달은 자연히 생략됨
 
     const datasets = cfg.series.map(function(sr, i) {
       const data = months.map(function(ym) {
@@ -1282,7 +1305,11 @@ function drawWorkspaceSparklines(centerStats) {
         const sum = vals.reduce(function(a, b) { return a + b; }, 0);
         return cfg.mode === 'sum' ? sum : (sum / vals.length);
       });
-      return { label: sr.label, data: data, borderColor: WS_SPARK_COLORS[i % WS_SPARK_COLORS.length], backgroundColor: 'transparent', borderWidth: 1.5, tension: 0.3, pointRadius: 0 };
+      return {
+        label: sr.label, data: data, borderColor: WS_SPARK_COLORS[i % WS_SPARK_COLORS.length],
+        backgroundColor: WS_SPARK_COLORS[i % WS_SPARK_COLORS.length], borderWidth: 2, tension: 0.25,
+        pointRadius: 3, pointHoverRadius: 5, spanGaps: false,
+      };
     });
 
     wsSparkCharts.push(new Chart(canvas, {
@@ -1290,13 +1317,21 @@ function drawWorkspaceSparklines(centerStats) {
       data: { labels: months.map(function(m) { return m.slice(5) + '월'; }), datasets: datasets },
       options: {
         responsive: true, maintainAspectRatio: false,
-        plugins: { legend: { display: false } },
-        scales: { y: { display: false }, x: { display: false } }
+        interaction: { mode: 'index', intersect: false },
+        plugins: {
+          legend: { display: true, position: 'bottom', labels: { boxWidth: 10, font: { size: 11 } } },
+          tooltip: { enabled: true }
+        },
+        scales: {
+          y: { display: true, ticks: { font: { size: 10 } }, grid: { color: '#f0f1f3' } },
+          x: { display: true, ticks: { font: { size: 11 } }, grid: { display: false } }
+        }
       }
     }));
   });
   currentCenter = savedCenter;
 }
+
 
 // ============================================
 // 센터별 설정 페이지 (월별 TO, 핵심지표 목표치)
@@ -1699,7 +1734,7 @@ function renderDashboard() {
     + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
-    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiSummaryCards2(monthRows, cumulativeRows) : renderSummaryCards(monthRows, cumulativeRows, prevMonthRows))
+    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiSummaryCards2(targetRows, cumulativeRows) : renderSummaryCards(targetRows, cumulativeRows, prevMonthRows))
     + '<div class="split">'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
@@ -2159,7 +2194,7 @@ function renderKbjeongbiSummaryCards2(monthRows, cumulativeRows) {
     const cumUnproc = cumAcc - cumProc;
     const cardId = 'kbjSumCard' + i;
     return '<div class="summary-card2" id="' + cardId + '">'
-      + '<div class="sc-head"><span class="sc-title">' + c.icon + ' ' + c.title + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">복사</button></div>'
+      + '<div class="sc-head"><span class="sc-title">' + c.icon + ' ' + c.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">복사</button></div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
       + '<div class="sc-stat"><div class="l">일평균 접수건</div><div class="v">' + (dailyAcc !== null ? dailyAcc.toFixed(1) : '-') + '건</div></div>'
       + '<div class="sc-stat"><div class="l">누적 접수건</div><div class="v">' + cumAcc.toLocaleString() + '건</div></div>'
@@ -2237,7 +2272,7 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
   const pctDiff = (curPct !== null && prevPct !== null) ? (curPct - prevPct) : null;
 
   const overviewCard = '<div class="summary-card2" id="sumCardOverview">'
-    + '<div class="sc-head"><span class="sc-title">👥 전체 운영 요약</span><button class="sc-copy" onclick="copySummaryCard(\'sumCardOverview\')">복사</button></div>'
+    + '<div class="sc-head"><span class="sc-title">👥 전체 운영 요약' + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" onclick="copySummaryCard(\'sumCardOverview\')">복사</button></div>'
     + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
     + '<div class="sc-stat"><div class="l">전체 재직인원(TO대비)</div><div class="v">' + (staffAvgMonth !== null ? staffAvgMonth.toFixed(1) : '-') + '명</div><div class="sub">(' + (curPct !== null ? curPct.toFixed(0) : '-') + '%)</div></div>'
     + '<div class="sc-stat"><div class="l">운영 안정도</div><div class="v">' + (curPct !== null ? curPct.toFixed(0) : '-') + '%</div><div class="sub">' + (pctDiff !== null ? ('전월比 ' + (pctDiff >= 0 ? '▲' : '▼') + Math.abs(pctDiff).toFixed(0) + '%p') : '-') + '</div></div>'
@@ -2267,7 +2302,7 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
     const thresholdIdx = group.threshold ? group.lineKeys.indexOf(group.threshold.key) : -1;
     const thresholdLabel = thresholdIdx >= 0 ? group.lineLabels[thresholdIdx].replace('(%)', '') : secondLabel;
     return '<div class="summary-card2" id="' + cardId + '">'
-      + '<div class="sc-head"><span class="sc-title">' + GROUP_ICONS[gi % GROUP_ICONS.length] + ' ' + group.title + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">' + group.title + ' 복사</button></div>'
+      + '<div class="sc-head"><span class="sc-title">' + GROUP_ICONS[gi % GROUP_ICONS.length] + ' ' + group.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">' + group.title + ' 복사</button></div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
       + '<div class="sc-stat"><div class="l">' + group.barLabels[0] + '</div><div class="v">' + (inboundAvg !== null ? Math.round(inboundAvg).toLocaleString() : '-') + '건</div></div>'
       + (group.barKeys[1] ? '<div class="sc-stat"><div class="l">' + group.barLabels[1] + '</div><div class="v">' + (answeredAvg !== null ? Math.round(answeredAvg).toLocaleString() : '-') + '건</div></div>' : '')
