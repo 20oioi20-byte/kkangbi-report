@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>깡비 실적 관리</title>
 <script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.0/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <style>
   * { box-sizing: border-box; }
   body { margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif; background: #f4f5f7; color: #1c1f26; }
@@ -213,13 +214,14 @@ const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/c
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
 
 // 센터별 upload_token은 더 이상 하드코딩하지 않고, 비밀번호 인증 성공 시 서버에서 동적으로 받아옵니다.
-const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 20 }; // 평택시청: 투입인원은 상담사만 집계되므로 상담사 정원(20명) 기준
+const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 20, 'lge': 15 }; // 평택시청/LG전자: 투입인원은 상담사만 집계되므로 상담사 정원 기준
 
 // 센터별 전체 정원 정보 (전체 운영 요약 카드의 각주 표시용)
 const CENTER_TO_INFO = {
   'kbsonhae': { total: 178, counselor: 178, staffAttKey: '총원', note: '' },
   'pyeongtaek': { total: 24, counselor: 20, staffAttKey: '투입인원', note: '관리자 4명 제외, 상담사 20명 기준' },
-  'kbjeongbi': { total: 15, counselor: 14, staffAttKey: '재직인원', note: '관리자 1명 포함' }
+  'kbjeongbi': { total: 15, counselor: 14, staffAttKey: '재직인원', note: '관리자 1명 포함' },
+  'lge': { total: 19, counselor: 15, staffAttKey: '상담사_투입인원', note: 'TO 19명(관리자4+상담사15) 기준, 상담사 투입인원으로 집계' }
 };
 
 const KR_HOLIDAYS_2026 = [
@@ -259,6 +261,13 @@ const CENTER_KPI_DEFS = {
     { section: '고지의무', label: '접수건', type: 'count', perfKey: '접수_고지의무' },
     { section: '통지의무', label: '접수건', type: 'count', perfKey: '접수_통지의무' },
     { section: '목적물소멸', label: '접수건', type: 'count', perfKey: '접수_목적물소멸' },
+  ],
+  'lge': [
+    { label: '상담사 투입인원(TO대비)', type: 'staff', attKey: '상담사_투입인원' },
+    { label: 'T-NPS', type: 'number', perfKey: 'TNPS' },
+    { label: '생산성(IN+OUT)', type: 'number', perfKey: '생산성_INOUT' },
+    { label: '생산성(IN)', type: 'number', perfKey: '생산성_IN' },
+    { label: '통화시간(IN+OUT)', type: 'duration', perfKey: '통화시간_INOUT_초' },
   ],
 };
 
@@ -302,6 +311,13 @@ const CENTER_COMPUTED_METRICS = {
       const pa = extractNum(r, 'performance_data', '처리_고지의무') || 0, pb = extractNum(r, 'performance_data', '처리_통지의무') || 0, pc = extractNum(r, 'performance_data', '처리_목적물소멸') || 0;
       const proc = pa + pb + pc;
       return acc ? (proc / acc * 100) : null;
+    },
+  },
+  // 통화시간(IN+OUT)은 "H:MM:SS" 텍스트로 저장되므로, 차트/KPI 평균 계산을 위해 초 단위 숫자로 변환
+  'lge': {
+    '통화시간_INOUT_초': function(r) {
+      const raw = r.performance_data && r.performance_data['통화시간_INOUT'];
+      return parseHMSToSeconds(raw);
     },
   },
 };
@@ -368,6 +384,16 @@ const CENTER_CHART_CONFIG = {
         title: '접수건 구성', stacked: true,
         barKeys: ['접수_고지의무', '접수_통지의무', '접수_목적물소멸'], barLabels: ['고지의무', '통지의무', '목적물소멸'],
         lineKeys: [], lineLabels: []
+      },
+    ]
+  },
+  'lge': {
+    barColors: ['#A50034', '#E6007E', '#B7C4D6'], // LG 브랜드 컬러(마젠타 계열)
+    lineColor: '#A50034',
+    groups: [
+      {
+        title: '생산성', barKeys: ['생산성_INOUT', '생산성_IN'], barLabels: ['생산성(IN+OUT)', '생산성(IN)'],
+        lineKeys: ['TNPS'], lineLabels: ['T-NPS']
       },
     ]
   },
@@ -662,6 +688,7 @@ async function init() {
   renderTopbarAuth();
   loadColPrefs();
   renderSidebar();
+  await loadAllSettingsData(); // 워크스페이스 이상징후·핵심지표 판정에 필요한 월별TO/목표치를 항상 먼저 로드해둔다
   if (viewingWorkspaceOverview) { await loadAllCentersOverview(); }
   else if (currentCenter) { await loadOverviewForCurrent(); }
   renderMain();
@@ -695,6 +722,8 @@ let viewingWorkspaceOverview = false;
 let viewingSettingsPage = false;
 let monthlyToCache = {};
 let kpiSettingsCache = {};
+let kpiMonthlyTargetsCache = {};
+let settingsYear = new Date().getFullYear();
 
 function renderSidebar() {
   const list = document.getElementById('centerList');
@@ -762,7 +791,7 @@ async function selectWorkspaceOverview() {
   viewingSettingsPage = false;
   renderSidebar();
   renderTopbarAuth();
-  await loadAllCentersOverview();
+  await Promise.all([loadAllCentersOverview(), loadAllSettingsData()]);
   renderMain();
 }
 
@@ -779,8 +808,10 @@ async function loadAllSettingsData() {
   try {
     const toRes = await fetch(SB_FUNCTION_URL + '?action=list-monthly-to&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
     const kpiRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-settings&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const kpiMonthlyRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-monthly-targets&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
     const toData = await toRes.json();
     const kpiData = await kpiRes.json();
+    const kpiMonthlyData = await kpiMonthlyRes.json();
 
     monthlyToCache = {};
     (toData.settings || []).forEach(function(s) {
@@ -793,12 +824,27 @@ async function loadAllSettingsData() {
       if (!kpiSettingsCache[s.center_code]) kpiSettingsCache[s.center_code] = [];
       kpiSettingsCache[s.center_code].push(s);
     });
+
+    kpiMonthlyTargetsCache = {};
+    (kpiMonthlyData.targets || []).forEach(function(t) {
+      if (!kpiMonthlyTargetsCache[t.center_code]) kpiMonthlyTargetsCache[t.center_code] = {};
+      if (!kpiMonthlyTargetsCache[t.center_code][t.metric_key]) kpiMonthlyTargetsCache[t.center_code][t.metric_key] = {};
+      kpiMonthlyTargetsCache[t.center_code][t.metric_key][t.year_month] = t.target_value;
+    });
   } catch (e) { /* 실패 시 캐시가 비워진 채 진행됨(설정 없음으로 처리) */ }
 }
 
 function getMonthlyTO(centerCode, yearMonth) {
   const list = monthlyToCache[centerCode] || [];
   return list.find(function(s) { return s.year_month === yearMonth; }) || null;
+}
+
+// 지표별 월별 목표치 조회 (없으면 null → 호출부에서 기본 목표값/기준선으로 폴백)
+function getMonthlyKpiTarget(centerCode, key, yearMonth) {
+  const m = kpiMonthlyTargetsCache[centerCode];
+  if (!m || !m[key]) return null;
+  const v = m[key][yearMonth];
+  return (v !== undefined && v !== null) ? v : null;
 }
 
 async function selectCenter(code) {
@@ -1047,7 +1093,8 @@ function refreshTablePanel() {
 const DEFAULT_HEADLINE_METRICS = {
   'kbsonhae': [{ label: '제휴상담 SL', key: '제휴상담_SL' }, { label: '장기손사 SL', key: '장기손사_SL' }],
   'kbjeongbi': [{ label: '고지위반 처리율', key: '고지의무_처리율' }, { label: '통지위반 처리율', key: '통지의무_처리율' }, { label: '목적물소멸 처리율', key: '목적물소멸_처리율' }],
-  'pyeongtaek': [{ label: '응대율', key: '응대율' }, { label: 'CPD', key: 'CPD' }]
+  'pyeongtaek': [{ label: '응대율', key: '응대율' }],
+  'lge': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT' }]
 };
 
 // 특정 지표 키에 대해 CENTER_CHART_CONFIG에 등록된 기준선(threshold)이 있으면 반환
@@ -1072,21 +1119,28 @@ function computeCenterHeadline(code, rows) {
 
     if (!latest) return { status: 'pending', staffText: null, metrics: [], updated: null };
 
-    // TO: 설정 화면에서 등록한 "월별 TO"가 있으면 최우선 사용, 없으면 기본값(CENTER_TO_INFO) 사용
+    // 이상징후 판정·재직인원·핵심지표는 모두 "마지막 저장일 하루"가 아니라
+    // 연초~최신 데이터월까지의 누적 일평균값(주말·공휴일 제외)을 기준으로 계산한다.
     const ym = latest.report_date.slice(0, 7);
+    const y = Number(ym.slice(0, 4));
+    const cumRows = rows.filter(function(r) {
+      const ry = Number(r.report_date.slice(0, 4));
+      return ry === y && r.report_date.slice(0, 7) <= ym;
+    });
+
     const monthlyTO = getMonthlyTO(code, ym);
     let staffText = null;
     const staffAttKey = toInfo ? toInfo.staffAttKey : null;
-    const staffVal = staffAttKey ? extractNum(latest, 'attendance_data', staffAttKey) : null;
+    const staffAvg = staffAttKey ? avgExcludingHolidays(cumRows, function(r) { return extractNum(r, 'attendance_data', staffAttKey); }) : null;
     if (monthlyTO) {
       const totalTO = (monthlyTO.to_manager || 0) + (monthlyTO.to_counselor || 0);
-      if (staffVal !== null && totalTO) {
-        staffText = staffVal + '명 / ' + totalTO + '명 (' + (staffVal / totalTO * 100).toFixed(0) + '%)';
+      if (staffAvg !== null && totalTO) {
+        staffText = staffAvg.toFixed(1) + '명 / ' + totalTO + '명 (' + (staffAvg / totalTO * 100).toFixed(0) + '%)';
       } else if (totalTO) {
         staffText = '정원 ' + totalTO + '명 (관리자 ' + monthlyTO.to_manager + '·상담사 ' + monthlyTO.to_counselor + ')';
       }
-    } else if (toInfo && staffVal !== null) {
-      staffText = staffVal + '명 / ' + toInfo.total + '명 (' + (staffVal / toInfo.total * 100).toFixed(0) + '%)';
+    } else if (toInfo && staffAvg !== null) {
+      staffText = staffAvg.toFixed(1) + '명 / ' + toInfo.total + '명 (' + (staffAvg / toInfo.total * 100).toFixed(0) + '%)';
     }
 
     // 핵심지표: 설정 화면에서 등록한 지표가 있으면 그것(전체)을 사용, 없으면 센터별 기본 지표세트 사용
@@ -1097,8 +1151,10 @@ function computeCenterHeadline(code, rows) {
     const hasConfig = defs.length > 0;
 
     const metrics = defs.map(function(d) {
-      const val = resolveMetric(latest, d.key);
-      let target = (d.target !== null && d.target !== undefined) ? d.target : null;
+      const val = avgExcludingHolidays(cumRows, function(r) { return resolveMetric(r, d.key); });
+      // 지표별 월별 목표치가 등록되어 있으면 최우선 사용 (연도+해당월 기준), 없으면 기존 방식(등록된 단일 목표값 → 차트 기준선)
+      let target = getMonthlyKpiTarget(code, d.key, ym);
+      if (target === null) target = (d.target !== null && d.target !== undefined) ? d.target : null;
       if (target === null) { const th = findThresholdForKey(code, d.key); if (th) target = th.value; }
       const isWarn = (val !== null && target !== null) ? (val < target) : false;
       return { label: d.label, value: val, target: target, isWarn: isWarn };
@@ -1106,7 +1162,7 @@ function computeCenterHeadline(code, rows) {
     const isWarn = metrics.some(function(m) { return m.isWarn; });
 
     const status = !hasConfig ? 'pending' : (isWarn ? 'warn' : 'ok');
-    return { status: status, staffText: staffText, metrics: metrics, updated: latest.report_date };
+    return { status: status, staffText: staffText, staffAvg: staffAvg, metrics: metrics, updated: latest.report_date };
   } finally {
     currentCenter = savedCenter;
   }
@@ -1130,19 +1186,25 @@ function renderWorkspaceOverview() {
 
   const totalCenters = centerStats.length;
   const warnStats = centerStats.filter(function(s) { return s.status === 'warn'; });
-  const totalStaffCount = centerStats.filter(function(s) { return s.staffText; }).length;
+  const totalStaffAvg = centerStats.reduce(function(sum, s) { return sum + (s.staffAvg || 0); }, 0);
 
-  // 이슈감지내용: 어떤 센터의 어떤 지표가 기준 미달인지 구체적으로 나열
+  function formatPlainNum(v) {
+    if (v === null || v === undefined) return '-';
+    const isPct = Math.abs(v) <= 100;
+    return v.toFixed(1) + (isPct ? '%' : '');
+  }
+
+  // 이슈감지내용: 어떤 센터의 어떤 지표가 기준 미달인지 구체적으로 나열 (월별 누적 일평균값 기준)
   const issueLines = [];
   warnStats.forEach(function(s) {
     s.metrics.filter(function(m) { return m.isWarn; }).forEach(function(m) {
-      issueLines.push(s.name + ' ' + m.label + ' ' + m.value.toFixed(1) + '% (목표 ' + m.target + '%↓)');
+      issueLines.push(s.name + ' ' + m.label + ' ' + formatPlainNum(m.value) + ' (목표 ' + formatPlainNum(m.target) + '↓)');
     });
   });
 
   const kpiHtml = '<div class="ws-kpi-strip">'
     + '<div class="ws-kpi-card"><div class="l">전체 센터</div><div class="v">' + totalCenters + '개</div></div>'
-    + '<div class="ws-kpi-card"><div class="l">데이터 등록 센터</div><div class="v">' + totalStaffCount + '개</div></div>'
+    + '<div class="ws-kpi-card"><div class="l">전체 월평균 재직인원</div><div class="v">' + totalStaffAvg.toFixed(1) + '명</div></div>'
     + '<div class="ws-kpi-card' + (warnStats.length > 0 ? ' warn' : '') + '"><div class="l">주의 센터</div><div class="v">' + warnStats.length + '개</div>'
     + (issueLines.length ? '<div style="font-size:11px;color:#c94040;margin-top:6px;line-height:1.5;">' + issueLines.join('<br>') + '</div>' : '')
     + '</div>'
@@ -1189,9 +1251,10 @@ function renderWorkspaceOverview() {
 
 // 센터별 카드 미니 추이그래프 구성 (월별 집계, mode: avg=일평균 / sum=월합계)
 const CENTER_CARD_TREND = {
-  'kbsonhae': { mode: 'avg', months: 6, series: [{ label: '제휴상담', key: '제휴상담_인입호' }, { label: '장기손사', key: '장기손사_인입호' }] },
-  'kbjeongbi': { mode: 'sum', months: 6, series: [{ label: '고지의무', key: '접수_고지의무' }, { label: '통지의무', key: '접수_통지의무' }, { label: '목적물소멸', key: '접수_목적물소멸' }] },
-  'pyeongtaek': { mode: 'avg', months: 6, series: [{ label: '요청호', key: '요청호' }] }
+  'kbsonhae': { mode: 'avg', months: 6, series: [{ label: '제휴상담 SL', key: '제휴상담_SL' }, { label: '장기손사 SL', key: '장기손사_SL' }] },
+  'kbjeongbi': { mode: 'avg', months: 6, series: [{ label: '고지위반 처리율', key: '고지의무_처리율' }, { label: '통지위반 처리율', key: '통지의무_처리율' }, { label: '목적물소멸 처리율', key: '목적물소멸_처리율' }] },
+  'pyeongtaek': { mode: 'avg', months: 6, series: [{ label: '응대율', key: '응대율' }] },
+  'lge': { mode: 'avg', months: 6, series: [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT' }] }
 };
 const WS_SPARK_COLORS = ['#FE2E36', '#2f6fd1', '#e0a500'];
 let wsSparkCharts = [];
@@ -1244,13 +1307,8 @@ async function renderCenterSettingsTab() {
   await loadCenterSettingsData(currentCenter);
 
   const c = allCentersMeta.find(function(x) { return x.center_code === currentCenter; });
-  const currentYM = new Date().toISOString().slice(0, 7);
-
-  const toList = (monthlyToCache[currentCenter] || []).slice().sort(function(a, b) { return b.year_month.localeCompare(a.year_month); });
-  const toRows = toList.map(function(t) {
-    return '<tr><td>' + t.year_month + '</td><td>' + t.to_manager + '명</td><td>' + t.to_counselor + '명</td><td>' + (t.to_manager + t.to_counselor) + '명</td>'
-      + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadMonthlyToForEdit(\'' + currentCenter + '\',\'' + t.year_month + '\')">수정</button> '
-      + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteMonthlyTo(\'' + t.id + '\')">삭제</button></td></tr>';
+  const yearOptions = [settingsYear - 1, settingsYear, settingsYear + 1].map(function(y) {
+    return '<option value="' + y + '"' + (y === settingsYear ? ' selected' : '') + '>' + y + '년</option>';
   }).join('');
 
   // 지표 키를 직접 타이핑하지 않도록, 이 센터에 실제로 존재하는 항목을 드롭다운으로 제공
@@ -1259,40 +1317,206 @@ async function renderCenterSettingsTab() {
     return '<option value="' + o.key + '">' + o.label + '</option>';
   }).join('');
 
-  const kpiList = (kpiSettingsCache[currentCenter] || []).slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
-  const kpiRows = kpiList.map(function(k, i) {
-    return '<tr><td>' + (i === 0 ? '<span class="ws-badge ok" style="margin-right:6px;">핵심</span>' : '') + k.metric_label + '</td>'
-      + '<td style="font-family:monospace;font-size:12px;">' + k.metric_key + '</td><td>' + (k.target_value !== null ? k.target_value : '없음') + '</td>'
-      + '<td><button style="border:none;background:none;color:#2f6fd1;font-size:12px;cursor:pointer;" onclick="loadKpiSettingForEdit(\'' + k.id + '\')">수정</button> '
-      + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteKpiSetting(\'' + k.id + '\')">삭제</button></td></tr>';
-  }).join('');
-
   main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
-    + '<h2 style="margin-bottom:16px;">' + (c ? c.center_name : '') + ' · TO 및 목표값설정</h2>'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">'
+    + '<h2 style="margin:0;">' + (c ? c.center_name : '') + ' · TO 및 목표값설정</h2>'
+    + '<div><label style="font-size:13px;color:#5b6472;margin-right:6px;">연도</label><select onchange="changeSettingsYear(this.value)" style="padding:5px 8px;border:1px solid #d9dce1;border-radius:6px;font-size:13px;">' + yearOptions + '</select></div>'
+    + '</div>'
 
     + '<div class="panel" style="margin-bottom:16px;">'
-    + '<h3 style="margin-bottom:6px;">월별 TO 설정</h3>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">해당 월의 관리자·상담사 정원을 등록하면, 대시보드의 재직인원(TO대비) 계산에 자동 반영됩니다.</p>'
-    + '<div class="entry-row"><label>연월</label><input type="month" id="toMonth_' + currentCenter + '" value="' + currentYM + '"></div>'
-    + '<div class="entry-row"><label>관리자</label><input type="number" id="toManager_' + currentCenter + '" value="0" style="width:80px;"></div>'
-    + '<div class="entry-row"><label>상담사</label><input type="number" id="toCounselor_' + currentCenter + '" value="0" style="width:80px;"></div>'
-    + '<button class="btn-secondary" onclick="saveMonthlyTo(\'' + currentCenter + '\')">저장</button>'
-    + (toRows ? '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>연월</th><th>관리자</th><th>상담사</th><th>합계(TO)</th><th></th></tr></thead><tbody>' + toRows + '</tbody></table></div>' : '<p class="empty" style="margin-top:10px;">등록된 월별 TO가 없습니다. (미등록 시 기본값 사용)</p>')
+    + '<h3 style="margin-bottom:6px;">월별 TO 설정 (' + settingsYear + '년)</h3>'
+    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">1~12월 값을 각 칸에 직접 입력하거나, 상단 "선택" 체크박스로 여러 달을 고른 뒤 일괄값을 반영할 수 있습니다. 반영된 값도 각 칸에서 바로 수정 가능합니다.</p>'
+    + renderToGrid(currentCenter, settingsYear)
+    + '<button class="btn-primary" style="margin-top:10px;" onclick="saveToGrid(\'' + currentCenter + '\')">TO 전체 저장</button>'
+    + '<div class="status-msg" id="toGridStatus"></div>'
     + '</div>'
 
     + '<div class="panel">'
-    + '<h3 style="margin-bottom:6px;">주요지표 목표치 설정</h3>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">목록 맨 위(첫 번째) 지표가 전체 현황 카드의 "핵심지표"로 표시됩니다. 목표값을 비워두면 "목표 없음"으로 처리됩니다.</p>'
+    + '<h3 style="margin-bottom:6px;">주요지표 목표치 설정 (' + settingsYear + '년)</h3>'
+    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">목록 맨 위(첫 번째) 지표가 전체 현황 카드의 "핵심지표"로 표시됩니다. 아래에서 지표를 먼저 추가한 뒤, 월별 목표치 표에서 1~12월 값을 채워주세요. 월별 값을 비워두면 "기본 목표값"이 대신 적용됩니다.</p>'
     + '<div class="entry-row"><label>지표 선택</label><select id="kpiKeySelect_' + currentCenter + '" onchange="onKpiKeySelected(\'' + currentCenter + '\')" style="min-width:220px;">' + optionsHtml + '</select></div>'
     + '<div class="entry-row"><label>지표 키</label><input type="text" id="kpiKey_' + currentCenter + '" placeholder="위에서 선택하거나 직접 입력" style="width:200px;"></div>'
     + '<div class="entry-row"><label>표시 라벨</label><input type="text" id="kpiLabel_' + currentCenter + '" placeholder="예: 응답율" style="width:140px;"></div>'
-    + '<div class="entry-row"><label>목표값</label><input type="number" id="kpiTarget_' + currentCenter + '" placeholder="없음(공란)" style="width:100px;"></div>'
+    + '<div class="entry-row"><label>기본 목표값</label><input type="number" id="kpiTarget_' + currentCenter + '" placeholder="월별 미입력시 적용" style="width:120px;"></div>'
     + '<input type="hidden" id="kpiEditId_' + currentCenter + '" value="">'
-    + '<button class="btn-secondary" onclick="saveKpiSetting(\'' + currentCenter + '\')">추가/저장</button>'
+    + '<button class="btn-secondary" onclick="saveKpiSetting(\'' + currentCenter + '\')">지표 추가/기본값 수정</button>'
     + '<button class="btn-ghost" onclick="clearKpiForm(\'' + currentCenter + '\')">취소</button>'
-    + (kpiRows ? '<div class="table-scroll" style="margin-top:10px;"><table><thead><tr><th>라벨</th><th>지표 키</th><th>목표값</th><th></th></tr></thead><tbody>' + kpiRows + '</tbody></table></div>' : '<p class="empty" style="margin-top:10px;">등록된 핵심지표가 없습니다. (등록 전까지는 기존 차트 기준선을 사용합니다)</p>')
+    + renderKpiGrid(currentCenter, settingsYear)
+    + '<button class="btn-primary" style="margin-top:10px;" onclick="saveKpiGrid(\'' + currentCenter + '\')">월별 목표치 전체 저장</button>'
+    + '<div class="status-msg" id="kpiGridStatus"></div>'
     + '</div>'
     + '</div>';
+}
+
+function changeSettingsYear(y) {
+  settingsYear = Number(y);
+  renderMain();
+}
+
+function monthKey(year, m) { return year + '-' + String(m).padStart(2, '0'); }
+
+// ============================================
+// 월별 TO 설정 - 연도별 1~12월 가로 표 + 체크박스 일괄반영
+// ============================================
+function renderToGrid(centerCode, year) {
+  const list = monthlyToCache[centerCode] || [];
+  const byYm = {};
+  list.forEach(function(s) { byYm[s.year_month] = s; });
+
+  const headerCells = [];
+  const checkCells = [];
+  const managerCells = [];
+  const counselorCells = [];
+  for (let m = 1; m <= 12; m++) {
+    const ym = monthKey(year, m);
+    const idx = m - 1;
+    const s = byYm[ym];
+    headerCells.push('<th>' + m + '월</th>');
+    checkCells.push('<td><input type="checkbox" class="to-grid-check" data-idx="' + idx + '"></td>');
+    managerCells.push('<td><input type="number" class="to-grid-input" data-idx="' + idx + '" data-field="manager" value="' + (s ? s.to_manager : '') + '" style="width:56px;padding:4px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>');
+    counselorCells.push('<td><input type="number" class="to-grid-input" data-idx="' + idx + '" data-field="counselor" value="' + (s ? s.to_counselor : '') + '" style="width:56px;padding:4px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>');
+  }
+
+  return '<div class="table-scroll"><table>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;"></th>' + headerCells.join('') + '</tr></thead>'
+    + '<tbody>'
+    + '<tr><td style="position:sticky;left:0;background:#f8f9fb;font-size:11px;color:#9aa1ac;">선택</td>' + checkCells.join('') + '</tr>'
+    + '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">관리자</td>' + managerCells.join('') + '</tr>'
+    + '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">상담사</td>' + counselorCells.join('') + '</tr>'
+    + '</tbody></table></div>'
+    + '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+    + '<span style="font-size:12px;color:#5b6472;">선택한 월에 일괄 반영:</span>'
+    + '<label style="font-size:12px;">관리자 <input type="number" id="toBulkManager" style="width:60px;margin-left:4px;"></label>'
+    + '<label style="font-size:12px;">상담사 <input type="number" id="toBulkCounselor" style="width:60px;margin-left:4px;"></label>'
+    + '<button class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="applyToGridBulk()">일괄 반영</button>'
+    + '</div>';
+}
+
+function applyToGridBulk() {
+  const checked = Array.from(document.querySelectorAll('.to-grid-check:checked')).map(function(c) { return c.dataset.idx; });
+  if (checked.length === 0) { alert('먼저 일괄 반영할 월을 체크해 주세요.'); return; }
+  const mgr = document.getElementById('toBulkManager').value;
+  const cns = document.getElementById('toBulkCounselor').value;
+  if (mgr === '' && cns === '') { alert('관리자 또는 상담사 값 중 하나는 입력해 주세요.'); return; }
+  checked.forEach(function(idx) {
+    if (mgr !== '') document.querySelector('.to-grid-input[data-idx="' + idx + '"][data-field="manager"]').value = mgr;
+    if (cns !== '') document.querySelector('.to-grid-input[data-idx="' + idx + '"][data-field="counselor"]').value = cns;
+  });
+  document.getElementById('toBulkManager').value = '';
+  document.getElementById('toBulkCounselor').value = '';
+}
+
+async function saveToGrid(centerCode) {
+  const statusEl = document.getElementById('toGridStatus');
+  const entries = [];
+  for (let m = 1; m <= 12; m++) {
+    const idx = m - 1;
+    const mgrInput = document.querySelector('.to-grid-input[data-idx="' + idx + '"][data-field="manager"]');
+    const cnsInput = document.querySelector('.to-grid-input[data-idx="' + idx + '"][data-field="counselor"]');
+    const mgr = mgrInput ? mgrInput.value : '', cns = cnsInput ? cnsInput.value : '';
+    if (mgr === '' && cns === '') continue; // 값이 없는 달은 저장 대상에서 제외
+    entries.push({ year_month: monthKey(settingsYear, m), to_manager: Number(mgr) || 0, to_counselor: Number(cns) || 0 });
+  }
+  if (entries.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '저장할 값이 없습니다.'; return; }
+  statusEl.className = 'status-msg'; statusEl.textContent = '저장 중...';
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=save-monthly-to-bulk', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[centerCode], center_code: centerCode, entries: entries })
+    });
+    const data = await res.json();
+    if (!data.success) { statusEl.className = 'status-msg err'; statusEl.textContent = '저장 실패: ' + data.error; return; }
+    statusEl.className = 'status-msg ok'; statusEl.textContent = entries.length + '개월 저장 완료되었습니다.';
+    await loadCenterSettingsData(centerCode);
+    renderMain();
+  } catch (e) { statusEl.className = 'status-msg err'; statusEl.textContent = '오류: ' + e.message; }
+}
+
+// ============================================
+// 주요지표 목표치 설정 - 연도별 1~12월 가로 표 + 체크박스 일괄반영
+// ============================================
+function renderKpiGrid(centerCode, year) {
+  const kpiList = (kpiSettingsCache[centerCode] || []).slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+  if (kpiList.length === 0) return '<p class="empty" style="margin-top:10px;">등록된 핵심지표가 없습니다. 위에서 지표를 먼저 추가해 주세요.</p>';
+
+  const monthlyMap = kpiMonthlyTargetsCache[centerCode] || {};
+
+  const headerCells = [];
+  for (let m = 1; m <= 12; m++) headerCells.push('<th>' + m + '월</th>');
+  const checkCells = [];
+  for (let m = 1; m <= 12; m++) checkCells.push('<td><input type="checkbox" class="kpi-grid-check" data-idx="' + (m - 1) + '"></td>');
+
+  const bodyRows = kpiList.map(function(k, ri) {
+    const cells = [];
+    for (let m = 1; m <= 12; m++) {
+      const idx = m - 1;
+      const ym = monthKey(year, m);
+      const override = monthlyMap[k.metric_key] ? monthlyMap[k.metric_key][ym] : undefined;
+      const v = (override !== undefined && override !== null) ? override : '';
+      cells.push('<td><input type="number" class="kpi-grid-input" data-idx="' + idx + '" data-key="' + k.metric_key + '" value="' + v + '" placeholder="' + (k.target_value !== null && k.target_value !== undefined ? k.target_value : '') + '" style="width:60px;padding:4px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>');
+    }
+    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">'
+      + (ri === 0 ? '<span class="ws-badge ok" style="margin-right:4px;">핵심</span>' : '') + k.metric_label
+      + '<div style="font-size:11px;color:#9aa1ac;font-weight:400;">기본값 ' + (k.target_value !== null && k.target_value !== undefined ? k.target_value : '없음') + '</div></td>'
+      + cells.join('')
+      + '<td><button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteKpiSetting(\'' + k.id + '\')">삭제</button></td></tr>';
+  }).join('');
+
+  const bulkKeyOptions = kpiList.map(function(k) { return '<option value="' + k.metric_key + '">' + k.metric_label + '</option>'; }).join('');
+
+  return '<div class="table-scroll" style="margin-top:12px;"><table>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">지표</th>' + headerCells.join('') + '<th></th></tr></thead>'
+    + '<tbody>'
+    + '<tr><td style="position:sticky;left:0;background:#f8f9fb;font-size:11px;color:#9aa1ac;">선택</td>' + checkCells.join('') + '<td></td></tr>'
+    + bodyRows
+    + '</tbody></table></div>'
+    + '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
+    + '<span style="font-size:12px;color:#5b6472;">선택한 월에 일괄 반영할 지표:</span>'
+    + '<select id="kpiBulkKey" style="font-size:12px;padding:4px 6px;border:1px solid #d9dce1;border-radius:4px;">' + bulkKeyOptions + '</select>'
+    + '<label style="font-size:12px;">목표값 <input type="number" id="kpiBulkValue" style="width:70px;margin-left:4px;"></label>'
+    + '<button class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="applyKpiGridBulk()">일괄 반영</button>'
+    + '</div>';
+}
+
+function applyKpiGridBulk() {
+  const checked = Array.from(document.querySelectorAll('.kpi-grid-check:checked')).map(function(c) { return c.dataset.idx; });
+  if (checked.length === 0) { alert('먼저 일괄 반영할 월을 체크해 주세요.'); return; }
+  const key = document.getElementById('kpiBulkKey').value;
+  const val = document.getElementById('kpiBulkValue').value;
+  if (!key) { alert('지표를 선택해 주세요.'); return; }
+  if (val === '') { alert('목표값을 입력해 주세요.'); return; }
+  checked.forEach(function(idx) {
+    const input = document.querySelector('.kpi-grid-input[data-key="' + key + '"][data-idx="' + idx + '"]');
+    if (input) input.value = val;
+  });
+  document.getElementById('kpiBulkValue').value = '';
+}
+
+async function saveKpiGrid(centerCode) {
+  const statusEl = document.getElementById('kpiGridStatus');
+  const kpiList = kpiSettingsCache[centerCode] || [];
+  const entries = [];
+  kpiList.forEach(function(k) {
+    for (let m = 1; m <= 12; m++) {
+      const idx = m - 1;
+      const input = document.querySelector('.kpi-grid-input[data-key="' + k.metric_key + '"][data-idx="' + idx + '"]');
+      if (!input || input.value === '') continue;
+      entries.push({ metric_key: k.metric_key, year_month: monthKey(settingsYear, m), target_value: Number(input.value) });
+    }
+  });
+  if (entries.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '저장할 값이 없습니다.'; return; }
+  statusEl.className = 'status-msg'; statusEl.textContent = '저장 중...';
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=save-kpi-monthly-targets-bulk', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[centerCode], center_code: centerCode, entries: entries })
+    });
+    const data = await res.json();
+    if (!data.success) { statusEl.className = 'status-msg err'; statusEl.textContent = '저장 실패: ' + data.error; return; }
+    statusEl.className = 'status-msg ok'; statusEl.textContent = entries.length + '건 저장 완료되었습니다.';
+    await loadCenterSettingsData(centerCode);
+    renderMain();
+  } catch (e) { statusEl.className = 'status-msg err'; statusEl.textContent = '오류: ' + e.message; }
 }
 
 // 센터의 row_schema/계산지표를 기반으로 드롭다운 선택지 구성 (오타 방지)
@@ -1322,50 +1546,19 @@ async function loadCenterSettingsData(centerCode) {
   try {
     const toRes = await fetch(SB_FUNCTION_URL + '?action=list-monthly-to&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
     const kpiRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-settings&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const kpiMonthlyRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-monthly-targets&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
     const toData = await toRes.json();
     const kpiData = await kpiRes.json();
+    const kpiMonthlyData = await kpiMonthlyRes.json();
     monthlyToCache[centerCode] = toData.settings || [];
     kpiSettingsCache[centerCode] = kpiData.settings || [];
+    const grouped = {};
+    (kpiMonthlyData.targets || []).forEach(function(t) {
+      if (!grouped[t.metric_key]) grouped[t.metric_key] = {};
+      grouped[t.metric_key][t.year_month] = t.target_value;
+    });
+    kpiMonthlyTargetsCache[centerCode] = grouped;
   } catch (e) { /* 실패 시 해당 센터는 "설정 없음"으로 표시됨 */ }
-}
-
-async function saveMonthlyTo(centerCode) {
-  const yearMonth = document.getElementById('toMonth_' + centerCode).value;
-  const manager = document.getElementById('toManager_' + centerCode).value;
-  const counselor = document.getElementById('toCounselor_' + centerCode).value;
-  if (!yearMonth) { alert('연월을 선택해 주세요.'); return; }
-  try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=save-monthly-to', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[centerCode], center_code: centerCode, year_month: yearMonth, to_manager: Number(manager) || 0, to_counselor: Number(counselor) || 0 })
-    });
-    const data = await res.json();
-    if (!data.success) { alert('저장 실패: ' + data.error); return; }
-    await loadCenterSettingsData(currentCenter);
-    renderMain();
-  } catch (e) { alert('오류: ' + e.message); }
-}
-
-function loadMonthlyToForEdit(centerCode, yearMonth) {
-  const s = getMonthlyTO(centerCode, yearMonth);
-  if (!s) return;
-  document.getElementById('toMonth_' + centerCode).value = yearMonth;
-  document.getElementById('toManager_' + centerCode).value = s.to_manager;
-  document.getElementById('toCounselor_' + centerCode).value = s.to_counselor;
-}
-
-async function deleteMonthlyTo(id) {
-  if (!confirm('이 월별 TO 설정을 삭제하시겠습니까?')) return;
-  try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=delete-monthly-to', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], id: id })
-    });
-    const data = await res.json();
-    if (!data.success) { alert('삭제 실패: ' + data.error); return; }
-    await loadCenterSettingsData(currentCenter);
-    renderMain();
-  } catch (e) { alert('오류: ' + e.message); }
 }
 
 async function saveKpiSetting(centerCode) {
@@ -1409,7 +1602,7 @@ function loadKpiSettingForEdit(id) {
 }
 
 async function deleteKpiSetting(id) {
-  if (!confirm('이 핵심지표 설정을 삭제하시겠습니까?')) return;
+  if (!confirm('이 핵심지표 설정을 삭제하시겠습니까? (월별 목표치도 함께 삭제됩니다)')) return;
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=delete-kpi-setting', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
@@ -1471,7 +1664,8 @@ function renderDashboard() {
   const prevMonthRows = centerRows.filter(function(r) { return r.report_date.startsWith(prevMonthStr); });
 
   const alertInfo = computeAlert(centerRows);
-  const trendHtml = renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonthRows);
+  // 상단 기간 토글(단월/분기누적/반기누적/연초누적)에 따라 "일평균" 기준 구간이 바뀌도록 targetRows를 그대로 사용한다.
+  const trendHtml = renderTrendList(targetRows, cumulativeRows, prevYearMonthRows, prevMonthRows);
 
   const chartConfig = CENTER_CHART_CONFIG[currentCenter] || { groups: [] };
   const excludeBarLabel = (aggView === 'monthly' && chartConfig.excludeBarOnMonthly) ? chartConfig.excludeBarOnMonthly : null;
@@ -1628,7 +1822,27 @@ function formatKpiValue(def, avg) {
   if (def.type === 'people') return Math.round(avg).toLocaleString() + '명';
   if (def.type === 'count') return Math.round(avg).toLocaleString() + '건';
   if (def.type === 'number') return avg.toFixed(1);
+  if (def.type === 'duration') return formatSecondsHMS(avg);
   return avg.toFixed(1) + '%';
+}
+
+// 초 단위 숫자를 H:MM:SS 형식으로 변환 (LG전자 통화시간 등 duration 타입 지표 표시용)
+function formatSecondsHMS(totalSeconds) {
+  const sec = Math.round(totalSeconds);
+  const h = Math.floor(sec / 3600);
+  const m = Math.floor((sec % 3600) / 60);
+  const s = sec % 60;
+  return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+}
+
+// "H:MM:SS" 또는 "HH:MM:SS" 텍스트를 초 단위 숫자로 변환 (계산지표에서 사용)
+function parseHMSToSeconds(text) {
+  if (text === undefined || text === null || String(text).trim() === '') return null;
+  const parts = String(text).trim().split(':').map(function(p) { return parseInt(p, 10); });
+  if (parts.some(function(n) { return isNaN(n); })) return null;
+  if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2];
+  if (parts.length === 2) return parts[0] * 60 + parts[1];
+  return null;
 }
 
 // 전월비/전년동월비의 절대 차이값을 각 지표 단위에 맞게 표기 (근태=명, 실적=건, 응답율/SL=%p)
@@ -1637,13 +1851,21 @@ function formatDiffAbs(def, diff) {
   if (def.type === 'staff' || def.type === 'people') return Math.round(abs).toLocaleString() + '명';
   if (def.type === 'count') return Math.round(abs).toLocaleString() + '건';
   if (def.type === 'number') return abs.toFixed(1);
+  if (def.type === 'duration') return formatSecondsHMS(abs);
   return abs.toFixed(1) + '%p';
 }
 
 let lastTrendLines = [];
 
+function periodAvgLabel() {
+  if (viewMode === 'quarter') return '분기평균 ';
+  if (viewMode === 'half') return '반기평균 ';
+  if (viewMode === 'cumulative') return '연초평균 ';
+  return '';
+}
+
 function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonthRows) {
-  lastTrendLines = ['지표\t일평균\t전월비\t전년동월비\t누적평균'];
+  lastTrendLines = ['지표\t' + (periodAvgLabel() || '일평균') + '\t전월비\t전년동월비\t누적평균'];
   const defs = CENTER_KPI_DEFS[currentCenter] || [];
   return defs.map(function(def) {
     const dailyAvg = getAvgForDef(def, monthRows);
@@ -1652,6 +1874,7 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
     const prevYearAvg = prevYearMonthRows && prevYearMonthRows.length ? getAvgForDef(def, prevYearMonthRows) : null;
 
     const dailyDisplay = formatKpiValue(def, dailyAvg);
+    const dailyDisplayLabeled = periodAvgLabel() + dailyDisplay;
     const cumDisplay = formatKpiValue(def, cumAvg);
 
     function compareSegment(base, compareLabel) {
@@ -1665,7 +1888,7 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
 
     const momText = compareSegment(prevMonthAvg, '전월比');
     const yoyText = compareSegment(prevYearAvg, '전년동월比');
-    const parts = [dailyDisplay, '<span class="cum-avg">누적평균 ' + cumDisplay + '</span>'];
+    const parts = [dailyDisplayLabeled, '<span class="cum-avg">누적평균 ' + cumDisplay + '</span>'];
     if (momText) parts.push('<span class="compare-badge">' + momText + '</span>');
     if (yoyText) parts.push('<span class="compare-yoy">' + yoyText + '</span>');
 
@@ -2710,12 +2933,15 @@ const PYEONGTAEK_COMBINED_GUIDE_IMAGE = 'data:image/png;base64,iVBORw0KGgoAAAANS
 
 const KBJEONGBI_GUIDE_IMAGE = 'data:image/png;base64,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';
 const KBJEONGBI_SAMPLE_ROW = ['62','76','1','1','140','62','76','0','0','138','62','76','226','62','76','226'];
+const LGE_GUIDE_IMAGE = 'data:image/png;base64,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';
+const LGE_SAMPLE_ROW = ['100.0','72.9','52.6','2:58:38'];
 
 // 센터별 사용설명(가이드 이미지 + 예시행) 매핑 - 새 센터 추가 시 여기에 등록
 const CENTER_GUIDES = {
   'kbsonhae': { image: KBSONHAE_GUIDE_IMAGE, sample: KBSONHAE_SAMPLE_ROW, date: '6/29' },
   'pyeongtaek': { image: PYEONGTAEK_COMBINED_GUIDE_IMAGE, sample: PYEONGTAEK_SAMPLE_ROW, categorySample: PYEONGTAEK_CATEGORY_SAMPLE_ROW, date: '7/2' },
-  'kbjeongbi': { image: KBJEONGBI_GUIDE_IMAGE, sample: KBJEONGBI_SAMPLE_ROW, date: '5/4' }
+  'kbjeongbi': { image: KBJEONGBI_GUIDE_IMAGE, sample: KBJEONGBI_SAMPLE_ROW, date: '5/4' },
+  'lge': { image: LGE_GUIDE_IMAGE, sample: LGE_SAMPLE_ROW, date: '6/30' }
 };
 
 function buildGuideTable(schema, sample) {
@@ -2771,6 +2997,228 @@ function renderInputGuide() {
     + '</div>'
     + '<p style="font-size:12px;color:#9aa1ac;margin-top:10px;">※ 병합된 셀(예: 큰 제목 행)은 무시하고, 실제 숫자가 들어있는 맨 아래 줄 기준으로 순서를 맞추면 됩니다.</p>'
     + '</div></details>';
+}
+
+// ============================================
+// LG전자 - 엑셀(summary 시트 상시 Total) 자동추출 → 직접입력 템플릿에 반영
+// (사용자가 제공한 "LG전자 KPI 상시 Total 자동추출 시스템" 로직 이식)
+// 파일 하나에 여러 날짜가 컬럼으로 들어있으므로, 파싱 결과를 그대로
+// 기존 parsedRows/renderPreviewTable/saveAllRows() 흐름에 태워 재사용한다.
+// ============================================
+const LGEX_TARGETS = [
+  { key: 'TNPS', aliases: ['T-NPS', 'TNPS'] },
+  { key: '생산성_INOUT', aliases: ['생산성 (IN+OUT)', '생산성\n(IN+OUT)', '생산성(IN+OUT)'] },
+  { key: '생산성_IN', aliases: ['생산성 (IN)', '생산성\n(IN)', '생산성(IN)'] },
+  { key: '통화시간_INOUT', aliases: ['통화시간 (IN+OUT)', '통화시간\n(IN+OUT)', '통화시간(IN+OUT)'] }
+];
+
+function lgexNormalize(value) {
+  return String(value ?? '')
+    .replace(/\u00a0/g, ' ')
+    .replace(/[（）]/g, function(m) { return m === '（' ? '(' : ')'; })
+    .replace(/[–—]/g, '-')
+    .trim()
+    .toUpperCase()
+    .replace(/\s+/g, '');
+}
+function lgexIsBlank(value) { return value === undefined || value === null || String(value).trim() === ''; }
+function lgexIsErrorValue(value) { return typeof value === 'string' && /^#/.test(value.trim()); }
+function lgexMetricMatches(value, target) {
+  const nv = lgexNormalize(value);
+  if (!nv) return false;
+  return target.aliases.some(function(alias) { return nv === lgexNormalize(alias); });
+}
+function lgexAnyMetricInRow(row, limit) {
+  for (let c = 0; c < Math.min(limit, row.length); c++) {
+    if (LGEX_TARGETS.some(function(t) { return lgexMetricMatches(row[c], t); })) return true;
+  }
+  return false;
+}
+function lgexRowHasWord(row, word, limit) {
+  const nw = lgexNormalize(word);
+  for (let c = 0; c < Math.min(limit, row.length); c++) { if (lgexNormalize(row[c]) === nw) return true; }
+  return false;
+}
+function lgexFindSheetName(workbook) {
+  const exact = workbook.SheetNames.find(function(name) { return lgexNormalize(name) === 'SUMMARY'; });
+  if (exact) return exact;
+  const includes = workbook.SheetNames.find(function(name) { return lgexNormalize(name).includes('SUMMARY'); });
+  return includes || workbook.SheetNames[0];
+}
+function lgexExcelSerialToDate(serial) {
+  if (typeof serial !== 'number' || !isFinite(serial)) return null;
+  if (serial < 20000 || serial > 60000) return null;
+  const utc = Date.UTC(1899, 11, 30) + Math.round(serial * 86400000);
+  const date = new Date(utc);
+  return isNaN(date.getTime()) ? null : date;
+}
+function lgexParseDateValue(value, fallbackYear) {
+  if (value instanceof Date && !isNaN(value.getTime())) return value;
+  if (typeof value === 'number') return lgexExcelSerialToDate(value);
+  if (typeof value !== 'string') return null;
+  const s = value.trim();
+  if (!s) return null;
+  let m = s.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\.?$/);
+  if (m) { const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))); return isNaN(d.getTime()) ? null : d; }
+  m = s.match(/^(\d{1,2})[.\/](\d{1,2})$/);
+  if (m) { const d = new Date(Date.UTC(fallbackYear, Number(m[1]) - 1, Number(m[2]))); return isNaN(d.getTime()) ? null : d; }
+  return null;
+}
+function lgexIsoDate(date) {
+  return date.getUTCFullYear() + '-' + String(date.getUTCMonth() + 1).padStart(2, '0') + '-' + String(date.getUTCDate()).padStart(2, '0');
+}
+function lgexDateLabel(date) { return (date.getUTCMonth() + 1) + '/' + date.getUTCDate(); }
+
+function lgexFindDateColumns(aoa, fallbackYear) {
+  let best = { rowIndex: -1, columns: [] };
+  const maxRows = Math.min(25, aoa.length);
+  for (let r = 0; r < maxRows; r++) {
+    const row = aoa[r] || [];
+    const columns = [];
+    for (let c = 0; c < row.length; c++) {
+      const date = lgexParseDateValue(row[c], fallbackYear);
+      if (date) columns.push({ colIndex: c, date: date });
+    }
+    if (columns.length > best.columns.length) best = { rowIndex: r, columns: columns };
+  }
+  if (best.columns.length === 0) throw new Error('날짜 헤더를 찾지 못했습니다. summary 시트 상단에 날짜가 있는지 확인해 주세요.');
+  return best;
+}
+
+function lgexFindTargetRow(aoa, target, leftLimit) {
+  const starts = [];
+  for (let r = 0; r < aoa.length; r++) {
+    const row = aoa[r] || [];
+    for (let c = 0; c < Math.min(leftLimit, row.length); c++) {
+      if (lgexMetricMatches(row[c], target)) { starts.push(r); break; }
+    }
+  }
+  for (let si = 0; si < starts.length; si++) {
+    const start = starts[si];
+    let end = aoa.length;
+    for (let r = start + 1; r < aoa.length; r++) { if (lgexAnyMetricInRow(aoa[r] || [], leftLimit)) { end = r; break; } }
+    let seenSangsi = false, sangsiRow = -1;
+    for (let r = start; r < end; r++) {
+      const row = aoa[r] || [];
+      const hasSangsi = lgexRowHasWord(row, '상시', leftLimit);
+      const hasTotal = lgexRowHasWord(row, 'Total', leftLimit);
+      const hasHansi = lgexRowHasWord(row, '한시', leftLimit);
+      if (hasSangsi && hasTotal) return r;
+      if (hasSangsi) { seenSangsi = true; sangsiRow = r; }
+      if (seenSangsi && r > sangsiRow && hasTotal) return r;
+      if (seenSangsi && hasHansi) break;
+    }
+  }
+  return -1;
+}
+
+function lgexToNumber(value) {
+  if (lgexIsBlank(value) || lgexIsErrorValue(value)) return null;
+  if (typeof value === 'number') return isFinite(value) ? value : null;
+  const cleaned = String(value).replace(/,/g, '').replace(/%/g, '').trim();
+  if (!cleaned) return null;
+  const n = Number(cleaned);
+  return isFinite(n) ? n : null;
+}
+function lgexFormatNumber(value, decimals) {
+  const n = lgexToNumber(value);
+  if (n === null) return '';
+  return n.toFixed(decimals);
+}
+function lgexFormatTime(value) {
+  if (lgexIsBlank(value) || lgexIsErrorValue(value)) return '';
+  if (value instanceof Date && !isNaN(value.getTime())) {
+    return value.getUTCHours() + ':' + String(value.getUTCMinutes()).padStart(2, '0') + ':' + String(value.getUTCSeconds()).padStart(2, '0');
+  }
+  let v = value;
+  if (typeof v === 'string') {
+    const raw = v.trim();
+    if (/^\d{1,3}:\d{2}:\d{2}$/.test(raw)) return raw;
+    const n = lgexToNumber(raw);
+    if (n === null) return raw;
+    v = n;
+  }
+  if (typeof v === 'number' && isFinite(v)) {
+    let seconds;
+    if (v > 0 && v < 1.5) seconds = Math.round(v * 86400);
+    else seconds = Math.round(v);
+    const h = Math.floor(seconds / 3600), m = Math.floor((seconds % 3600) / 60), s = seconds % 60;
+    return h + ':' + String(m).padStart(2, '0') + ':' + String(s).padStart(2, '0');
+  }
+  return String(v);
+}
+
+function lgexExtract(workbook, fallbackYear) {
+  const sheetName = lgexFindSheetName(workbook);
+  const sheet = workbook.Sheets[sheetName];
+  if (!sheet) throw new Error('summary 시트를 읽을 수 없습니다.');
+  const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+  const dateInfo = lgexFindDateColumns(aoa, fallbackYear);
+  const firstDateCol = Math.min.apply(null, dateInfo.columns.map(function(x) { return x.colIndex; }));
+  const leftLimit = Math.max(6, Math.min(firstDateCol, 14));
+
+  const targetRows = {};
+  const missing = [];
+  LGEX_TARGETS.forEach(function(target) {
+    const rowIndex = lgexFindTargetRow(aoa, target, leftLimit);
+    targetRows[target.key] = rowIndex;
+    if (rowIndex < 0) missing.push(target.key);
+  });
+  if (missing.length) throw new Error('상시 Total 행을 찾지 못한 항목: ' + missing.join(', '));
+
+  const rows = [];
+  dateInfo.columns.forEach(function(dc) {
+    const tnpsRaw = aoa[targetRows['TNPS']] ? aoa[targetRows['TNPS']][dc.colIndex] : undefined;
+    const prodAllRaw = aoa[targetRows['생산성_INOUT']] ? aoa[targetRows['생산성_INOUT']][dc.colIndex] : undefined;
+    const prodInRaw = aoa[targetRows['생산성_IN']] ? aoa[targetRows['생산성_IN']][dc.colIndex] : undefined;
+    const callTimeRaw = aoa[targetRows['통화시간_INOUT']] ? aoa[targetRows['통화시간_INOUT']][dc.colIndex] : undefined;
+
+    const hasMeaningful = [tnpsRaw, prodAllRaw, prodInRaw, callTimeRaw].some(function(v) { return !lgexIsBlank(v) && !lgexIsErrorValue(v); });
+    if (!hasMeaningful) return;
+
+    rows.push({
+      date: lgexIsoDate(dc.date),
+      dateLabel: lgexDateLabel(dc.date),
+      values: [
+        lgexFormatNumber(tnpsRaw, 1),
+        lgexFormatNumber(prodAllRaw, 1),
+        lgexFormatNumber(prodInRaw, 1),
+        lgexFormatTime(callTimeRaw)
+      ],
+      dateSort: dc.date.getTime()
+    });
+  });
+
+  rows.sort(function(a, b) { return a.dateSort - b.dateSort; });
+  return { sheetName: sheetName, rows: rows };
+}
+
+async function extractLgeExcelAndFill() {
+  const statusEl = document.getElementById('lgeExcelStatus');
+  const fileInput = document.getElementById('lgeExcelFile');
+  const file = fileInput && fileInput.files[0];
+  if (!file) { statusEl.className = 'status-msg err'; statusEl.textContent = '엑셀 파일을 선택해 주세요.'; return; }
+  if (!window.XLSX) { statusEl.className = 'status-msg err'; statusEl.textContent = '엑셀 해석 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'; return; }
+
+  const fallbackYear = Number(document.getElementById('entryYear').value) || new Date().getFullYear();
+  statusEl.className = 'status-msg';
+  statusEl.textContent = file.name + ' 파일을 읽는 중입니다.';
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array', cellDates: false, raw: true });
+    const result = lgexExtract(workbook, fallbackYear);
+    if (result.rows.length === 0) throw new Error('추출 대상 행은 찾았지만 표시할 날짜 데이터가 없습니다.');
+
+    parsedRows = result.rows.map(function(r) { return { date: r.date, dateLabel: r.dateLabel, values: r.values }; });
+    renderPreviewTable();
+    document.getElementById('manualSaveBtn').style.display = parsedRows.length ? 'inline-block' : 'none';
+
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = '추출 완료 · ' + result.sheetName + ' 시트에서 ' + parsedRows.length + '일치를 찾았습니다. 아래 표에서 확인 후 "전체 저장"을 눌러주세요.';
+  } catch (err) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '추출 실패: ' + (err.message || err);
+  }
 }
 
 // ============================================
@@ -3473,6 +3921,16 @@ async function renderEntry() {
       + '</div>'
     : '';
 
+  const lgeExcelBox = currentCenter === 'lge'
+    ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
+      + '<h3>엑셀 자동추출 (상시 Total)</h3>'
+      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">summary 시트가 있는 엑셀(.xlsx)을 첨부하면 날짜별 T-NPS·생산성(IN+OUT)·생산성(IN)·통화시간(IN+OUT) 상시 Total 값을 자동으로 찾아 아래 "일자별 실적 직접입력" 표에 한번에 채워줍니다. 채워진 내용을 확인한 뒤 "전체 저장"을 눌러주세요.</p>'
+      + '<input type="file" id="lgeExcelFile" accept=".xlsx,.xlsm,.xls">'
+      + '<button class="btn-secondary" onclick="extractLgeExcelAndFill()">추출해서 채우기</button>'
+      + '<div class="status-msg" id="lgeExcelStatus"></div>'
+      + '</div>'
+    : '';
+
   const dayReportBox = DAY_REPORT_CENTERS[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
       + '<h3>일일업무보고 한글파일(HWPX)에서 자동 추출</h3>'
@@ -3490,6 +3948,7 @@ async function renderEntry() {
     + lcBox
     + xlsxBox
     + hwpxBox
+    + lgeExcelBox
     + '<div class="entry-wrap panel">'
     + '<h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>'
     + '<div class="entry-row"><label>기준 연도</label><input type="number" id="entryYear" value="' + thisYear + '" style="width:90px;"><span style="font-size:12px;color:#9aa1ac;">날짜가 "6/1"처럼 연도 없이 있을 때 사용됩니다</span></div>'
@@ -3626,7 +4085,9 @@ function loadRowForEdit(idx) {
 // 재직 및 투입현황 반자동 입력 (TO/재직인원 자동값 + 상담사 투입인원만 수동 입력)
 // ============================================
 const ATTENDANCE_SEMI_AUTO = {
-  'kbjeongbi': { defaultTO: 15, defaultStaff: 15, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
+  'kbjeongbi': { defaultTO: 15, defaultStaff: 15, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' },
+  // LG전자: TO 19명(관리자4+상담사15) · 재직 19명(관리자1+상담사15)은 고정값으로 자동 채움, 상담사 투입인원(기본 14명)만 실제로 매일 달라지는 값
+  'lge': { defaultTO: 19, defaultStaff: 19, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
 };
 
 let attRangeRows = [];
@@ -3644,6 +4105,13 @@ function renderAttendanceSemiAutoPanel() {
     + '<button class="btn-primary" id="attSaveBtn" style="display:none;" onclick="saveAttRangeRows()">근태만 저장</button>'
     + '<button class="btn-primary" id="attCombinedSaveBtn" style="display:none;background:#1a8f4c;" onclick="saveAttAndPerfCombined()">실적+근태 일괄 반영</button>'
     + '<div class="status-msg" id="attStatus"></div>'
+    + '<div id="attBulkEditBar" style="display:none;margin-top:12px;padding:10px 12px;background:#f8f9fb;border:1px solid #e6eaf2;border-radius:8px;">'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#344054;">선택한 날짜 일괄수정 (<span id="attCheckedCount">0</span>건 선택됨 · 값을 채운 항목만 적용)</div>'
+    + '<div class="entry-row"><label>TO</label><input type="number" id="attBulkTO" placeholder="변경없음" style="width:80px;"></div>'
+    + '<div class="entry-row"><label>재직인원</label><input type="number" id="attBulkStaff" placeholder="변경없음" style="width:80px;"></div>'
+    + '<div class="entry-row"><label>' + cfg.manualLabel + '</label><input type="number" id="attBulkManual" placeholder="변경없음" style="width:80px;"></div>'
+    + '<button class="btn-secondary" onclick="applyAttBulkEdit()">선택 항목에 적용</button>'
+    + '</div>'
     + '<div id="attTemplateArea" style="margin-top:14px;"></div>'
     + '<div id="attCombinedPreview" style="margin-top:14px;"></div>'
     + '</div>';
@@ -3677,11 +4145,14 @@ function generateAttRangeRows() {
 function renderAttRangeTemplate() {
   const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
   const area = document.getElementById('attTemplateArea');
-  if (attRangeRows.length === 0) { area.innerHTML = '<p class="empty">지정된 영업일이 없습니다.</p>'; return; }
+  const bulkBar = document.getElementById('attBulkEditBar');
+  if (attRangeRows.length === 0) { area.innerHTML = '<p class="empty">지정된 영업일이 없습니다.</p>'; if (bulkBar) bulkBar.style.display = 'none'; return; }
+  if (bulkBar) bulkBar.style.display = 'block';
 
   const rows = attRangeRows.map(function(date, idx) {
     return '<tr>'
-      + '<td style="position:sticky;left:0;background:#fff;font-weight:600;">' + date + '</td>'
+      + '<td style="position:sticky;left:0;background:#fff;"><input type="checkbox" class="att-check" data-row="' + idx + '" onchange="updateAttCheckedCount()"></td>'
+      + '<td style="font-weight:600;">' + date + '</td>'
       + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="to" value="' + cfg.defaultTO + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
       + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="staff" value="' + cfg.defaultStaff + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
       + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="manual" value="' + cfg.defaultManual + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
@@ -3689,9 +4160,46 @@ function renderAttRangeTemplate() {
   }).join('');
 
   area.innerHTML = '<div class="table-scroll"><table>'
-    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th></tr></thead>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;"><input type="checkbox" id="attCheckAll" onchange="toggleAttCheckAll(this)"></th><th>날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 값은 직접 클릭해 수정할 수 있습니다</p>';
+    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 값은 직접 클릭해 수정하거나, 체크박스로 여러 날짜를 선택해 일괄수정할 수 있습니다</p>';
+  updateAttCheckedCount();
+}
+
+function toggleAttCheckAll(el) {
+  document.querySelectorAll('.att-check').forEach(function(c) { c.checked = el.checked; });
+  updateAttCheckedCount();
+}
+
+function updateAttCheckedCount() {
+  const count = document.querySelectorAll('.att-check:checked').length;
+  const countEl = document.getElementById('attCheckedCount');
+  if (countEl) countEl.textContent = String(count);
+}
+
+// 체크된 날짜(들)에 한해, 값이 입력된 필드만 골라 일괄 반영 (TO/재직인원/투입인원 중 원하는 것만 선택 가능)
+function applyAttBulkEdit() {
+  const checked = Array.from(document.querySelectorAll('.att-check:checked')).map(function(c) { return c.dataset.row; });
+  if (checked.length === 0) { alert('먼저 일괄수정할 날짜를 체크해 주세요.'); return; }
+
+  const toVal = document.getElementById('attBulkTO').value;
+  const staffVal = document.getElementById('attBulkStaff').value;
+  const manualVal = document.getElementById('attBulkManual').value;
+  if (toVal === '' && staffVal === '' && manualVal === '') { alert('TO·재직인원·투입인원 중 최소 하나는 값을 입력해 주세요.'); return; }
+
+  checked.forEach(function(idx) {
+    if (toVal !== '') document.querySelector('.att-input[data-row="' + idx + '"][data-field="to"]').value = toVal;
+    if (staffVal !== '') document.querySelector('.att-input[data-row="' + idx + '"][data-field="staff"]').value = staffVal;
+    if (manualVal !== '') document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]').value = manualVal;
+  });
+
+  document.getElementById('attBulkTO').value = '';
+  document.getElementById('attBulkStaff').value = '';
+  document.getElementById('attBulkManual').value = '';
+
+  const statusEl = document.getElementById('attStatus');
+  statusEl.className = 'status-msg ok';
+  statusEl.textContent = checked.length + '개 날짜에 값을 적용했습니다. (아래 "저장" 버튼을 눌러야 실제 저장됩니다)';
 }
 
 // 근태 날짜범위를 기준으로, 그 범위 안에 있는 날짜의 실적(위쪽 붙여넣기)까지 함께 저장.
