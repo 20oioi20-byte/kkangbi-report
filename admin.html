@@ -279,7 +279,7 @@ const CENTER_TO_INFO = {
   'kbjeongbi': { total: 15, counselor: 14, staffAttKey: '재직인원', note: '관리자 1명 포함' },
   'lge': { total: 19, counselor: 15, staffAttKey: '재직인원', note: 'TO 19명(관리자4+상담사15) 기준, 근태 재직인원(전체)으로 집계' },
   // 성수기: 공식 TO는 상담사 35명(관리자 0명)이지만, 실제 운영기준은 관리자 6명 + 상담사 35명 = 41명
-  'lge_seongsu': { total: 41, counselor: 35, staffAttKey: '재직인원', note: '운영기준 41명(관리자6+상담사35) 대비, 근태 재직인원(전체)으로 집계 · 공식 TO는 상담사 35명' }
+  'lge_seongsu': { total: 41, counselor: 35, staffAttKey: '재직인원', fullNote: '전체 정원 41명(관리자6+상담사35) 대비, 재직인원(전체)으로 집계 · 공식 TO는 상담사 35명' }
 };
 
 const KR_HOLIDAYS_2026 = [
@@ -1252,14 +1252,14 @@ function refreshTablePanel() {
 
 // 센터별 기본 핵심지표 세트 (설정 화면에서 커스텀 등록을 하지 않았을 때 사용되는 기본값)
 // 워크스페이스 핵심지표 표시 시, "값이 100 이하면 %로 표시" 같은 추측 대신 지표 키 기준으로 정확한 단위를 지정
-const METRIC_UNITS = { '생산성_INOUT': '건', '생산성_IN': '건' };
+const METRIC_UNITS = { '생산성_INOUT': '건', '생산성_IN': '건', '통화시간_INOUT_초': 'duration' };
 
 const DEFAULT_HEADLINE_METRICS = {
   'kbsonhae': [{ label: '제휴상담 SL', key: '제휴상담_SL' }, { label: '장기손사 SL', key: '장기손사_SL' }],
   'kbjeongbi': [{ label: '고지위반 처리율', key: '고지의무_처리율' }, { label: '통지위반 처리율', key: '통지의무_처리율' }, { label: '목적물소멸 처리율', key: '목적물소멸_처리율' }],
   'pyeongtaek': [{ label: '응대율', key: '응대율' }],
-  'lge': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }],
-  'lge_seongsu': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }]
+  'lge': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }, { label: '통화시간(IN+OUT)', key: '통화시간_INOUT_초', unit: 'duration' }],
+  'lge_seongsu': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }, { label: '통화시간(IN+OUT)', key: '통화시간_INOUT_초', unit: 'duration' }]
 };
 
 // 특정 지표 키에 대해 CENTER_CHART_CONFIG에 등록된 기준선(threshold)이 있으면 반환
@@ -1339,6 +1339,7 @@ function computeCenterHeadline(code, rows) {
 function formatHeadlineMetric(m) {
   const fmt = function(v) {
     if (v === null) return '-';
+    if (m.unit === 'duration') return formatSecondsHMS(v);
     if (m.unit) return v.toFixed(1) + m.unit;
     return v.toFixed(1) + (Math.abs(v) <= 100 ? '%' : '');
   };
@@ -1366,6 +1367,7 @@ function renderWorkspaceOverview() {
 
   function formatPlainNum(v, unit) {
     if (v === null || v === undefined) return '-';
+    if (unit === 'duration') return formatSecondsHMS(v);
     if (unit) return v.toFixed(1) + unit;
     const isPct = Math.abs(v) <= 100;
     return v.toFixed(1) + (isPct ? '%' : '');
@@ -1488,8 +1490,7 @@ const CENTER_CARD_TREND = {
     months: 6,
     stacked: true,
     barsOnSecondary: true, // T-NPS(선)를 주축에, 생산성(막대)을 보조축에 배치
-    barColors: ['#6b6b6b', '#2E7D32'], // LG GRAY(생산성 IN) + 보조색 그린(생산성 OUT, 가이드에 없는 색이라 그린 사용)
-    lineColors: ['#A50034'], // LG RED
+    // 전체현황 추이차트는 다른 센터와 동일하게 회색계열 팔레트(WS_BAR_COLORS/WS_LINE_COLORS)를 그대로 사용한다
     barSeries: [
       { label: '생산성(IN)', key: '생산성_IN', mode: 'avg' },
       { label: '생산성(OUT)', key: '__생산성_OUT_derived__', mode: 'avg', derivedFrom: { totalKey: '생산성_INOUT', subKey: '생산성_IN' } }
@@ -1503,8 +1504,6 @@ const CENTER_CARD_TREND = {
     months: 6,
     stacked: true,
     barsOnSecondary: true,
-    barColors: ['#6b6b6b', '#2E7D32'],
-    lineColors: ['#A50034'],
     barSeries: [
       { label: '생산성(IN)', key: '생산성_IN', mode: 'avg' },
       { label: '생산성(OUT)', key: '__생산성_OUT_derived__', mode: 'avg', derivedFrom: { totalKey: '생산성_INOUT', subKey: '생산성_IN' } }
@@ -2572,7 +2571,7 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
     + '<div class="sc-stat"><div class="l">운영 안정도</div><div class="v">' + (curPct !== null ? curPct.toFixed(0) : '-') + '%</div><div class="sub">' + (pctDiff !== null ? ('전월比 ' + (pctDiff >= 0 ? '▲' : '▼') + Math.abs(pctDiff).toFixed(0) + '%p') : '-') + '</div></div>'
     + '<div class="sc-stat"><div class="l">누적평균 재직인원</div><div class="v">' + (staffAvgCum !== null ? staffAvgCum.toFixed(1) : '-') + '명</div><div class="sub">(' + (cumPct !== null ? cumPct.toFixed(0) : '-') + '%)</div></div>'
     + '</div>'
-    + (toInfo.note ? '<div class="sub" style="text-align:center;color:#9aa1ac;">※ 전체 정원 ' + toInfo.total + '명 중 ' + toInfo.note + '</div>' : '')
+    + (toInfo.fullNote ? '<div class="sub" style="text-align:center;color:#9aa1ac;">※ ' + toInfo.fullNote + '</div>' : (toInfo.note ? '<div class="sub" style="text-align:center;color:#9aa1ac;">※ 전체 정원 ' + toInfo.total + '명 중 ' + toInfo.note + '</div>' : ''))
     + '</div>';
 
   const groupCards = chartConfig.groups.map(function(group, gi) {
