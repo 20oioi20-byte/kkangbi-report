@@ -1256,13 +1256,13 @@ function renderWorkspaceOverview() {
   const badgeText = { ok: '정상', warn: '주의', pending: '대기' };
   const rowsHtml = centerStats.map(function(s, idx) {
     const reorderHtml = workspaceUnlocked
-      ? '<span onclick="event.stopPropagation();" style="display:inline-flex;gap:2px;margin-left:8px;">'
+      ? '<span onclick="event.stopPropagation();" style="display:inline-flex;flex-direction:column;gap:0;margin-left:8px;vertical-align:middle;line-height:1;">'
         + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',-1);selectWorkspaceOverview();" title="위로" ' + (idx === 0 ? 'disabled' : '') + '>▲</button>'
         + '<button class="mv" onclick="moveCenterOrder(\'' + s.code + '\',1);selectWorkspaceOverview();" title="아래로" ' + (idx === centerStats.length - 1 ? 'disabled' : '') + '>▼</button>'
         + '</span>'
       : '';
     const metricsHtml = s.metrics.length
-      ? s.metrics.map(function(m) { return '<div style="' + (m.isWarn ? 'color:#c94040;font-weight:700;' : '') + '">' + formatHeadlineMetric(m) + '</div>'; }).join('')
+      ? '<div style="display:flex;flex-wrap:wrap;column-gap:18px;row-gap:4px;">' + s.metrics.map(function(m) { return '<span style="' + (m.isWarn ? 'color:#c94040;font-weight:700;' : '') + '">' + formatHeadlineMetric(m) + '</span>'; }).join('') + '</div>'
       : '<span style="color:#9aa1ac;">데이터 준비중</span>';
 
     return '<tr class="ws-row" onclick="selectCenter(\'' + s.code + '\')">'
@@ -4282,6 +4282,172 @@ function loadRowForEdit(idx) {
   alert(row.report_date + ' 데이터를 위쪽 붙여넣기 칸에 불러왔습니다. 값을 수정한 뒤 "양식에 반영" → "전체 저장"을 눌러주세요.');
 }
 
+let attRangeRows = [];
+let attExtractedByDate = {}; // 근태 파일 업로드 후 추출된 날짜별 {상담사,관리자,전체} 실제 근무 인원
+
+// ============================================
+// 근태 자동추출 엔진 (LG전자AS/성수기/KB손보정비 "근태 일자별 인원 자동추출기" 로직 이식)
+// 원본은 자체 ZIP/XML 파서를 쓰지만, admin.html에는 이미 SheetJS(XLSX)가 로드돼 있어 이를 재사용한다.
+// 시트명이 "2607" 같은 4자리(YYMM)인 월별 근태표를 찾아, 성명/업무(또는 팀)/입사일/퇴사일/날짜 열을
+// 자동 인식하고, 날짜별로 출근(○/ㅇ/O/o/◯/●) 표시된 인원을 상담사/관리자로 나눠 집계한다.
+// ============================================
+const ATTX_WORK_MARKS = new Set(['○', 'ㅇ', 'O', 'o', '◯', '●']);
+
+function attxNormalizeText(value) { return String(value ?? '').replace(/\u00a0/g, ' ').trim(); }
+function attxIsWorkStatus(value) {
+  const txt = attxNormalizeText(value);
+  return txt !== '' && ATTX_WORK_MARKS.has(txt);
+}
+function attxClassifyRole(rawRole, hasWorkColumn) {
+  const role = attxNormalizeText(rawRole);
+  if (hasWorkColumn) return role.includes('상담사') ? '상담사' : '관리자';
+  // 업무 열이 없는 자료는 팀/조직명 기준으로 보완 분류
+  if (['관리자', '팀장', '센터장', '총괄', 'QA', '강사', 'SV', '매니저', '파트장'].some(function(k) { return role.includes(k); })) return '관리자';
+  return '상담사';
+}
+function attxExcelSerialToDate(serial) {
+  const n = Number(serial);
+  if (!isFinite(n)) return null;
+  const ms = Math.round((n - 25569) * 86400 * 1000);
+  const d = new Date(ms);
+  return isNaN(d.getTime()) ? null : new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate()));
+}
+function attxParseDate(value) {
+  if (value instanceof Date && !isNaN(value.getTime())) return new Date(Date.UTC(value.getFullYear(), value.getMonth(), value.getDate()));
+  if (typeof value === 'number' && value > 20000 && value < 60000) {
+    const d = attxExcelSerialToDate(value);
+    if (d && d.getUTCFullYear() >= 2000 && d.getUTCFullYear() <= 2099) return d;
+  }
+  const txt = attxNormalizeText(value);
+  if (!txt) return null;
+  let m = txt.match(/(20\d{2})[-.\/년\s]+(\d{1,2})[-.\/월\s]+(\d{1,2})/);
+  if (m) return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  m = txt.match(/^(\d{4})(\d{2})(\d{2})$/);
+  if (m) return new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3])));
+  return null;
+}
+function attxDateKey(date) {
+  return date.getUTCFullYear() + '-' + String(date.getUTCMonth() + 1).padStart(2, '0') + '-' + String(date.getUTCDate()).padStart(2, '0');
+}
+function attxIsValidMonthSheetName(name) { return /^\d{4}$/.test(String(name || '').trim()); }
+
+function attxFindHeaderRow(aoa) {
+  let best = { row: -1, score: -1 };
+  const maxRows = Math.min(12, aoa.length);
+  const knownHeaders = ['성명', '이름', '업무', '팀', '퇴사일', '입사일', '전보일', '근무시간', '사번', 'No'];
+  for (let r = 0; r < maxRows; r++) {
+    const row = aoa[r] || [];
+    let known = 0, dates = 0;
+    row.forEach(function(v) {
+      const t = attxNormalizeText(v).replace(/\s/g, '');
+      if (knownHeaders.indexOf(t) >= 0) known++;
+      const d = attxParseDate(v);
+      if (d && d.getUTCFullYear() >= 2000 && d.getUTCFullYear() <= 2099) dates++;
+    });
+    const score = known * 5 + dates;
+    if (score > best.score) best = { row: r, score: score };
+  }
+  if (best.row < 0 || best.score < 10) throw new Error('헤더 행을 자동으로 찾지 못했습니다. 성명/업무/퇴사일/날짜 열이 있는지 확인해 주세요.');
+  return best.row;
+}
+function attxFindColumn(headers, candidates) {
+  const nc = candidates.map(function(x) { return x.replace(/\s/g, ''); });
+  for (let i = 0; i < headers.length; i++) { const t = attxNormalizeText(headers[i]).replace(/\s/g, ''); if (nc.indexOf(t) >= 0) return i; }
+  for (let i = 0; i < headers.length; i++) { const t = attxNormalizeText(headers[i]).replace(/\s/g, ''); if (nc.some(function(c) { return t.includes(c); })) return i; }
+  return -1;
+}
+
+function attxAnalyzeSheet(sheetName, aoa) {
+  const headerRow = attxFindHeaderRow(aoa);
+  const headers = aoa[headerRow] || [];
+  const nameCol = attxFindColumn(headers, ['성명', '이름']);
+  const workCol = attxFindColumn(headers, ['업무']);
+  const teamCol = attxFindColumn(headers, ['팀']);
+  const roleCol = workCol >= 0 ? workCol : teamCol;
+  const retireCol = attxFindColumn(headers, ['퇴사일']);
+  const joinCol = attxFindColumn(headers, ['입사일']);
+  if (nameCol < 0) throw new Error(sheetName + ': 성명/이름 열을 찾지 못했습니다.');
+  if (roleCol < 0) throw new Error(sheetName + ': 업무 또는 팀 열을 찾지 못했습니다.');
+
+  const dateCols = [];
+  headers.forEach(function(value, col) {
+    const d = attxParseDate(value);
+    if (d && d.getUTCFullYear() >= 2000 && d.getUTCFullYear() <= 2099) dateCols.push({ col: col, date: d, key: attxDateKey(d) });
+  });
+  if (!dateCols.length) throw new Error(sheetName + ': 날짜 열을 찾지 못했습니다.');
+
+  const byDate = new Map();
+  for (let r = headerRow + 1; r < aoa.length; r++) {
+    const row = aoa[r] || [];
+    const name = attxNormalizeText(row[nameCol]);
+    if (!name || name === '성명' || name === '이름') continue;
+    const roleRaw = roleCol >= 0 ? row[roleCol] : '';
+    const roleType = attxClassifyRole(roleRaw, workCol >= 0);
+    const joinDate = joinCol >= 0 ? attxParseDate(row[joinCol]) : null;
+    const retireDate = retireCol >= 0 ? attxParseDate(row[retireCol]) : null;
+
+    dateCols.forEach(function(dc) {
+      if (!attxIsWorkStatus(row[dc.col])) return;
+      if (joinDate && dc.date < joinDate) return;
+      if (retireDate && dc.date > retireDate) return;
+      if (!byDate.has(dc.key)) byDate.set(dc.key, { date: dc.date, 상담사: 0, 관리자: 0, 전체: 0 });
+      const rec = byDate.get(dc.key);
+      rec[roleType] += 1;
+      rec.전체 += 1;
+    });
+  }
+  dateCols.forEach(function(dc) { if (!byDate.has(dc.key)) byDate.set(dc.key, { date: dc.date, 상담사: 0, 관리자: 0, 전체: 0 }); });
+  return Array.from(byDate.values());
+}
+
+function attxExtractWorkbook(workbook) {
+  const monthSheetNames = workbook.SheetNames.filter(attxIsValidMonthSheetName).sort();
+  if (!monthSheetNames.length) throw new Error('2607, 2606 같은 4자리 월별 시트를 찾지 못했습니다.');
+  const byDate = {};
+  const errors = [];
+  monthSheetNames.forEach(function(name) {
+    try {
+      const sheet = workbook.Sheets[name];
+      const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
+      attxAnalyzeSheet(name, aoa).forEach(function(rec) { byDate[attxDateKey(rec.date)] = rec; });
+    } catch (err) {
+      errors.push(name + ': ' + (err.message || err));
+    }
+  });
+  const keys = Object.keys(byDate);
+  if (keys.length === 0) throw new Error('분석 가능한 월별 시트가 없습니다. ' + errors.join(' / '));
+  return { byDate: byDate, dateKeys: keys.sort(), sheetCount: monthSheetNames.length, errors: errors };
+}
+
+async function extractAttFile() {
+  const statusEl = document.getElementById('attStatus');
+  const fileInput = document.getElementById('attFile');
+  const file = fileInput && fileInput.files[0];
+  if (!file) { statusEl.className = 'status-msg err'; statusEl.textContent = '근태 파일을 선택해 주세요.'; return; }
+  if (!window.XLSX) { statusEl.className = 'status-msg err'; statusEl.textContent = '엑셀 해석 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'; return; }
+
+  statusEl.className = 'status-msg';
+  statusEl.textContent = file.name + ' 파일에서 근태를 추출하는 중입니다.';
+  try {
+    const buffer = await file.arrayBuffer();
+    const workbook = XLSX.read(buffer, { type: 'array', cellDates: false, raw: true });
+    const result = attxExtractWorkbook(workbook);
+    attExtractedByDate = result.byDate;
+
+    // 추출된 날짜 범위를 시작일/종료일에 자동 반영 (이후 직접 기간을 좁히거나 넓혀 재적용 가능)
+    document.getElementById('attStart').value = result.dateKeys[0];
+    document.getElementById('attEnd').value = result.dateKeys[result.dateKeys.length - 1];
+    generateAttRangeRows(); // 기간 적용을 자동 실행해 추출된 값으로 표를 바로 채움
+
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = result.sheetCount + '개 월별시트에서 ' + result.dateKeys.length + '일치 근태를 추출했습니다. 기간을 조정하거나 표에서 값을 직접 수정한 뒤 저장해 주세요.'
+      + (result.errors.length ? ' (일부 시트 인식 실패: ' + result.errors.join(' / ') + ')' : '');
+  } catch (err) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '추출 실패: ' + (err.message || err);
+  }
+}
+
 // ============================================
 // 재직 및 투입현황 반자동 입력 (TO/재직인원 자동값 + 상담사 투입인원만 수동 입력)
 // ============================================
@@ -4292,15 +4458,14 @@ const ATTENDANCE_SEMI_AUTO = {
   'lge_seongsu': { defaultTO: 19, defaultStaff: 19, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
 };
 
-let attRangeRows = [];
-
 function renderAttendanceSemiAutoPanel() {
   const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
   if (!cfg) return '';
   const today = new Date().toISOString().slice(0, 10);
   return '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>일자별 재직 및 투입현황 입력</h3>'
-    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">기간을 지정하면 주말·공휴일을 제외한 영업일마다 입력칸이 자동 생성됩니다. TO·재직인원·' + cfg.manualLabel + '은 기본값(15명)이 채워지며 개별 수정 가능합니다.</p>'
+    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">근태 파일을 업로드하면 날짜별 실제 근무 인원(상담사/관리자)이 자동으로 채워집니다. 파일이 없으면 기간만 지정해도 주말·공휴일을 제외한 영업일마다 기본값(TO·재직인원·' + cfg.manualLabel + ')이 채워지며, 어느 쪽이든 개별 수정이나 체크박스 일괄수정이 가능합니다.</p>'
+    + '<div class="entry-row"><label>근태파일 업로드</label><input type="file" id="attFile" accept=".xlsx,.xlsm,.xls"><button class="btn-secondary" onclick="extractAttFile()">자동 추출</button></div>'
     + '<div class="entry-row"><label>시작일</label><input type="date" id="attStart" value="' + today + '"></div>'
     + '<div class="entry-row"><label>종료일</label><input type="date" id="attEnd" value="' + today + '"></div>'
     + '<button class="btn-secondary" onclick="generateAttRangeRows()">기간 적용</button>'
@@ -4352,19 +4517,23 @@ function renderAttRangeTemplate() {
   if (bulkBar) bulkBar.style.display = 'block';
 
   const rows = attRangeRows.map(function(date, idx) {
+    const ext = attExtractedByDate[date]; // 근태파일에서 추출된 실제 값이 있으면 기본값 대신 이 값을 사용
+    const staffVal = ext ? ext.전체 : cfg.defaultStaff;
+    const manualVal = ext ? ext.상담사 : cfg.defaultManual;
+    const extMark = ext ? ' style="background:#eef8f1;font-weight:600;"' : '';
     return '<tr>'
       + '<td style="position:sticky;left:0;background:#fff;"><input type="checkbox" class="att-check" data-row="' + idx + '" onchange="updateAttCheckedCount()"></td>'
-      + '<td style="font-weight:600;">' + date + '</td>'
+      + '<td style="font-weight:600;">' + date + (ext ? ' <span style="color:#1a8f4c;font-size:11px;font-weight:400;">(추출됨)</span>' : '') + '</td>'
       + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="to" value="' + cfg.defaultTO + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
-      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="staff" value="' + cfg.defaultStaff + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
-      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="manual" value="' + cfg.defaultManual + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="staff" value="' + staffVal + '"' + extMark + ' style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="manual" value="' + manualVal + '"' + extMark + ' style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
       + '</tr>';
   }).join('');
 
   area.innerHTML = '<div class="table-scroll"><table>'
     + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;"><input type="checkbox" id="attCheckAll" onchange="toggleAttCheckAll(this)"></th><th>날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 값은 직접 클릭해 수정하거나, 체크박스로 여러 날짜를 선택해 일괄수정할 수 있습니다</p>';
+    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 초록색 배경은 근태파일에서 자동 추출된 값입니다. 값은 직접 클릭해 수정하거나, 체크박스로 여러 날짜를 선택해 일괄수정할 수 있습니다</p>';
   updateAttCheckedCount();
 }
 
@@ -4465,6 +4634,7 @@ async function saveAttAndPerfCombined() {
   statusEl.textContent = msg;
 
   attRangeRows = [];
+  attExtractedByDate = {};
   document.getElementById('attTemplateArea').innerHTML = '';
   document.getElementById('attSaveBtn').style.display = 'none';
   document.getElementById('attCombinedSaveBtn').style.display = 'none';
@@ -4515,6 +4685,7 @@ async function saveAttRangeRows() {
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
   statusEl.textContent = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
   attRangeRows = [];
+  attExtractedByDate = {};
   document.getElementById('attSaveBtn').style.display = 'none';
   document.getElementById('attTemplateArea').innerHTML = '';
   await loadOverviewForCurrent();
