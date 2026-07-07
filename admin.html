@@ -179,6 +179,19 @@
   .entry-wrap { max-width: 100%; }
   .entry-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
   .entry-row label { font-size: 13px; color: #5b6472; }
+
+  /* 데이터입력 화면: 좌측 고정 사용설명 + 우측 선택카드/아코디언 통합 레이아웃 */
+  .entry-split { display: flex; gap: 18px; align-items: flex-start; }
+  .entry-split-left { flex: 0 0 300px; position: sticky; top: 16px; }
+  .entry-split-right { flex: 1; min-width: 0; }
+  .entry-pillrow { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
+  .entry-pill { flex: 1; min-width: 140px; border: 1.5px solid #e6eaf2; border-radius: 10px; padding: 14px 12px; text-align: center; cursor: pointer; font-size: 13px; font-weight: 700; color: #344054; background: #fff; transition: .15s; }
+  .entry-pill .ico { display: block; font-size: 18px; margin-bottom: 4px; }
+  .entry-pill.sel { border-color: #FE2E36; background: #fff2f2; color: #FE2E36; }
+  @media (max-width: 900px) {
+    .entry-split { flex-direction: column; }
+    .entry-split-left { flex: 1 1 auto; position: static; width: 100%; }
+  }
   input[type="date"], input[type="number"] { padding: 8px 10px; border: 1px solid #d9dce1; border-radius: 6px; font-size: 13px; }
   textarea.paste-box { width: 100%; min-height: 90px; padding: 10px 12px; border: 1px solid #d9dce1; border-radius: 8px; font-size: 13px; font-family: monospace; margin-bottom: 10px; }
   .btn-secondary { border: 1px solid #FE2E36; background: #fff; color: #FE2E36; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px; }
@@ -3438,6 +3451,28 @@ async function extractLgeExcelAndFill() {
     if (rows.length === 0) throw new Error('지정한 기간(' + (rangeStart || '전체') + ' ~ ' + (rangeEnd || '전체') + ')에 해당하는 날짜가 파일에 없습니다.');
 
     parsedRows = rows.map(function(r) { return { date: r.date, dateLabel: r.dateLabel, values: r.values }; });
+
+    // row_schema(입력양식)가 아직 로딩되지 않았거나 등록돼 있지 않으면, 화면이 깨지는 대신 원인을 바로 알 수 있게 안내한다.
+    if (rowSchema.length === 0) {
+      statusEl.className = 'status-msg';
+      statusEl.textContent = '입력양식을 다시 확인하는 중입니다...';
+      try {
+        const schemaRes = await fetch(SB_FUNCTION_URL + '?action=schema&token=' + encodeURIComponent(centerTokenMap[currentCenter]) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+        const schemaData = await schemaRes.json();
+        rowSchema = schemaData.success ? (schemaData.row_schema || []) : [];
+      } catch (e) { /* 아래에서 최종 오류로 처리 */ }
+    }
+    if (rowSchema.length === 0) {
+      statusEl.className = 'status-msg err';
+      statusEl.textContent = '이 센터의 입력양식(row_schema)이 등록되지 않아 추출 결과를 표에 채울 수 없습니다. Supabase에서 row_schema 등록 SQL을 실행했는지 확인한 뒤, 페이지를 새로고침하고 다시 시도해 주세요.';
+      return;
+    }
+    if (rowSchema.length !== parsedRows[0].values.length) {
+      statusEl.className = 'status-msg err';
+      statusEl.textContent = '입력양식 항목 수(' + rowSchema.length + '개)와 추출된 값 개수(' + parsedRows[0].values.length + '개)가 달라 표를 채울 수 없습니다. row_schema 등록 내용을 확인해 주세요.';
+      return;
+    }
+
     renderPreviewTable();
     document.getElementById('manualSaveBtn').style.display = parsedRows.length ? 'inline-block' : 'none';
 
@@ -4113,6 +4148,12 @@ async function extractHwpxAndFill() {
   }
 }
 
+// 데이터입력 화면의 선택카드(엑셀추출/직접입력/근태/업무유형별) 중 하나만 펼쳐서 보여준다
+function selectEntryMethod(id) {
+  document.querySelectorAll('.entry-pill').forEach(function(p) { p.classList.toggle('sel', p.dataset.mid === id); });
+  document.querySelectorAll('.entry-method-body').forEach(function(b) { b.style.display = (b.dataset.mid === id) ? '' : 'none'; });
+}
+
 async function renderEntry() {
   const main = document.getElementById('main');
   if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
@@ -4174,13 +4215,21 @@ async function renderEntry() {
       + '</div>'
     : '';
 
-  main.innerHTML = '<div id="inputGuideArea"></div>'
-    + dayReportBox
-    + lcBox
-    + xlsxBox
-    + hwpxBox
-    + lgeExcelBox
-    + '<div class="entry-wrap panel">'
+  // 어떤 파일 자동추출 방식이 적용되는 센터인지 판별 (센터당 최대 1개만 해당)
+  let extraction = null;
+  if (DAY_REPORT_CENTERS[currentCenter]) {
+    extraction = { label: '일일업무보고(HWPX) 자동추출', html: dayReportBox };
+  } else if (LONG_CONTRACT_CENTERS[currentCenter]) {
+    extraction = { label: 'RAW 엑셀 자동추출', html: lcBox };
+  } else if (XLSX_EXTRACTOR_FIELDS[currentCenter]) {
+    extraction = { label: '엑셀 자동추출', html: xlsxBox };
+  } else if (HWPX_FIELD_ORDER[currentCenter]) {
+    extraction = { label: '운영보고서(HWPX) 자동추출', html: hwpxBox };
+  } else if (LGEX_CENTER_CONFIG[currentCenter]) {
+    extraction = { label: '엑셀 자동추출 (' + LGEX_CENTER_CONFIG[currentCenter].targetGroup + ' Total)', html: lgeExcelBox };
+  }
+
+  const pasteHtml = '<div class="entry-wrap panel">'
     + '<h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>'
     + '<div class="entry-row"><label>기준 연도</label><input type="number" id="entryYear" value="' + thisYear + '" style="width:90px;"><span style="font-size:12px;color:#9aa1ac;">날짜가 "6/1"처럼 연도 없이 있을 때 사용됩니다</span></div>'
     + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)</p>'
@@ -4189,9 +4238,29 @@ async function renderEntry() {
     + '<button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>'
     + '<div class="status-msg" id="manualStatus"></div>'
     + '<div id="templateArea" style="margin-top:16px;"></div>'
+    + '</div>';
+
+  // 입력 방법을 "선택카드 + 접이식"으로 정리 — 파일업로드가 있는 센터는 그것을 기본 선택으로, 없으면 직접입력이 기본
+  const methods = [];
+  if (extraction) methods.push({ id: 'extract', icon: '📊', label: extraction.label, html: extraction.html });
+  methods.push({ id: 'paste', icon: '⌨️', label: '직접 붙여넣기', html: pasteHtml });
+  if (ATTENDANCE_SEMI_AUTO[currentCenter]) methods.push({ id: 'att', icon: '🧑\u200d🤝\u200d🧑', label: '재직 및 투입현황', html: '<div id="attendanceEntryArea"></div>' });
+  if (currentCenter === 'pyeongtaek') methods.push({ id: 'cat', icon: '🗂', label: '업무유형별 현황', html: '<div id="categoryEntryArea"></div>' });
+
+  const pillsHtml = methods.map(function(m, i) {
+    return '<div class="entry-pill' + (i === 0 ? ' sel' : '') + '" data-mid="' + m.id + '" onclick="selectEntryMethod(\'' + m.id + '\')"><span class="ico">' + m.icon + '</span>' + m.label + '</div>';
+  }).join('');
+  const bodiesHtml = methods.map(function(m, i) {
+    return '<div class="entry-method-body" data-mid="' + m.id + '"' + (i === 0 ? '' : ' style="display:none;"') + '>' + m.html + '</div>';
+  }).join('');
+
+  main.innerHTML = '<div class="entry-split">'
+    + '<div class="entry-split-left"><div id="inputGuideArea"></div></div>'
+    + '<div class="entry-split-right">'
+    + '<div class="entry-pillrow">' + pillsHtml + '</div>'
+    + bodiesHtml
     + '</div>'
-    + '<div id="attendanceEntryArea"></div>'
-    + '<div id="categoryEntryArea"></div>'
+    + '</div>'
     + '<div id="dataManageArea"></div>';
 
   try {
@@ -4925,6 +4994,8 @@ function renderPreviewTable() {
   const area = document.getElementById('templateArea');
   if (parsedRows.length === 0) { area.innerHTML = '<p class="empty">반영할 데이터가 없습니다.</p>'; return; }
   const cols = parseGroups();
+  if (cols.length === 0) { area.innerHTML = '<p style="color:#c94040;font-size:13px;">입력양식(row_schema)이 없어 표를 표시할 수 없습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.</p>'; return; }
+  if (cols.length !== parsedRows[0].values.length) { area.innerHTML = '<p style="color:#c94040;font-size:13px;">입력양식 항목 수(' + cols.length + '개)와 추출된 값 개수(' + parsedRows[0].values.length + '개)가 일치하지 않습니다.</p>'; return; }
   const groupCells = [];
   let i = 0;
   while (i < cols.length) {
