@@ -46,6 +46,8 @@
   .sidebar-conn { font-size: 11px; color: #1a8f4c; margin-top: 8px; display: flex; align-items: center; gap: 5px; }
   .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #1a8f4c; box-shadow: 0 0 0 3px rgba(26,143,76,.15); }
   .sidebar-custom { margin-top: auto; border-top: 1px solid #f0f1f3; padding: 12px 20px; }
+  .sidebar-custom-locked { width: 100%; border: 1px dashed #d9dce1; background: #f8f9fb; border-radius: 8px; padding: 10px; font-size: 12px; color: #9aa1ac; cursor: pointer; }
+  .sidebar-custom-locked:hover { border-color: #FE2E36; color: #FE2E36; }
   .sidebar-custom summary { cursor: pointer; font-size: 12px; font-weight: 700; color: #5b6472; list-style: none; }
   .sidebar-custom summary::-webkit-details-marker { display: none; }
   .sidebar-custom-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
@@ -56,6 +58,9 @@
   .key-row input { flex: 1; min-width: 0; font-size: 10px; padding: 5px 6px; border: 1px solid #e6eaf2; border-radius: 5px; color: #9aa1ac; }
   .key-row button { border: none; background: #f0f1f3; border-radius: 5px; font-size: 11px; padding: 5px 8px; cursor: pointer; }
   .sidebar .section-label { padding: 6px 20px; font-size: 12px; color: #9aa1ac; }
+  .sidebar-search { padding: 4px 20px 10px; }
+  .sidebar-search input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #e6eaf2; border-radius: 8px; font-size: 12px; background: #f8f9fb; }
+  .sidebar-search input:focus { outline: none; border-color: #FE2E36; background: #fff; }
   .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: #3c4250; display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: nowrap; }
   .center-item .center-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
   .center-admin-controls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
@@ -249,25 +254,13 @@
       <div class="sidebar-subtitle">센터별 KPI·실적 자동관리</div>
       <div class="sidebar-conn"><span class="conn-dot"></span> Supabase 연결됨</div>
     </div>
+    <div class="sidebar-search">
+      <input type="text" id="centerSearchInput" placeholder="🔍 센터 검색" oninput="filterCenterList(this.value)">
+    </div>
     <div class="section-label" id="centerListLabel">센터 목록</div>
     <div id="centerList"></div>
 
-    <details class="sidebar-custom">
-      <summary>⚙ 커스터마이징</summary>
-      <div class="sidebar-custom-body">
-        <a href="https://claude.ai/chat/3f1eb3bd-7071-41f6-9bb4-6f3c95c65ca1" target="_blank" rel="noopener">💬 이 채팅방 (Claude 대화)</a>
-        <a href="https://github.com/20oioi20-byte/kkangbi-report/blob/main/admin.html" target="_blank" rel="noopener">🐙 GitHub 저장소 (admin.html)</a>
-        <a href="https://supabase.com/dashboard/project/zbiwyqwjehnogxkzlhxx/sql/92974b5d-555f-48c7-957f-d666b743fd3b" target="_blank" rel="noopener">🗄 Supabase 대시보드</a>
-        <a href="https://vercel.com/kangseongho-s-projects/kkangbi-report" target="_blank" rel="noopener">▲ Vercel 대시보드</a>
-        <div class="sidebar-custom-key">
-          <div style="font-size:11px;color:#9aa1ac;margin-bottom:4px;">Supabase Anon Key (공개용)</div>
-          <div class="key-row">
-            <input type="text" readonly id="sidebarAnonKeyDisplay" value="">
-            <button onclick="copySidebarAnonKey()" title="복사">복사</button>
-          </div>
-        </div>
-      </div>
-    </details>
+    <div id="sidebarCustomArea"></div>
   </aside>
   <main id="main"><div class="loading">불러오는 중...</div></main>
 </div>
@@ -277,15 +270,16 @@ const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/c
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
 
 // 센터별 upload_token은 더 이상 하드코딩하지 않고, 비밀번호 인증 성공 시 서버에서 동적으로 받아옵니다.
-const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 20, 'lge': 15, 'lge_seongsu': 15 }; // 평택시청/LG전자: 투입인원은 상담사만 집계되므로 상담사 정원 기준
+const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 20, 'lge': 15, 'lge_seongsu': 35 }; // 평택시청/LG전자: 투입인원은 상담사만 집계되므로 상담사 정원 기준
 
 // 센터별 전체 정원 정보 (전체 운영 요약 카드의 각주 표시용)
 const CENTER_TO_INFO = {
   'kbsonhae': { total: 178, counselor: 178, staffAttKey: '총원', note: '' },
   'pyeongtaek': { total: 24, counselor: 20, staffAttKey: '투입인원', note: '관리자 4명 제외, 상담사 20명 기준' },
   'kbjeongbi': { total: 15, counselor: 14, staffAttKey: '재직인원', note: '관리자 1명 포함' },
-  'lge': { total: 19, counselor: 15, staffAttKey: '상담사_투입인원', note: 'TO 19명(관리자4+상담사15) 기준, 상담사 투입인원으로 집계' },
-  'lge_seongsu': { total: 19, counselor: 15, staffAttKey: '상담사_투입인원', note: 'TO 19명(관리자4+상담사15) 기준, 상담사 투입인원으로 집계' }
+  'lge': { total: 19, counselor: 15, staffAttKey: '재직인원', note: 'TO 19명(관리자4+상담사15) 기준, 근태 재직인원(전체)으로 집계' },
+  // 성수기: 공식 TO는 상담사 35명(관리자 0명)이지만, 실제 운영기준은 관리자 6명 + 상담사 35명 = 41명
+  'lge_seongsu': { total: 41, counselor: 35, staffAttKey: '재직인원', note: '운영기준 41명(관리자6+상담사35) 대비, 근태 재직인원(전체)으로 집계 · 공식 TO는 상담사 35명' }
 };
 
 const KR_HOLIDAYS_2026 = [
@@ -327,14 +321,14 @@ const CENTER_KPI_DEFS = {
     { section: '목적물소멸', label: '접수건', type: 'count', perfKey: '접수_목적물소멸' },
   ],
   'lge': [
-    { label: '상담사 투입인원(TO대비)', type: 'staff', attKey: '상담사_투입인원' },
+    { label: '전체재직인원(TO대비)', type: 'staff', attKey: '재직인원' },
     { label: 'T-NPS', type: 'number', perfKey: 'TNPS' },
     { label: '생산성(IN+OUT)', type: 'number', perfKey: '생산성_INOUT' },
     { label: '생산성(IN)', type: 'number', perfKey: '생산성_IN' },
     { label: '통화시간(IN+OUT)', type: 'duration', perfKey: '통화시간_INOUT_초' },
   ],
   'lge_seongsu': [
-    { label: '상담사 투입인원(TO대비)', type: 'staff', attKey: '상담사_투입인원' },
+    { label: '전체재직인원(TO대비)', type: 'staff', attKey: '재직인원' },
     { label: 'T-NPS', type: 'number', perfKey: 'TNPS' },
     { label: '생산성(IN+OUT)', type: 'number', perfKey: '생산성_INOUT' },
     { label: '생산성(IN)', type: 'number', perfKey: '생산성_IN' },
@@ -385,16 +379,27 @@ const CENTER_COMPUTED_METRICS = {
     },
   },
   // 통화시간(IN+OUT)은 "H:MM:SS" 텍스트로 저장되므로, 차트/KPI 평균 계산을 위해 초 단위 숫자로 변환
+  // 생산성_OUT_only: 누적막대에서 "생산성(IN+OUT) 안에 포함된 생산성(IN)"을 구분해 보여주기 위한 파생값(=IN+OUT 총량 - IN)
   'lge': {
     '통화시간_INOUT_초': function(r) {
       const raw = r.performance_data && r.performance_data['통화시간_INOUT'];
       return parseHMSToSeconds(raw);
+    },
+    '생산성_OUT_only': function(r) {
+      const total = extractNum(r, 'performance_data', '생산성_INOUT');
+      const inOnly = extractNum(r, 'performance_data', '생산성_IN');
+      return (total !== null && inOnly !== null) ? Math.max(0, total - inOnly) : null;
     },
   },
   'lge_seongsu': {
     '통화시간_INOUT_초': function(r) {
       const raw = r.performance_data && r.performance_data['통화시간_INOUT'];
       return parseHMSToSeconds(raw);
+    },
+    '생산성_OUT_only': function(r) {
+      const total = extractNum(r, 'performance_data', '생산성_INOUT');
+      const inOnly = extractNum(r, 'performance_data', '생산성_IN');
+      return (total !== null && inOnly !== null) ? Math.max(0, total - inOnly) : null;
     },
   },
 };
@@ -466,21 +471,23 @@ const CENTER_CHART_CONFIG = {
   },
   // LG 브랜드 컬러 가이드 기준: LG RED #A50034 · LG GRAY #6b6b6b · WHITE #FFFFFF, 가이드에 없는 보조색상은 그린 사용
   'lge': {
-    barColors: ['#6b6b6b', '#2E7D32', '#B7C4D6'],
+    barColors: ['#2E7D32', '#6b6b6b', '#B7C4D6'],
     lineColor: '#A50034',
     groups: [
       {
-        title: '생산성', barKeys: ['생산성_INOUT', '생산성_IN'], barLabels: ['생산성(IN+OUT)', '생산성(IN)'],
+        title: '생산성', stacked: true,
+        barKeys: ['생산성_IN', '생산성_OUT_only'], barLabels: ['생산성(IN)', '생산성(OUT)'],
         lineKeys: ['TNPS'], lineLabels: ['T-NPS']
       },
     ]
   },
   'lge_seongsu': {
-    barColors: ['#6b6b6b', '#2E7D32', '#B7C4D6'],
+    barColors: ['#2E7D32', '#6b6b6b', '#B7C4D6'],
     lineColor: '#A50034',
     groups: [
       {
-        title: '생산성', barKeys: ['생산성_INOUT', '생산성_IN'], barLabels: ['생산성(IN+OUT)', '생산성(IN)'],
+        title: '생산성', stacked: true,
+        barKeys: ['생산성_IN', '생산성_OUT_only'], barLabels: ['생산성(IN)', '생산성(OUT)'],
         lineKeys: ['TNPS'], lineLabels: ['T-NPS']
       },
     ]
@@ -560,7 +567,7 @@ async function tryWorkspaceLogin(password, silent) {
       persistSession();
       return true;
     }
-    if (!silent) alert('워크스페이스 비밀번호가 일치하지 않습니다.');
+    if (!silent) alert('관리자화면 비밀번호가 일치하지 않습니다.');
     if (silent) { workspaceUnlocked = false; workspacePasswordCache = ''; persistSession(); }
     return false;
   } catch (e) {
@@ -570,7 +577,7 @@ async function tryWorkspaceLogin(password, silent) {
 }
 
 function promptWorkspaceLogin() {
-  const pw = (prompt('워크스페이스 비밀번호(6자리)를 입력하세요:') || '').trim();
+  const pw = (prompt('관리자화면 비밀번호(6자리)를 입력하세요:') || '').trim();
   if (!pw) return;
   tryWorkspaceLogin(pw, false).then(function(ok) { if (ok) refreshAfterAuthChange(); });
 }
@@ -625,18 +632,18 @@ function renderTopbarAuth() {
   if (workspaceUnlocked) {
     el.innerHTML = '<span class="btn-outline" style="cursor:default;">관리자 모드</span>'
       + centerPwBtn
-      + '<button class="btn-ghost" onclick="showChangeWorkspacePw()">워크스페이스 비번변경</button>'
+      + '<button class="btn-ghost" onclick="showChangeWorkspacePw()">관리자화면 비번변경</button>'
       + '<button class="btn-ghost" onclick="lockWorkspace()">잠그기</button>'
       + '<button class="btn-ghost" onclick="toggleBackupPanel()">백업/복원</button>';
   } else {
     el.innerHTML = centerPwBtn
       + '<button class="btn-ghost" onclick="toggleBackupPanel()">백업/복원</button>'
-      + '<button class="btn-primary" onclick="promptWorkspaceLogin()">워크스페이스 로그인</button>';
+      + '<button class="btn-primary" onclick="promptWorkspaceLogin()">관리자화면 로그인</button>';
   }
 }
 
 function showChangeWorkspacePw() {
-  const cur = (prompt('현재 워크스페이스 비밀번호:') || '').trim();
+  const cur = (prompt('현재 관리자화면 비밀번호:') || '').trim();
   if (!cur) return;
   const next = (prompt('새 비밀번호(숫자 6자리):') || '').trim();
   if (!next) return;
@@ -645,7 +652,7 @@ function showChangeWorkspacePw() {
     body: JSON.stringify({ current_password: cur, new_password: next })
   }).then(function(r) { return r.json(); }).then(function(data) {
     if (!data.success) { alert('변경 실패: ' + data.error); return; }
-    alert('워크스페이스 비밀번호가 변경되었습니다.');
+    alert('관리자화면 비밀번호가 변경되었습니다.');
     workspacePasswordCache = next;
     persistSession();
   }).catch(function(e) { alert('오류: ' + e.message); });
@@ -763,8 +770,6 @@ async function tryDomainAutoUnlock() {
 }
 
 async function init() {
-  const anonKeyEl = document.getElementById('sidebarAnonKeyDisplay');
-  if (anonKeyEl) anonKeyEl.value = SB_ANON_KEY;
   restoreSession();
   await loadCentersMeta();
   const autoUnlocked = await tryDomainAutoUnlock();
@@ -817,6 +822,42 @@ let kpiSettingsCache = {};
 let kpiMonthlyTargetsCache = {};
 let settingsYear = new Date().getFullYear();
 
+function renderSidebarCustom() {
+  const area = document.getElementById('sidebarCustomArea');
+  if (!area) return;
+  if (!workspaceUnlocked) {
+    area.innerHTML = '<div class="sidebar-custom">'
+      + '<button class="sidebar-custom-locked" onclick="unlockCustomPanel()">🔒 커스터마이징 (관리자화면 비밀번호 필요)</button>'
+      + '</div>';
+    return;
+  }
+  area.innerHTML = '<details class="sidebar-custom">'
+    + '<summary>⚙ 커스터마이징</summary>'
+    + '<div class="sidebar-custom-body">'
+    + '<a href="https://claude.ai/chat/3f1eb3bd-7071-41f6-9bb4-6f3c95c65ca1" target="_blank" rel="noopener">💬 이 채팅방 (Claude 대화)</a>'
+    + '<a href="https://github.com/20oioi20-byte/kkangbi-report/blob/main/admin.html" target="_blank" rel="noopener">🐙 GitHub 저장소 (admin.html)</a>'
+    + '<a href="https://supabase.com/dashboard/project/zbiwyqwjehnogxkzlhxx/sql/92974b5d-555f-48c7-957f-d666b743fd3b" target="_blank" rel="noopener">🗄 Supabase 대시보드</a>'
+    + '<a href="https://vercel.com/kangseongho-s-projects/kkangbi-report" target="_blank" rel="noopener">▲ Vercel 대시보드</a>'
+    + '<div class="sidebar-custom-key">'
+    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:4px;">Supabase Anon Key (공개용)</div>'
+    + '<div class="key-row">'
+    + '<input type="text" readonly id="sidebarAnonKeyDisplay" value="' + SB_ANON_KEY + '">'
+    + '<button onclick="copySidebarAnonKey()" title="복사">복사</button>'
+    + '</div></div></div></details>';
+}
+
+async function unlockCustomPanel() {
+  if (workspaceUnlocked) { renderSidebarCustom(); return; }
+  const pw = (prompt('관리자화면 비밀번호를 입력하세요:') || '').trim();
+  if (!pw) return;
+  const ok = await tryWorkspaceLogin(pw, false);
+  if (ok) {
+    renderTopbarAuth();
+    renderSidebar();
+    if (!currentCenter && !viewingWorkspaceOverview) { await selectWorkspaceOverview(); } else { renderSidebarCustom(); }
+  }
+}
+
 function copySidebarAnonKey() {
   const input = document.getElementById('sidebarAnonKeyDisplay');
   if (!input) return;
@@ -828,7 +869,16 @@ function copySidebarAnonKey() {
   }).catch(function() { alert('복사에 실패했습니다. 직접 선택해 복사해 주세요.'); });
 }
 
+function filterCenterList(query) {
+  const q = query.trim().toLowerCase();
+  document.querySelectorAll('#centerList .center-item').forEach(function(el) {
+    const text = (el.getAttribute('title') || el.textContent || '').toLowerCase();
+    el.style.display = (!q || text.includes(q)) ? '' : 'none';
+  });
+}
+
 function renderSidebar() {
+  renderSidebarCustom();
   const listLabel = document.getElementById('centerListLabel');
   if (listLabel) listLabel.textContent = '센터 (' + allCentersMeta.length + ')';
   const list = document.getElementById('centerList');
@@ -983,7 +1033,7 @@ function toggleBackupPanel() {
 function renderMain() {
   if (viewingWorkspaceOverview) { renderWorkspaceOverview(); return; }
   if (!currentCenter) {
-    document.getElementById('main').innerHTML = '<div class="empty" style="padding:100px 24px;">왼쪽에서 센터를 선택해 비밀번호를 입력하거나,<br>상단의 "워크스페이스 로그인"으로 전체 센터를 확인하세요.</div>';
+    document.getElementById('main').innerHTML = '<div class="empty" style="padding:100px 24px;">왼쪽에서 센터를 선택해 비밀번호를 입력하거나,<br>상단의 "관리자화면 로그인"으로 전체 센터를 확인하세요.</div>';
     return;
   }
   if (currentMainTab === 'dashboard') renderDashboard();
@@ -1201,12 +1251,15 @@ function refreshTablePanel() {
 // ============================================
 
 // 센터별 기본 핵심지표 세트 (설정 화면에서 커스텀 등록을 하지 않았을 때 사용되는 기본값)
+// 워크스페이스 핵심지표 표시 시, "값이 100 이하면 %로 표시" 같은 추측 대신 지표 키 기준으로 정확한 단위를 지정
+const METRIC_UNITS = { '생산성_INOUT': '건', '생산성_IN': '건' };
+
 const DEFAULT_HEADLINE_METRICS = {
   'kbsonhae': [{ label: '제휴상담 SL', key: '제휴상담_SL' }, { label: '장기손사 SL', key: '장기손사_SL' }],
   'kbjeongbi': [{ label: '고지위반 처리율', key: '고지의무_처리율' }, { label: '통지위반 처리율', key: '통지의무_처리율' }, { label: '목적물소멸 처리율', key: '목적물소멸_처리율' }],
   'pyeongtaek': [{ label: '응대율', key: '응대율' }],
-  'lge': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT' }],
-  'lge_seongsu': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT' }]
+  'lge': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }],
+  'lge_seongsu': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }]
 };
 
 // 특정 지표 키에 대해 CENTER_CHART_CONFIG에 등록된 기준선(threshold)이 있으면 반환
@@ -1271,7 +1324,8 @@ function computeCenterHeadline(code, rows) {
       if (target === null) target = (d.target !== null && d.target !== undefined) ? d.target : null;
       if (target === null) { const th = findThresholdForKey(code, d.key); if (th) target = th.value; }
       const isWarn = (val !== null && target !== null) ? (val < target) : false;
-      return { label: d.label, value: val, monthValue: monthVal, target: target, isWarn: isWarn };
+      const unit = METRIC_UNITS[d.key] || d.unit || null; // 지표 출처(설정화면 등록 vs 기본값)와 무관하게 항상 올바른 단위 적용
+      return { label: d.label, value: val, monthValue: monthVal, target: target, isWarn: isWarn, unit: unit };
     });
     const isWarn = metrics.some(function(m) { return m.isWarn; });
 
@@ -1283,8 +1337,11 @@ function computeCenterHeadline(code, rows) {
 }
 
 function formatHeadlineMetric(m) {
-  const isPct = function(v) { return Math.abs(v) <= 100; };
-  const fmt = function(v) { return v === null ? '-' : v.toFixed(1) + (isPct(v) ? '%' : ''); };
+  const fmt = function(v) {
+    if (v === null) return '-';
+    if (m.unit) return v.toFixed(1) + m.unit;
+    return v.toFixed(1) + (Math.abs(v) <= 100 ? '%' : '');
+  };
   if (m.value === null && m.monthValue === null) return m.label + ' -';
   // 이번달 값과 연초~이번달 누적평균값을 함께 표기해, "왜 이 값이 나왔는지" 산출 기준을 항상 알 수 있게 한다.
   if (m.monthValue !== null && m.value !== null && m.monthValue.toFixed(1) !== m.value.toFixed(1)) {
@@ -1307,8 +1364,9 @@ function renderWorkspaceOverview() {
   const warnStats = centerStats.filter(function(s) { return s.status === 'warn'; });
   const totalStaffAvg = centerStats.reduce(function(sum, s) { return sum + (s.staffAvg || 0); }, 0);
 
-  function formatPlainNum(v) {
+  function formatPlainNum(v, unit) {
     if (v === null || v === undefined) return '-';
+    if (unit) return v.toFixed(1) + unit;
     const isPct = Math.abs(v) <= 100;
     return v.toFixed(1) + (isPct ? '%' : '');
   }
@@ -1317,8 +1375,8 @@ function renderWorkspaceOverview() {
   const issueLines = [];
   warnStats.forEach(function(s) {
     s.metrics.filter(function(m) { return m.isWarn; }).forEach(function(m) {
-      const monthPart = (m.monthValue !== null && m.monthValue.toFixed(1) !== (m.value === null ? '' : m.value.toFixed(1))) ? ' / 이번달 ' + formatPlainNum(m.monthValue) : '';
-      issueLines.push(s.name + ' ' + m.label + ' 누적 ' + formatPlainNum(m.value) + monthPart + ' (목표 ' + formatPlainNum(m.target) + '↓)');
+      const monthPart = (m.monthValue !== null && m.monthValue.toFixed(1) !== (m.value === null ? '' : m.value.toFixed(1))) ? ' / 이번달 ' + formatPlainNum(m.monthValue, m.unit) : '';
+      issueLines.push(s.name + ' ' + m.label + ' 누적 ' + formatPlainNum(m.value, m.unit) + monthPart + ' (목표 ' + formatPlainNum(m.target, m.unit) + '↓)');
     });
   });
 
@@ -1371,7 +1429,7 @@ function renderWorkspaceOverview() {
 
   main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
-    + '<h2 style="margin:0;font-size:20px;">워크스페이스 전체 현황</h2>'
+    + '<h2 style="margin:0;font-size:20px;">관리자화면 전체 현황</h2>'
     + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview(true)">새로고침</button>'
     + '</div>'
     + kpiHtml
@@ -4703,7 +4761,8 @@ const ATTENDANCE_SEMI_AUTO = {
   'kbjeongbi': { defaultTO: 15, defaultStaff: 15, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' },
   // LG전자: TO 19명(관리자4+상담사15) · 재직 19명(관리자1+상담사15)은 고정값으로 자동 채움, 상담사 투입인원(기본 14명)만 실제로 매일 달라지는 값
   'lge': { defaultTO: 19, defaultStaff: 19, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' },
-  'lge_seongsu': { defaultTO: 19, defaultStaff: 19, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
+  // 성수기: 공식 TO는 상담사 35명(관리자 0명)이나, 실제 운영기준(재직인원 기본값)은 관리자6+상담사35=41명
+  'lge_seongsu': { defaultTO: 35, defaultStaff: 41, defaultManual: 35, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
 };
 
 let pendingAttRange = null; // 엑셀 자동추출에서 넘어온 "적용할 기간" 대기값 - 재직현황 패널을 그릴 때 최우선으로 사용
