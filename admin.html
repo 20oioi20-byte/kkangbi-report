@@ -3140,6 +3140,25 @@ function buildGuideTable(schema, sample) {
   }).join('');
 }
 
+// 사용설명 이미지가 작아서 안 보이는 문제 - 클릭하면 원본 크기로 팝업해서 보여준다
+function openImageLightbox(src) {
+  let overlay = document.getElementById('imgLightbox');
+  if (!overlay) {
+    overlay = document.createElement('div');
+    overlay.id = 'imgLightbox';
+    overlay.style.cssText = 'display:none;position:fixed;inset:0;background:rgba(20,20,25,.85);z-index:9999;cursor:zoom-out;align-items:center;justify-content:center;padding:30px;';
+    overlay.onclick = function() { overlay.style.display = 'none'; };
+    const img = document.createElement('img');
+    img.id = 'imgLightboxImg';
+    img.style.cssText = 'max-width:95vw;max-height:92vh;border-radius:8px;box-shadow:0 10px 40px rgba(0,0,0,.4);cursor:zoom-out;';
+    overlay.appendChild(img);
+    document.body.appendChild(overlay);
+    document.addEventListener('keydown', function(e) { if (e.key === 'Escape') overlay.style.display = 'none'; });
+  }
+  document.getElementById('imgLightboxImg').src = src;
+  overlay.style.display = 'flex';
+}
+
 function renderInputGuide() {
   const guide = CENTER_GUIDES[currentCenter];
   if (!guide || !rowSchema || rowSchema.length === 0) return '';
@@ -3151,9 +3170,9 @@ function renderInputGuide() {
     const rows2 = buildGuideTable(categorySchema, guide.categorySample);
 
     return '<details class="panel" style="max-width:100%;margin-bottom:16px;">'
-      + '<summary style="cursor:pointer;font-weight:700;font-size:14px;">사용설명 보기 (원본 양식 예시 · 항목 대응표)</summary>'
+      + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#9aa1ac;">(원본 양식 예시 · 항목 대응표)</span></summary>'
       + '<div style="margin-top:14px;">'
-      + '<img src="' + guide.image + '" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:18px;">'
+      + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:18px;cursor:zoom-in;">'
 
       + '<p style="font-size:14px;font-weight:700;margin-bottom:6px;">1) 일자별 실적 직접입력 방법</p>'
       + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">원본 양식 예시 (일별실적 표 기준) — 위 이미지처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
@@ -3174,10 +3193,10 @@ function renderInputGuide() {
   const rows = buildGuideTable(rowSchema, guide.sample);
 
   return '<details class="panel" style="max-width:100%;margin-bottom:16px;">'
-    + '<summary style="cursor:pointer;font-weight:700;font-size:14px;">사용설명 보기 (원본 양식 예시 · 항목 대응표)</summary>'
+    + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#9aa1ac;">(원본 양식 예시 · 항목 대응표)</span></summary>'
     + '<div style="margin-top:14px;">'
     + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>1) 원본 양식 예시</b> (<span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준) — 아래처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
-    + '<img src="' + guide.image + '" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:16px;">'
+    + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:16px;cursor:zoom-in;">'
     + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>2) 항목 대응표</b> (총 ' + rowSchema.length + '개 항목, 예시는 <span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
     + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;">'
     + '<table><thead><tr><th>순서</th><th>표준 항목명</th><th>예시값</th></tr></thead><tbody>' + rows + '</tbody></table>'
@@ -3479,6 +3498,7 @@ async function extractLgeExcelAndFill() {
     const rangeNote = (rangeStart || rangeEnd) ? (' · 기간필터 ' + (rangeStart || '처음') + ' ~ ' + (rangeEnd || '끝') + ' 적용(파일 내 전체 ' + result.rows.length + '일 중)') : '';
     statusEl.className = 'status-msg ok';
     statusEl.textContent = '추출 완료 · ' + result.sheetName + ' 시트(' + result.targetGroup + ' Total 기준)에서 ' + parsedRows.length + '일치를 찾았습니다' + rangeNote + '. 아래 표에서 확인 후 "전체 저장"을 눌러주세요.';
+    promptGoToAttendance();
   } catch (err) {
     statusEl.className = 'status-msg err';
     statusEl.textContent = '추출 실패: ' + (err.message || err);
@@ -3929,6 +3949,7 @@ async function extractLongContractAndFill() {
     document.getElementById('pasteBox').value = lines.join('\n');
     statusEl.className = 'status-msg ok';
     statusEl.textContent = dailyRows.length + '일치 추출 완료(원본 ' + records.length + '건). 아래 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.';
+    promptGoToAttendance();
   } catch (e) {
     statusEl.className = 'status-msg err';
     statusEl.textContent = '추출 실패: ' + e.message;
@@ -4154,6 +4175,16 @@ function selectEntryMethod(id) {
   document.querySelectorAll('.entry-method-body').forEach(function(b) { b.style.display = (b.dataset.mid === id) ? '' : 'none'; });
 }
 
+// 실적 자동추출이 끝난 뒤, 이 센터에 "재직 및 투입현황" 입력이 있으면 이어서 바로 작업하도록 안내하고 이동시킨다
+function promptGoToAttendance() {
+  if (!ATTENDANCE_SEMI_AUTO[currentCenter]) return;
+  if (confirm('채우기 완료되었습니다. 재직 및 투입현황 입력 후 저장 눌러주세요.\n\n확인을 누르면 재직 및 투입현황 화면으로 이동합니다.')) {
+    selectEntryMethod('att');
+    const el = document.querySelector('.entry-method-body[data-mid="att"]');
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  }
+}
+
 async function renderEntry() {
   const main = document.getElementById('main');
   if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
@@ -4357,9 +4388,18 @@ async function deleteSelectedDates() {
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '삭제 실패');
+
+    // 삭제 직후 서버에서 다시 조회하면 DB 반영 지연(전파 지연)으로 방금 지운 날짜가 잠깐 다시 보일 수 있어,
+    // 화면에서는 우선 즉시 제거(낙관적 업데이트)하고, 이후 서버 재조회 결과에도 동일하게 제외 필터를 한 번 더 적용한다.
+    dmQueryResults = dmQueryResults.filter(function(r) { return dates.indexOf(r.report_date) === -1; });
+    allRows = allRows.filter(function(r) { return dates.indexOf(r.report_date) === -1; });
+    renderDataManageResult();
+
     statusEl.className = 'status-msg ok';
     statusEl.textContent = dates.length + '개 날짜가 삭제되었습니다.';
+
     await loadOverviewForCurrent();
+    allRows = allRows.filter(function(r) { return dates.indexOf(r.report_date) === -1; }); // 재조회 결과에 지연 반영된 항목이 섞여 있어도 다시 제외
     queryDataManage();
   } catch (e) {
     statusEl.className = 'status-msg err';
@@ -4564,7 +4604,7 @@ function renderAttendanceSemiAutoPanel() {
   return '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>일자별 재직 및 투입현황 입력</h3>'
     + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">근태 파일을 업로드하면 날짜별 실제 근무 인원(상담사/관리자)이 자동으로 채워집니다. 파일이 없으면 기간만 지정해도 주말·공휴일을 제외한 영업일마다 기본값(TO·재직인원·' + cfg.manualLabel + ')이 채워지며, 어느 쪽이든 개별 수정이나 체크박스 일괄수정이 가능합니다.</p>'
-    + '<div class="entry-row"><label>근태파일 업로드</label><input type="file" id="attFile" accept=".xlsx,.xlsm,.xls"><button class="btn-secondary" onclick="extractAttFile()">자동 추출</button></div>'
+    + '<div class="entry-row"><label>근태파일 업로드</label><input type="file" id="attFile" accept=".xlsx,.xlsm,.xls" onchange="extractAttFile()"><button class="btn-secondary" onclick="extractAttFile()">다시 추출</button></div>'
     + '<div class="entry-row"><label>시작일</label><input type="date" id="attStart" value="' + today + '"></div>'
     + '<div class="entry-row"><label>종료일</label><input type="date" id="attEnd" value="' + today + '"></div>'
     + '<button class="btn-secondary" onclick="generateAttRangeRows()">기간 적용</button>'
@@ -4809,10 +4849,10 @@ function renderCategoryInputGuide() {
   }).join('');
 
   return '<details class="panel" style="max-width:100%;margin-top:16px;">'
-    + '<summary style="cursor:pointer;font-weight:700;font-size:14px;">사용설명 보기 (원본 양식 예시 · 항목 대응표)</summary>'
+    + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#9aa1ac;">(원본 양식 예시 · 항목 대응표)</span></summary>'
     + '<div style="margin-top:14px;">'
     + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>1) 원본 양식 예시</b> (<span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준) — "건수" 행의 합계부터 기타까지를 순서대로 복사하시면 됩니다. "응대율(%)" 행은 입력하지 않아도 자동 계산됩니다.</p>'
-    + '<img src="' + guide.image + '" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:16px;">'
+    + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:16px;cursor:zoom-in;">'
     + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>2) 항목 대응표</b> (총 ' + categorySchema.length + '개 항목, 예시는 <span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
     + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;">'
     + '<table><thead><tr><th>순서</th><th>표준 항목명</th><th>예시값(건수)</th></tr></thead><tbody>' + rows + '</tbody></table>'
