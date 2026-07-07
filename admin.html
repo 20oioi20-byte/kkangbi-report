@@ -688,9 +688,11 @@ async function init() {
   renderTopbarAuth();
   loadColPrefs();
   renderSidebar();
-  await loadAllSettingsData(); // 워크스페이스 이상징후·핵심지표 판정에 필요한 월별TO/목표치를 항상 먼저 로드해둔다
-  if (viewingWorkspaceOverview) { await loadAllCentersOverview(); }
-  else if (currentCenter) { await loadOverviewForCurrent(); }
+  // 설정데이터(월별TO/핵심지표)와 실적 데이터는 서로 의존하지 않으므로 병렬로 불러와 초기 로딩 시간을 단축한다
+  await Promise.all([
+    loadAllSettingsData(),
+    viewingWorkspaceOverview ? loadAllCentersOverview() : (currentCenter ? loadOverviewForCurrent() : Promise.resolve())
+  ]);
   renderMain();
 }
 
@@ -786,12 +788,12 @@ async function loadAllCentersOverview() {
   }
 }
 
-async function selectWorkspaceOverview() {
+async function selectWorkspaceOverview(forceRefresh) {
   viewingWorkspaceOverview = true;
   viewingSettingsPage = false;
   renderSidebar();
   renderTopbarAuth();
-  await Promise.all([loadAllCentersOverview(), loadAllSettingsData()]);
+  await Promise.all([loadAllCentersOverview(), loadAllSettingsData(forceRefresh)]);
   renderMain();
 }
 
@@ -804,14 +806,19 @@ async function selectSettingsPage() {
   renderMain();
 }
 
-async function loadAllSettingsData() {
+let settingsDataLoadedAt = 0;
+const SETTINGS_CACHE_TTL_MS = 15000; // 탭을 자주 오갈 때 매번 재조회하지 않도록 15초간 캐시 재사용
+
+async function loadAllSettingsData(force) {
+  if (!force && Date.now() - settingsDataLoadedAt < SETTINGS_CACHE_TTL_MS) return; // 캐시 유효 → 네트워크 호출 생략
   try {
-    const toRes = await fetch(SB_FUNCTION_URL + '?action=list-monthly-to&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
-    const kpiRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-settings&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
-    const kpiMonthlyRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-monthly-targets&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
-    const toData = await toRes.json();
-    const kpiData = await kpiRes.json();
-    const kpiMonthlyData = await kpiMonthlyRes.json();
+    const ts = Date.now();
+    const [toRes, kpiRes, kpiMonthlyRes] = await Promise.all([
+      fetch(SB_FUNCTION_URL + '?action=list-monthly-to&_ts=' + ts, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' }),
+      fetch(SB_FUNCTION_URL + '?action=list-kpi-settings&_ts=' + ts, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' }),
+      fetch(SB_FUNCTION_URL + '?action=list-kpi-monthly-targets&_ts=' + ts, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' })
+    ]);
+    const [toData, kpiData, kpiMonthlyData] = await Promise.all([toRes.json(), kpiRes.json(), kpiMonthlyRes.json()]);
 
     monthlyToCache = {};
     (toData.settings || []).forEach(function(s) {
@@ -831,6 +838,7 @@ async function loadAllSettingsData() {
       if (!kpiMonthlyTargetsCache[t.center_code][t.metric_key]) kpiMonthlyTargetsCache[t.center_code][t.metric_key] = {};
       kpiMonthlyTargetsCache[t.center_code][t.metric_key][t.year_month] = t.target_value;
     });
+    settingsDataLoadedAt = Date.now();
   } catch (e) { /* 실패 시 캐시가 비워진 채 진행됨(설정 없음으로 처리) */ }
 }
 
@@ -1260,7 +1268,7 @@ function renderWorkspaceOverview() {
   main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
     + '<h2 style="margin:0;font-size:20px;">워크스페이스 전체 현황</h2>'
-    + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview()">새로고침</button>'
+    + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview(true)">새로고침</button>'
     + '</div>'
     + kpiHtml
     + '<div class="panel"><div class="table-scroll"><table class="ws-table"><thead><tr><th>센터</th><th>재직(TO대비)</th><th>핵심지표(이번달/누적)</th><th>상태</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
@@ -1288,19 +1296,20 @@ const CENTER_CARD_TREND = {
     lineSeries: [
       { label: '제휴상담 SL', key: '제휴상담_SL', mode: 'avg' },
       { label: '장기손사 SL', key: '장기손사_SL', mode: 'avg' }
-    ]
+    ],
+    lineAxis: { max: 110 } // SL 보조축 최대값을 110으로 여유를 둬 100에 가까운 값들이 축 상단에 눌리지 않게 함
   },
   'kbjeongbi': {
     months: 6,
     stacked: true,
     sameAxis: true, // 막대(구성)와 선(합계)이 모두 "건수" 단위라 같은 축 사용
     barSeries: [
-      { label: '고지의무 접수', key: '접수_고지의무', mode: 'sum' },
-      { label: '통지의무 접수', key: '접수_통지의무', mode: 'sum' },
-      { label: '목적물소멸 접수', key: '접수_목적물소멸', mode: 'sum' }
+      { label: '고지의무 일평균 접수', key: '접수_고지의무', mode: 'avg' },
+      { label: '통지의무 일평균 접수', key: '접수_통지의무', mode: 'avg' },
+      { label: '목적물소멸 일평균 접수', key: '접수_목적물소멸', mode: 'avg' }
     ],
     lineSeries: [
-      { label: '합계', key: '통합_접수', mode: 'sum' }
+      { label: '일평균 합계', key: '통합_접수', mode: 'avg' }
     ]
   },
   'pyeongtaek': {
@@ -1321,8 +1330,9 @@ const CENTER_CARD_TREND = {
     ]
   }
 };
-const WS_BAR_COLORS = ['#B7C4D6', '#8FAADC', '#D8DEE6'];
-const WS_LINE_COLORS = ['#FE2E36', '#2f6fd1', '#e0a500'];
+// KT 브랜드 컬러 기준: 막대(물량)는 옅은 톤, 선(비율/점수)은 진한 톤으로 대비
+const WS_BAR_COLORS = ['rgba(0,165,255,0.35)', 'rgba(0,190,172,0.35)', 'rgba(170,80,255,0.28)']; // KT Blue/Teal/Purple (연하게)
+const WS_LINE_COLORS = ['#FE2E36', '#00A5FF', '#00BEAC']; // KT Red/Blue/Teal (진하게)
 let wsSparkCharts = [];
 
 function drawWorkspaceSparklines(centerStats) {
@@ -1648,12 +1658,13 @@ function onKpiKeySelected(centerCode) {
 
 async function loadCenterSettingsData(centerCode) {
   try {
-    const toRes = await fetch(SB_FUNCTION_URL + '?action=list-monthly-to&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
-    const kpiRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-settings&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
-    const kpiMonthlyRes = await fetch(SB_FUNCTION_URL + '?action=list-kpi-monthly-targets&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
-    const toData = await toRes.json();
-    const kpiData = await kpiRes.json();
-    const kpiMonthlyData = await kpiMonthlyRes.json();
+    const ts = Date.now();
+    const [toRes, kpiRes, kpiMonthlyRes] = await Promise.all([
+      fetch(SB_FUNCTION_URL + '?action=list-monthly-to&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + ts, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' }),
+      fetch(SB_FUNCTION_URL + '?action=list-kpi-settings&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + ts, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' }),
+      fetch(SB_FUNCTION_URL + '?action=list-kpi-monthly-targets&center_code=' + encodeURIComponent(centerCode) + '&_ts=' + ts, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' })
+    ]);
+    const [toData, kpiData, kpiMonthlyData] = await Promise.all([toRes.json(), kpiRes.json(), kpiMonthlyRes.json()]);
     monthlyToCache[centerCode] = toData.settings || [];
     kpiSettingsCache[centerCode] = kpiData.settings || [];
     const grouped = {};
