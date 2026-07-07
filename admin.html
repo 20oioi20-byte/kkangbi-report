@@ -214,14 +214,15 @@ const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/c
 const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
 
 // 센터별 upload_token은 더 이상 하드코딩하지 않고, 비밀번호 인증 성공 시 서버에서 동적으로 받아옵니다.
-const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 20, 'lge': 15 }; // 평택시청/LG전자: 투입인원은 상담사만 집계되므로 상담사 정원 기준
+const TO_TARGET = { 'kbsonhae': 178, 'pyeongtaek': 20, 'lge': 15, 'lge_seongsu': 15 }; // 평택시청/LG전자: 투입인원은 상담사만 집계되므로 상담사 정원 기준
 
 // 센터별 전체 정원 정보 (전체 운영 요약 카드의 각주 표시용)
 const CENTER_TO_INFO = {
   'kbsonhae': { total: 178, counselor: 178, staffAttKey: '총원', note: '' },
   'pyeongtaek': { total: 24, counselor: 20, staffAttKey: '투입인원', note: '관리자 4명 제외, 상담사 20명 기준' },
   'kbjeongbi': { total: 15, counselor: 14, staffAttKey: '재직인원', note: '관리자 1명 포함' },
-  'lge': { total: 19, counselor: 15, staffAttKey: '상담사_투입인원', note: 'TO 19명(관리자4+상담사15) 기준, 상담사 투입인원으로 집계' }
+  'lge': { total: 19, counselor: 15, staffAttKey: '상담사_투입인원', note: 'TO 19명(관리자4+상담사15) 기준, 상담사 투입인원으로 집계' },
+  'lge_seongsu': { total: 19, counselor: 15, staffAttKey: '상담사_투입인원', note: 'TO 19명(관리자4+상담사15) 기준, 상담사 투입인원으로 집계' }
 };
 
 const KR_HOLIDAYS_2026 = [
@@ -263,6 +264,13 @@ const CENTER_KPI_DEFS = {
     { section: '목적물소멸', label: '접수건', type: 'count', perfKey: '접수_목적물소멸' },
   ],
   'lge': [
+    { label: '상담사 투입인원(TO대비)', type: 'staff', attKey: '상담사_투입인원' },
+    { label: 'T-NPS', type: 'number', perfKey: 'TNPS' },
+    { label: '생산성(IN+OUT)', type: 'number', perfKey: '생산성_INOUT' },
+    { label: '생산성(IN)', type: 'number', perfKey: '생산성_IN' },
+    { label: '통화시간(IN+OUT)', type: 'duration', perfKey: '통화시간_INOUT_초' },
+  ],
+  'lge_seongsu': [
     { label: '상담사 투입인원(TO대비)', type: 'staff', attKey: '상담사_투입인원' },
     { label: 'T-NPS', type: 'number', perfKey: 'TNPS' },
     { label: '생산성(IN+OUT)', type: 'number', perfKey: '생산성_INOUT' },
@@ -315,6 +323,12 @@ const CENTER_COMPUTED_METRICS = {
   },
   // 통화시간(IN+OUT)은 "H:MM:SS" 텍스트로 저장되므로, 차트/KPI 평균 계산을 위해 초 단위 숫자로 변환
   'lge': {
+    '통화시간_INOUT_초': function(r) {
+      const raw = r.performance_data && r.performance_data['통화시간_INOUT'];
+      return parseHMSToSeconds(raw);
+    },
+  },
+  'lge_seongsu': {
     '통화시간_INOUT_초': function(r) {
       const raw = r.performance_data && r.performance_data['통화시간_INOUT'];
       return parseHMSToSeconds(raw);
@@ -390,6 +404,16 @@ const CENTER_CHART_CONFIG = {
   'lge': {
     barColors: ['#A50034', '#E6007E', '#B7C4D6'], // LG 브랜드 컬러(마젠타 계열)
     lineColor: '#A50034',
+    groups: [
+      {
+        title: '생산성', barKeys: ['생산성_INOUT', '생산성_IN'], barLabels: ['생산성(IN+OUT)', '생산성(IN)'],
+        lineKeys: ['TNPS'], lineLabels: ['T-NPS']
+      },
+    ]
+  },
+  'lge_seongsu': {
+    barColors: ['#FF6A00', '#FFA35C', '#B7C4D6'], // AS와 구분되도록 성수기는 오렌지 계열
+    lineColor: '#FF6A00',
     groups: [
       {
         title: '생산성', barKeys: ['생산성_INOUT', '생산성_IN'], barLabels: ['생산성(IN+OUT)', '생산성(IN)'],
@@ -1102,7 +1126,8 @@ const DEFAULT_HEADLINE_METRICS = {
   'kbsonhae': [{ label: '제휴상담 SL', key: '제휴상담_SL' }, { label: '장기손사 SL', key: '장기손사_SL' }],
   'kbjeongbi': [{ label: '고지위반 처리율', key: '고지의무_처리율' }, { label: '통지위반 처리율', key: '통지의무_처리율' }, { label: '목적물소멸 처리율', key: '목적물소멸_처리율' }],
   'pyeongtaek': [{ label: '응대율', key: '응대율' }],
-  'lge': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT' }]
+  'lge': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT' }],
+  'lge_seongsu': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT' }]
 };
 
 // 특정 지표 키에 대해 CENTER_CHART_CONFIG에 등록된 기준선(threshold)이 있으면 반환
@@ -1290,12 +1315,12 @@ const CENTER_CARD_TREND = {
   'kbsonhae': {
     months: 6,
     barSeries: [
-      { label: '제휴상담 일평균인입량', key: '제휴상담_인입호', mode: 'avg' },
-      { label: '장기손사 일평균인입량', key: '장기손사_인입호', mode: 'avg' }
+      { label: '제휴 인입량', key: '제휴상담_인입호', mode: 'avg' },
+      { label: '장기 인입량', key: '장기손사_인입호', mode: 'avg' }
     ],
     lineSeries: [
-      { label: '제휴상담 SL', key: '제휴상담_SL', mode: 'avg' },
-      { label: '장기손사 SL', key: '장기손사_SL', mode: 'avg' }
+      { label: '제휴SL', key: '제휴상담_SL', mode: 'avg' },
+      { label: '장기SL', key: '장기손사_SL', mode: 'avg' }
     ],
     lineAxis: { max: 110 } // SL 보조축 최대값을 110으로 여유를 둬 100에 가까운 값들이 축 상단에 눌리지 않게 함
   },
@@ -1304,12 +1329,12 @@ const CENTER_CARD_TREND = {
     stacked: true,
     sameAxis: true, // 막대(구성)와 선(합계)이 모두 "건수" 단위라 같은 축 사용
     barSeries: [
-      { label: '고지의무 일평균 접수', key: '접수_고지의무', mode: 'avg' },
-      { label: '통지의무 일평균 접수', key: '접수_통지의무', mode: 'avg' },
-      { label: '목적물소멸 일평균 접수', key: '접수_목적물소멸', mode: 'avg' }
+      { label: '고지 접수건', key: '접수_고지의무', mode: 'avg' },
+      { label: '통지 접수건', key: '접수_통지의무', mode: 'avg' },
+      { label: '목적물소멸 접수건', key: '접수_목적물소멸', mode: 'avg' }
     ],
     lineSeries: [
-      { label: '일평균 합계', key: '통합_접수', mode: 'avg' }
+      { label: '합계', key: '통합_접수', mode: 'avg' }
     ]
   },
   'pyeongtaek': {
@@ -1323,6 +1348,13 @@ const CENTER_CARD_TREND = {
     lineAxis: { min: 80, max: 100 } // 95% 이상이면 정상 수준인 지표라, 축을 80~100으로 좁혀 변동폭 과장을 방지
   },
   'lge': {
+    months: 6,
+    lineSeries: [
+      { label: 'T-NPS', key: 'TNPS', mode: 'avg' },
+      { label: '생산성(IN+OUT)', key: '생산성_INOUT', mode: 'avg' }
+    ]
+  },
+  'lge_seongsu': {
     months: 6,
     lineSeries: [
       { label: 'T-NPS', key: 'TNPS', mode: 'avg' },
@@ -3069,7 +3101,8 @@ const CENTER_GUIDES = {
   'kbsonhae': { image: KBSONHAE_GUIDE_IMAGE, sample: KBSONHAE_SAMPLE_ROW, date: '6/29' },
   'pyeongtaek': { image: PYEONGTAEK_COMBINED_GUIDE_IMAGE, sample: PYEONGTAEK_SAMPLE_ROW, categorySample: PYEONGTAEK_CATEGORY_SAMPLE_ROW, date: '7/2' },
   'kbjeongbi': { image: KBJEONGBI_GUIDE_IMAGE, sample: KBJEONGBI_SAMPLE_ROW, date: '5/4' },
-  'lge': { image: LGE_GUIDE_IMAGE, sample: LGE_SAMPLE_ROW, date: '6/30' }
+  'lge': { image: LGE_GUIDE_IMAGE, sample: LGE_SAMPLE_ROW, date: '6/30' },
+  'lge_seongsu': { image: LGE_GUIDE_IMAGE, sample: LGE_SAMPLE_ROW, date: '6/30' }
 };
 
 function buildGuideTable(schema, sample) {
@@ -3134,23 +3167,31 @@ function renderInputGuide() {
 // 기존 parsedRows/renderPreviewTable/saveAllRows() 흐름에 태워 재사용한다.
 // ============================================
 const LGEX_TARGETS = [
-  { key: 'TNPS', aliases: ['T-NPS', 'TNPS'] },
-  { key: '생산성_INOUT', aliases: ['생산성 (IN+OUT)', '생산성\n(IN+OUT)', '생산성(IN+OUT)'] },
-  { key: '생산성_IN', aliases: ['생산성 (IN)', '생산성\n(IN)', '생산성(IN)'] },
-  { key: '통화시간_INOUT', aliases: ['통화시간 (IN+OUT)', '통화시간\n(IN+OUT)', '통화시간(IN+OUT)'] }
+  { key: 'TNPS', label: 'T-NPS', aliases: ['T-NPS', 'TNPS'] },
+  { key: '생산성_INOUT', label: '생산성 (IN+OUT)', aliases: ['생산성 (IN+OUT)', '생산성\n(IN+OUT)', '생산성(IN+OUT)', '생산성 IN+OUT'] },
+  { key: '생산성_IN', label: '생산성 (IN)', aliases: ['생산성 (IN)', '생산성\n(IN)', '생산성(IN)', '생산성 IN'] },
+  { key: '통화시간_INOUT', label: '통화시간 (IN+OUT)', aliases: ['통화시간 (IN+OUT)', '통화시간\n(IN+OUT)', '통화시간(IN+OUT)', '통화시간 IN+OUT'] }
 ];
+
+// LG전자AS는 "상시" Total, LG전자성수기는 "한시" Total 행을 찾는다는 점만 다르고 나머지 추출 로직은 동일하다.
+const LGEX_CENTER_CONFIG = {
+  'lge': { targetGroup: '상시', otherGroups: ['한시'] },
+  'lge_seongsu': { targetGroup: '한시', otherGroups: ['상시'] }
+};
 
 function lgexNormalize(value) {
   return String(value ?? '')
     .replace(/\u00a0/g, ' ')
     .replace(/[（）]/g, function(m) { return m === '（' ? '(' : ')'; })
     .replace(/[–—]/g, '-')
+    .replace(/\r/g, '\n')
     .trim()
     .toUpperCase()
     .replace(/\s+/g, '');
 }
 function lgexIsBlank(value) { return value === undefined || value === null || String(value).trim() === ''; }
 function lgexIsErrorValue(value) { return typeof value === 'string' && /^#/.test(value.trim()); }
+function lgexIsFormulaString(value) { return typeof value === 'string' && value.trim().startsWith('='); }
 function lgexMetricMatches(value, target) {
   const nv = lgexNormalize(value);
   if (!nv) return false;
@@ -3162,9 +3203,14 @@ function lgexAnyMetricInRow(row, limit) {
   }
   return false;
 }
+// v2: 정확히 일치하지 않아도 셀 텍스트에 단어가 포함돼 있으면(2자 이상) 인정 — "상시(1파트)"처럼 부가 텍스트가 붙은 경우 대응
 function lgexRowHasWord(row, word, limit) {
   const nw = lgexNormalize(word);
-  for (let c = 0; c < Math.min(limit, row.length); c++) { if (lgexNormalize(row[c]) === nw) return true; }
+  for (let c = 0; c < Math.min(limit, row.length); c++) {
+    const cell = lgexNormalize(row[c]);
+    if (cell === nw) return true;
+    if (nw.length >= 2 && cell.includes(nw)) return true;
+  }
   return false;
 }
 function lgexFindSheetName(workbook) {
@@ -3186,6 +3232,11 @@ function lgexParseDateValue(value, fallbackYear) {
   if (typeof value !== 'string') return null;
   const s = value.trim();
   if (!s) return null;
+  // v2: 날짜가 문자열 형태의 엑셀 일련번호(5자리)로 들어오는 경우도 지원
+  if (/^\d{5}(\.\d+)?$/.test(s)) {
+    const d = lgexExcelSerialToDate(Number(s));
+    if (d) return d;
+  }
   let m = s.match(/^(\d{4})[.\-/](\d{1,2})[.\-/](\d{1,2})\.?$/);
   if (m) { const d = new Date(Date.UTC(Number(m[1]), Number(m[2]) - 1, Number(m[3]))); return isNaN(d.getTime()) ? null : d; }
   m = s.match(/^(\d{1,2})[.\/](\d{1,2})$/);
@@ -3199,7 +3250,7 @@ function lgexDateLabel(date) { return (date.getUTCMonth() + 1) + '/' + date.getU
 
 function lgexFindDateColumns(aoa, fallbackYear) {
   let best = { rowIndex: -1, columns: [] };
-  const maxRows = Math.min(25, aoa.length);
+  const maxRows = Math.min(45, aoa.length); // v2: 25→45행으로 탐색범위 확대 (헤더가 더 아래에 있는 파일 대응)
   for (let r = 0; r < maxRows; r++) {
     const row = aoa[r] || [];
     const columns = [];
@@ -3209,11 +3260,13 @@ function lgexFindDateColumns(aoa, fallbackYear) {
     }
     if (columns.length > best.columns.length) best = { rowIndex: r, columns: columns };
   }
-  if (best.columns.length === 0) throw new Error('날짜 헤더를 찾지 못했습니다. summary 시트 상단에 날짜가 있는지 확인해 주세요.');
+  if (best.columns.length === 0) throw new Error('날짜 헤더를 찾지 못했습니다. summary 시트 상단 날짜가 엑셀 일련번호/날짜/문자 날짜 중 어떤 형태인지 확인해 주세요.');
   return best;
 }
 
-function lgexFindTargetRow(aoa, target, leftLimit) {
+// v2: targetGroup(상시/한시)이 명시적으로 발견되지 않아도, otherGroups가 나오기 전의 마지막 Total 행을 대체 후보로 사용한다.
+// (기존 버전은 "상시" 라벨을 못 찾으면 바로 실패 처리되어 실제 파일 구조와 안 맞는 경우 업로드 자체가 막히는 문제가 있었음)
+function lgexFindTargetRow(aoa, target, leftLimit, targetGroup, otherGroups) {
   const starts = [];
   for (let r = 0; r < aoa.length; r++) {
     const row = aoa[r] || [];
@@ -3225,23 +3278,36 @@ function lgexFindTargetRow(aoa, target, leftLimit) {
     const start = starts[si];
     let end = aoa.length;
     for (let r = start + 1; r < aoa.length; r++) { if (lgexAnyMetricInRow(aoa[r] || [], leftLimit)) { end = r; break; } }
-    let seenSangsi = false, sangsiRow = -1;
+
+    let seenTargetGroup = false, targetGroupRow = -1;
     for (let r = start; r < end; r++) {
       const row = aoa[r] || [];
-      const hasSangsi = lgexRowHasWord(row, '상시', leftLimit);
+      const hasTargetGroup = lgexRowHasWord(row, targetGroup, leftLimit);
       const hasTotal = lgexRowHasWord(row, 'Total', leftLimit);
-      const hasHansi = lgexRowHasWord(row, '한시', leftLimit);
-      if (hasSangsi && hasTotal) return r;
-      if (hasSangsi) { seenSangsi = true; sangsiRow = r; }
-      if (seenSangsi && r > sangsiRow && hasTotal) return r;
-      if (seenSangsi && hasHansi) break;
+      const hasOtherGroup = otherGroups.some(function(g) { return lgexRowHasWord(row, g, leftLimit); });
+
+      if (hasTargetGroup && hasTotal) return r;
+      if (hasTargetGroup) { seenTargetGroup = true; targetGroupRow = r; }
+      if (seenTargetGroup && r > targetGroupRow && hasTotal) return r;
+      if (seenTargetGroup && hasOtherGroup) break;
     }
+
+    // 보조 fallback: targetGroup 라벨이 명시되지 않았더라도, otherGroups 구간 이전의 마지막 Total 행을 후보로 사용
+    let fallback = -1;
+    for (let r = start; r < end; r++) {
+      const row = aoa[r] || [];
+      const hasTotal = lgexRowHasWord(row, 'Total', leftLimit);
+      const hasOtherGroup = otherGroups.some(function(g) { return lgexRowHasWord(row, g, leftLimit); });
+      if (hasOtherGroup) break;
+      if (hasTotal) fallback = r;
+    }
+    if (fallback >= 0) return fallback;
   }
   return -1;
 }
 
 function lgexToNumber(value) {
-  if (lgexIsBlank(value) || lgexIsErrorValue(value)) return null;
+  if (lgexIsBlank(value) || lgexIsErrorValue(value) || lgexIsFormulaString(value)) return null;
   if (typeof value === 'number') return isFinite(value) ? value : null;
   const cleaned = String(value).replace(/,/g, '').replace(/%/g, '').trim();
   if (!cleaned) return null;
@@ -3254,7 +3320,7 @@ function lgexFormatNumber(value, decimals) {
   return n.toFixed(decimals);
 }
 function lgexFormatTime(value) {
-  if (lgexIsBlank(value) || lgexIsErrorValue(value)) return '';
+  if (lgexIsBlank(value) || lgexIsErrorValue(value) || lgexIsFormulaString(value)) return '';
   if (value instanceof Date && !isNaN(value.getTime())) {
     return value.getUTCHours() + ':' + String(value.getUTCMinutes()).padStart(2, '0') + ':' + String(value.getUTCSeconds()).padStart(2, '0');
   }
@@ -3275,24 +3341,31 @@ function lgexFormatTime(value) {
   }
   return String(v);
 }
+function lgexMeaningfulValue(raw) {
+  if (lgexIsBlank(raw) || lgexIsErrorValue(raw) || lgexIsFormulaString(raw)) return false;
+  const n = lgexToNumber(raw);
+  if (n === null) return String(raw).trim() !== '';
+  return n !== 0;
+}
 
-function lgexExtract(workbook, fallbackYear) {
+function lgexExtract(workbook, fallbackYear, centerCode) {
+  const groupCfg = LGEX_CENTER_CONFIG[centerCode] || LGEX_CENTER_CONFIG['lge'];
   const sheetName = lgexFindSheetName(workbook);
   const sheet = workbook.Sheets[sheetName];
   if (!sheet) throw new Error('summary 시트를 읽을 수 없습니다.');
   const aoa = XLSX.utils.sheet_to_json(sheet, { header: 1, raw: true, defval: '' });
   const dateInfo = lgexFindDateColumns(aoa, fallbackYear);
   const firstDateCol = Math.min.apply(null, dateInfo.columns.map(function(x) { return x.colIndex; }));
-  const leftLimit = Math.max(6, Math.min(firstDateCol, 14));
+  const leftLimit = Math.max(6, Math.min(firstDateCol, 16)); // v2: 14→16열로 탐색범위 확대
 
   const targetRows = {};
   const missing = [];
   LGEX_TARGETS.forEach(function(target) {
-    const rowIndex = lgexFindTargetRow(aoa, target, leftLimit);
+    const rowIndex = lgexFindTargetRow(aoa, target, leftLimit, groupCfg.targetGroup, groupCfg.otherGroups);
     targetRows[target.key] = rowIndex;
-    if (rowIndex < 0) missing.push(target.key);
+    if (rowIndex < 0) missing.push(target.label);
   });
-  if (missing.length) throw new Error('상시 Total 행을 찾지 못한 항목: ' + missing.join(', '));
+  if (missing.length) throw new Error(groupCfg.targetGroup + ' Total 행을 찾지 못한 항목: ' + missing.join(', ') + ' / 탐색 범위: 날짜 시작열 이전 ' + leftLimit + '열');
 
   const rows = [];
   dateInfo.columns.forEach(function(dc) {
@@ -3301,7 +3374,7 @@ function lgexExtract(workbook, fallbackYear) {
     const prodInRaw = aoa[targetRows['생산성_IN']] ? aoa[targetRows['생산성_IN']][dc.colIndex] : undefined;
     const callTimeRaw = aoa[targetRows['통화시간_INOUT']] ? aoa[targetRows['통화시간_INOUT']][dc.colIndex] : undefined;
 
-    const hasMeaningful = [tnpsRaw, prodAllRaw, prodInRaw, callTimeRaw].some(function(v) { return !lgexIsBlank(v) && !lgexIsErrorValue(v); });
+    const hasMeaningful = [tnpsRaw, prodAllRaw, prodInRaw, callTimeRaw].some(lgexMeaningfulValue);
     if (!hasMeaningful) return;
 
     rows.push({
@@ -3318,7 +3391,7 @@ function lgexExtract(workbook, fallbackYear) {
   });
 
   rows.sort(function(a, b) { return a.dateSort - b.dateSort; });
-  return { sheetName: sheetName, rows: rows };
+  return { sheetName: sheetName, targetGroup: groupCfg.targetGroup, rows: rows };
 }
 
 async function extractLgeExcelAndFill() {
@@ -3334,7 +3407,7 @@ async function extractLgeExcelAndFill() {
   try {
     const buffer = await file.arrayBuffer();
     const workbook = XLSX.read(buffer, { type: 'array', cellDates: false, raw: true });
-    const result = lgexExtract(workbook, fallbackYear);
+    const result = lgexExtract(workbook, fallbackYear, currentCenter);
     if (result.rows.length === 0) throw new Error('추출 대상 행은 찾았지만 표시할 날짜 데이터가 없습니다.');
 
     parsedRows = result.rows.map(function(r) { return { date: r.date, dateLabel: r.dateLabel, values: r.values }; });
@@ -3342,7 +3415,7 @@ async function extractLgeExcelAndFill() {
     document.getElementById('manualSaveBtn').style.display = parsedRows.length ? 'inline-block' : 'none';
 
     statusEl.className = 'status-msg ok';
-    statusEl.textContent = '추출 완료 · ' + result.sheetName + ' 시트에서 ' + parsedRows.length + '일치를 찾았습니다. 아래 표에서 확인 후 "전체 저장"을 눌러주세요.';
+    statusEl.textContent = '추출 완료 · ' + result.sheetName + ' 시트(' + result.targetGroup + ' Total 기준)에서 ' + parsedRows.length + '일치를 찾았습니다. 아래 표에서 확인 후 "전체 저장"을 눌러주세요.';
   } catch (err) {
     statusEl.className = 'status-msg err';
     statusEl.textContent = '추출 실패: ' + (err.message || err);
@@ -4049,10 +4122,10 @@ async function renderEntry() {
       + '</div>'
     : '';
 
-  const lgeExcelBox = currentCenter === 'lge'
+  const lgeExcelBox = LGEX_CENTER_CONFIG[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
-      + '<h3>엑셀 자동추출 (상시 Total)</h3>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">summary 시트가 있는 엑셀(.xlsx)을 첨부하면 날짜별 T-NPS·생산성(IN+OUT)·생산성(IN)·통화시간(IN+OUT) 상시 Total 값을 자동으로 찾아 아래 "일자별 실적 직접입력" 표에 한번에 채워줍니다. 채워진 내용을 확인한 뒤 "전체 저장"을 눌러주세요.</p>'
+      + '<h3>엑셀 자동추출 (' + LGEX_CENTER_CONFIG[currentCenter].targetGroup + ' Total)</h3>'
+      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">summary 시트가 있는 엑셀(.xlsx)을 첨부하면 날짜별 T-NPS·생산성(IN+OUT)·생산성(IN)·통화시간(IN+OUT) ' + LGEX_CENTER_CONFIG[currentCenter].targetGroup + ' Total 값을 자동으로 찾아 아래 "일자별 실적 직접입력" 표에 한번에 채워줍니다. 채워진 내용을 확인한 뒤 "전체 저장"을 눌러주세요.</p>'
       + '<input type="file" id="lgeExcelFile" accept=".xlsx,.xlsm,.xls">'
       + '<button class="btn-secondary" onclick="extractLgeExcelAndFill()">추출해서 채우기</button>'
       + '<div class="status-msg" id="lgeExcelStatus"></div>'
@@ -4215,7 +4288,8 @@ function loadRowForEdit(idx) {
 const ATTENDANCE_SEMI_AUTO = {
   'kbjeongbi': { defaultTO: 15, defaultStaff: 15, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' },
   // LG전자: TO 19명(관리자4+상담사15) · 재직 19명(관리자1+상담사15)은 고정값으로 자동 채움, 상담사 투입인원(기본 14명)만 실제로 매일 달라지는 값
-  'lge': { defaultTO: 19, defaultStaff: 19, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
+  'lge': { defaultTO: 19, defaultStaff: 19, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' },
+  'lge_seongsu': { defaultTO: 19, defaultStaff: 19, defaultManual: 14, manualKey: '상담사_투입인원', manualLabel: '상담사 투입인원', toKey: 'TO', staffKey: '재직인원' }
 };
 
 let attRangeRows = [];
