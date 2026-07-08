@@ -25,7 +25,13 @@
 
   .topbar { display: flex; align-items: center; justify-content: space-between; background: #fff; padding: 14px 24px; border-bottom: 1px solid #e7e8ec; }
   .topbar h1 { font-size: 18px; margin: 0; }
-  .topbar .actions { display: flex; gap: 8px; }
+  .topbar .actions { display: flex; gap: 8px; align-items: center; }
+  .account-menu-wrap { position: relative; display: inline-block; }
+  .account-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 6px; background: #fff; border: 1px solid #e7e8ec; border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.12); z-index: 60; overflow: hidden; min-width: 170px; }
+  .account-menu.open { display: block; }
+  .account-menu button { display: block; width: 100%; text-align: left; padding: 10px 14px; font-size: 13px; border: none; background: #fff; cursor: pointer; color: #3c4250; white-space: nowrap; }
+  .account-menu button:hover { background: #f6f7f9; }
+  .account-menu button.danger { color: #c94040; }
   .btn-primary { background: #FE2E36; color: #FFFFFF; border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
   .btn-outline { background: #fff; color: #FE2E36; border: 1px solid #FE2E36; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
   .btn-ghost { background: #fff; color: #5b6472; border: 1px solid #d9dce1; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
@@ -39,29 +45,30 @@
   .maintab.active { color: #FE2E36; border-bottom-color: #FE2E36; font-weight: 600; }
 
   .layout { display: flex; min-height: calc(100vh - 96px); }
-  .sidebar { width: 200px; background: #fff; border-right: 1px solid #e7e8ec; padding: 16px 0; flex-shrink: 0; display: flex; flex-direction: column; }
-  .sidebar-header { padding: 4px 20px 14px; border-bottom: 1px solid #f0f1f3; margin-bottom: 10px; }
-  .sidebar-title { font-size: 14px; font-weight: 800; color: #1c1f26; }
-  .sidebar-subtitle { font-size: 11px; color: #9aa1ac; margin-top: 2px; }
-  .sidebar-conn { font-size: 11px; color: #1a8f4c; margin-top: 8px; display: flex; align-items: center; gap: 5px; }
-  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #1a8f4c; box-shadow: 0 0 0 3px rgba(26,143,76,.15); }
-  .sidebar-custom { margin-top: auto; border-top: 1px solid #f0f1f3; padding: 12px 20px; }
-  .sidebar-custom-locked { width: 100%; border: 1px dashed #d9dce1; background: #f8f9fb; border-radius: 8px; padding: 10px; font-size: 12px; color: #9aa1ac; cursor: pointer; }
+  .sidebar { width: 210px; background: #1a1d24; border-right: 1px solid #262a33; padding: 16px 0; flex-shrink: 0; display: flex; flex-direction: column; }
+  .sidebar-header { padding: 4px 20px 14px; border-bottom: 1px solid #2a2e38; margin-bottom: 10px; }
+  .sidebar-title { font-size: 14px; font-weight: 800; color: #fff; }
+  .sidebar-subtitle { font-size: 11px; color: #8b93a3; margin-top: 2px; }
+  .sidebar-conn { font-size: 11px; color: #3ddc84; margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 3px rgba(61,220,132,.18); }
+  .sidebar-custom { margin-top: auto; border-top: 1px solid #2a2e38; padding: 12px 20px; }
+  .sidebar-custom-locked { width: 100%; border: 1px dashed #3a3f4b; background: #21252e; border-radius: 8px; padding: 10px; font-size: 12px; color: #8b93a3; cursor: pointer; }
   .sidebar-custom-locked:hover { border-color: #FE2E36; color: #FE2E36; }
-  .sidebar-custom summary { cursor: pointer; font-size: 12px; font-weight: 700; color: #5b6472; list-style: none; }
+  .sidebar-custom summary { cursor: pointer; font-size: 12px; font-weight: 700; color: #c3c8d1; list-style: none; }
   .sidebar-custom summary::-webkit-details-marker { display: none; }
   .sidebar-custom-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
-  .sidebar-custom-body a { font-size: 12px; color: #3c4250; text-decoration: none; padding: 6px 8px; border-radius: 6px; background: #f8f9fb; }
-  .sidebar-custom-body a:hover { background: #FFE8E9; color: #FE2E36; }
+  .sidebar-custom-body a { font-size: 12px; color: #c3c8d1; text-decoration: none; padding: 6px 8px; border-radius: 6px; background: #21252e; }
+  .sidebar-custom-body a:hover { background: #3a1518; color: #FF6B70; }
   .sidebar-custom-key { margin-top: 4px; }
   .key-row { display: flex; gap: 4px; }
-  .key-row input { flex: 1; min-width: 0; font-size: 10px; padding: 5px 6px; border: 1px solid #e6eaf2; border-radius: 5px; color: #9aa1ac; }
-  .key-row button { border: none; background: #f0f1f3; border-radius: 5px; font-size: 11px; padding: 5px 8px; cursor: pointer; }
-  .sidebar .section-label { padding: 6px 20px; font-size: 12px; color: #9aa1ac; }
+  .key-row input { flex: 1; min-width: 0; font-size: 10px; padding: 5px 6px; border: 1px solid #3a3f4b; border-radius: 5px; color: #8b93a3; background: #21252e; }
+  .key-row button { border: none; background: #2a2e38; color: #c3c8d1; border-radius: 5px; font-size: 11px; padding: 5px 8px; cursor: pointer; }
+  .sidebar .section-label { padding: 6px 20px; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .03em; }
   .sidebar-search { padding: 4px 20px 10px; }
-  .sidebar-search input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #e6eaf2; border-radius: 8px; font-size: 12px; background: #f8f9fb; }
-  .sidebar-search input:focus { outline: none; border-color: #FE2E36; background: #fff; }
-  .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: #3c4250; display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: nowrap; }
+  .sidebar-search input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #2a2e38; border-radius: 8px; font-size: 12px; background: #21252e; color: #e5e7eb; }
+  .sidebar-search input::placeholder { color: #6b7280; }
+  .sidebar-search input:focus { outline: none; border-color: #FE2E36; background: #262a33; }
+  .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: #c3c8d1; display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: nowrap; }
   .center-item .center-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
   .center-admin-controls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
   .kebab-wrap { position: relative; display: inline-block; }
@@ -70,9 +77,12 @@
   .kebab-menu button { display: block; width: 100%; text-align: left; padding: 9px 14px; font-size: 12.5px; border: none; background: #fff; cursor: pointer; color: #3c4250; white-space: nowrap; }
   .kebab-menu button:hover { background: #f6f7f9; }
   .kebab-menu button.danger { color: #c94040; }
-  .center-item.active { background: #FFE8E9; color: #FE2E36; font-weight: 600; border-right: 3px solid #FE2E36; }
-  .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #c7cbd3; flex-shrink: 0; }
+  .center-item:hover { background: #21252e; }
+  .center-item.active { background: #3a1518; color: #FF6B70; font-weight: 600; border-right: 3px solid #FE2E36; }
+  .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #4b5262; flex-shrink: 0; }
   .center-item.active .dot { background: #FE2E36; }
+  .sidebar .mv { background: #2a2e38; color: #c3c8d1; }
+  .sidebar .mv:hover { background: #3a3f4b; }
 
   main { flex: 1; min-width: 0; padding: 22px 26px; }
 
@@ -628,19 +638,40 @@ async function refreshAfterAuthChange() {
 function renderTopbarAuth() {
   const el = document.getElementById('topbarActions');
   if (!el) return;
-  const centerPwBtn = currentCenter ? '<button class="btn-ghost" onclick="showChangeCenterPw()">센터 비번변경</button>' : '';
+  const centerPwItem = currentCenter ? '<button onclick="closeAccountMenu();showChangeCenterPw()">🔑 센터 비번변경</button>' : '';
   if (workspaceUnlocked) {
     el.innerHTML = '<span class="btn-outline" style="cursor:default;">관리자 모드</span>'
-      + centerPwBtn
-      + '<button class="btn-ghost" onclick="showChangeWorkspacePw()">관리자화면 비번변경</button>'
-      + '<button class="btn-ghost" onclick="lockWorkspace()">잠그기</button>'
-      + '<button class="btn-ghost" onclick="toggleBackupPanel()">백업/복원</button>';
+      + '<div class="account-menu-wrap">'
+      + '<button class="btn-ghost" onclick="toggleAccountMenu(event)">⚙ 계정 ▾</button>'
+      + '<div class="account-menu" id="accountMenu">'
+      + centerPwItem
+      + '<button onclick="closeAccountMenu();showChangeWorkspacePw()">🔑 관리자화면 비번변경</button>'
+      + '<button onclick="closeAccountMenu();toggleBackupPanel()">💾 백업/복원</button>'
+      + '<button onclick="closeAccountMenu();lockWorkspace()" class="danger">🔒 잠그기</button>'
+      + '</div></div>';
   } else {
-    el.innerHTML = centerPwBtn
-      + '<button class="btn-ghost" onclick="toggleBackupPanel()">백업/복원</button>'
+    el.innerHTML = '<div class="account-menu-wrap">'
+      + '<button class="btn-ghost" onclick="toggleAccountMenu(event)">⚙ 계정 ▾</button>'
+      + '<div class="account-menu" id="accountMenu">'
+      + centerPwItem
+      + '<button onclick="closeAccountMenu();toggleBackupPanel()">💾 백업/복원</button>'
+      + '</div></div>'
       + '<button class="btn-primary" onclick="promptWorkspaceLogin()">관리자화면 로그인</button>';
   }
 }
+
+function toggleAccountMenu(evt) {
+  evt.stopPropagation();
+  const menu = document.getElementById('accountMenu');
+  const isOpen = menu.classList.contains('open');
+  closeAccountMenu();
+  if (!isOpen) menu.classList.add('open');
+}
+function closeAccountMenu() {
+  const menu = document.getElementById('accountMenu');
+  if (menu) menu.classList.remove('open');
+}
+document.addEventListener('click', closeAccountMenu);
 
 function showChangeWorkspacePw() {
   const cur = (prompt('현재 관리자화면 비밀번호:') || '').trim();
@@ -883,8 +914,8 @@ function renderSidebar() {
   if (listLabel) listLabel.textContent = '센터 (' + allCentersMeta.length + ')';
   const list = document.getElementById('centerList');
   const overviewHtml = workspaceUnlocked
-    ? '<div class="center-item ' + (viewingWorkspaceOverview ? 'active' : '') + '" onclick="selectWorkspaceOverview()" style="font-weight:700;border-bottom:1px solid #f0f1f3;margin-bottom:4px;">'
-      + '<span class="center-name-text"><span class="dot" style="background:#FE2E36;"></span> 📊 전체 현황</span>'
+    ? '<div class="center-item ' + (viewingWorkspaceOverview ? 'active' : '') + '" onclick="selectWorkspaceOverview()" style="font-weight:700;border-bottom:1px solid #2a2e38;margin-bottom:4px;">'
+      + '<span class="center-name-text">📊 전체 현황</span>'
       + '</div>'
     : '';
 
@@ -910,7 +941,7 @@ function renderSidebar() {
         + '</span>'
       : '';
     return '<div class="center-item ' + activeCls + '" onclick="selectCenter(\'' + c.center_code + '\')" title="' + c.center_name + '">'
-      + '<span class="center-name-text"><span class="dot"></span> ' + lockIcon + c.center_name + '</span>'
+      + '<span class="center-name-text">🏢 ' + lockIcon + c.center_name + '</span>'
       + adminControls
       + '</div>';
   }).join('')
@@ -2875,7 +2906,7 @@ function drawMiniCharts(records) {
 
       if (!isThresholdLine) {
         datasets.push({
-          type: 'line', label: label, data: data, borderColor: '#9B9E9F', backgroundColor: 'transparent',
+          type: 'line', label: label, data: data, borderColor: lineColor, backgroundColor: 'transparent',
           yAxisID: 'yRate', tension: 0.25, pointRadius: 2, order: 1
         });
         return;
