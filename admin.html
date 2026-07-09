@@ -3436,12 +3436,14 @@ function renderUploadArchive() {
     const sizeKb = f.file_size ? (f.file_size / 1024).toFixed(1) + ' KB' : '-';
     const uploadedAt = f.uploaded_at ? new Date(f.uploaded_at).toLocaleString('ko-KR') : '-';
     return '<tr>'
+      + '<td><input type="checkbox" class="archive-check" value="' + f.id + '" onchange="updateArchiveCheckedCount()"></td>'
       + '<td>' + (centerMeta ? centerMeta.center_name : f.center_code) + '</td>'
       + '<td style="max-width:280px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;" title="' + f.file_name + '">' + f.file_name + '</td>'
       + '<td>' + (f.file_type || '-') + '</td>'
       + '<td>' + sizeKb + '</td>'
       + '<td>' + uploadedAt + '</td>'
-      + '<td><button class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="downloadArchiveFile(\'' + f.id + '\')">⬇ 다운로드</button></td>'
+      + '<td style="white-space:nowrap;"><button class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="downloadArchiveFile(\'' + f.id + '\')">⬇ 다운로드</button> '
+      + '<button style="padding:4px 10px;font-size:12px;border:none;background:none;color:#c94040;cursor:pointer;" onclick="deleteArchiveFile(\'' + f.id + '\')">✕ 삭제</button></td>'
       + '</tr>';
   }).join('');
 
@@ -3454,13 +3456,57 @@ function renderUploadArchive() {
     + '<select id="archiveCenterSelect" onchange="applyArchiveFilter()" style="padding:8px 10px;border:1px solid #e6eaf2;border-radius:8px;font-size:13px;">' + centerOptions + '</select>'
     + '<input type="text" id="archiveSearchInput" placeholder="🔍 파일명 검색" value="' + archiveSearchQuery + '" onkeydown="if(event.key===\'Enter\')applyArchiveFilter()" style="flex:1;min-width:180px;padding:8px 10px;border:1px solid #e6eaf2;border-radius:8px;font-size:13px;">'
     + '<button class="btn-primary" style="padding:8px 14px;" onclick="applyArchiveFilter()">검색</button>'
+    + '<button class="btn-secondary" style="padding:8px 14px;color:#c94040;" onclick="deleteArchiveSelected()" id="archiveBulkDeleteBtn" disabled>선택 삭제 (<span id="archiveCheckedCount">0</span>)</button>'
     + '</div>'
     + '<div class="panel"><div class="table-scroll"><table class="ws-table">'
-    + '<thead><tr><th>센터</th><th>파일명</th><th>구분</th><th>용량</th><th>업로드일시</th><th></th></tr></thead>'
-    + '<tbody>' + (rows || '<tr><td colspan="6" style="text-align:center;color:#9aa1ac;padding:24px;">저장된 파일이 없습니다.</td></tr>') + '</tbody>'
+    + '<thead><tr><th><input type="checkbox" id="archiveCheckAll" onchange="toggleArchiveCheckAll(this)"></th><th>센터</th><th>파일명</th><th>구분</th><th>용량</th><th>업로드일시</th><th></th></tr></thead>'
+    + '<tbody>' + (rows || '<tr><td colspan="7" style="text-align:center;color:#9aa1ac;padding:24px;">저장된 파일이 없습니다.</td></tr>') + '</tbody>'
     + '</table></div></div>'
     + '<p style="font-size:12px;color:#9aa1ac;margin-top:10px;">최근 300건까지 표시됩니다 · 데이터입력에서 파일을 첨부/추출할 때마다 원본이 자동으로 여기에 보관됩니다</p>'
     + '</div>';
+}
+
+function toggleArchiveCheckAll(el) {
+  document.querySelectorAll('.archive-check').forEach(function(c) { c.checked = el.checked; });
+  updateArchiveCheckedCount();
+}
+
+function updateArchiveCheckedCount() {
+  const count = document.querySelectorAll('.archive-check:checked').length;
+  const countEl = document.getElementById('archiveCheckedCount');
+  if (countEl) countEl.textContent = String(count);
+  const btn = document.getElementById('archiveBulkDeleteBtn');
+  if (btn) btn.disabled = count === 0;
+}
+
+async function deleteArchiveFile(id) {
+  if (!confirm('이 파일을 삭제하시겠습니까? 원본 파일과 기록이 모두 삭제되며 되돌릴 수 없습니다.')) return;
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=archive-delete-file', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], id: id })
+    });
+    const data = await res.json();
+    if (!data.success) { alert('삭제 실패: ' + data.error); return; }
+    await loadUploadArchive();
+    renderUploadArchive();
+  } catch (e) { alert('삭제 실패: ' + e.message); }
+}
+
+async function deleteArchiveSelected() {
+  const ids = Array.from(document.querySelectorAll('.archive-check:checked')).map(function(c) { return c.value; });
+  if (ids.length === 0) return;
+  if (!confirm(ids.length + '개 파일을 삭제하시겠습니까? 원본 파일과 기록이 모두 삭제되며 되돌릴 수 없습니다.')) return;
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=archive-delete-files-bulk', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], ids: ids })
+    });
+    const data = await res.json();
+    if (!data.success) { alert('삭제 실패: ' + data.error); return; }
+    await loadUploadArchive();
+    renderUploadArchive();
+  } catch (e) { alert('삭제 실패: ' + e.message); }
 }
 
 function applyArchiveFilter() {
