@@ -884,6 +884,7 @@ async function loadOverviewForCurrent() {
 let viewingWorkspaceOverview = false;
 let viewingSettingsPage = false;
 let viewingUploadArchive = false;
+let categorySchemaCache = {}; // 센터별 업무유형별 스키마 캐시 (누락되어 ReferenceError를 일으키던 선언 추가)
 let monthlyToCache = {};
 let kpiSettingsCache = {};
 let kpiMonthlyTargetsCache = {};
@@ -4613,7 +4614,6 @@ async function renderEntry() {
 
   const pasteHtml = '<div class="entry-wrap panel">'
     + '<h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>'
-    + '<div class="entry-year-box"><label>📅 기준 연도</label><input type="number" id="entryYear" value="' + thisYear + '"><span class="hint">날짜가 "6/1"처럼 연도 없이 있을 때 이 연도를 사용합니다 — 붙여넣기/추출 전에 꼭 확인하세요</span></div>'
     + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)</p>'
     + '<textarea class="paste-box" id="pasteBox" placeholder="6/1	165.5	34	90.5	...&#10;6/2	164.5	34	89.5	..."></textarea>'
     + '<button class="btn-secondary" onclick="parseMultiPaste()">양식에 반영</button>'
@@ -4636,9 +4636,13 @@ async function renderEntry() {
     return '<div class="entry-method-body" data-mid="' + m.id + '"' + (i === 0 ? '' : ' style="display:none;"') + '>' + m.html + '</div>';
   }).join('');
 
+  // 기준 연도는 파일업로드/직접입력/근태 등 어떤 방식을 쓰든 공통으로 필요하므로, 선택카드 위에 항상 보이게 고정 배치
+  const yearBoxHtml = '<div class="entry-year-box"><label>📅 기준 연도</label><input type="number" id="entryYear" value="' + thisYear + '"><span class="hint">날짜가 "6/1"처럼 연도 없이 있을 때 이 연도를 사용합니다 — 붙여넣기/파일업로드 전에 꼭 확인하세요</span></div>';
+
   main.innerHTML = '<div class="entry-split">'
     + '<div class="entry-split-left"><div id="inputGuideArea"></div></div>'
     + '<div class="entry-split-right">'
+    + yearBoxHtml
     + '<div class="entry-pillrow">' + pillsHtml + '</div>'
     + bodiesHtml
     + '</div>'
@@ -5093,10 +5097,6 @@ async function saveAttAndPerfCombined() {
   parsedRows.forEach(function(r, idx) { perfByDate[r.date] = idx; });
   const excludedPerfOnly = parsedRows.filter(function(r) { return attRangeRows.indexOf(r.date) === -1; }).map(function(r) { return r.date; });
 
-  const BATCH_SIZE = 5;
-  let success = 0, fail = 0;
-  const failDates = [];
-
   // LG전자AS/성수기는 투입인원이 0명인 날짜는 공휴일이 아니어도 저장 대상에서 제외한다.
   const skipZeroManual = (currentCenter === 'lge' || currentCenter === 'lge_seongsu');
   const skippedDates = [];
@@ -5108,46 +5108,50 @@ async function saveAttAndPerfCombined() {
     saveIdx.push(idx);
   });
 
-  for (let start = 0; start < saveIdx.length; start += BATCH_SIZE) {
-    const batchIdx = saveIdx.slice(start, start + BATCH_SIZE);
-    statusEl.className = 'status-msg';
-    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, saveIdx.length) + '/' + saveIdx.length + ')';
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '저장 중... (' + saveIdx.length + '건 한번에 반영)';
 
-    const results = await Promise.all(batchIdx.map(function(idx) {
-      const date = attRangeRows[idx];
-      const toVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="to"]').value;
-      const staffVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="staff"]').value;
-      const manualVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]').value;
+  const entries = saveIdx.map(function(idx) {
+    const date = attRangeRows[idx];
+    const toVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="to"]').value;
+    const staffVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="staff"]').value;
+    const manualVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]').value;
 
-      const values = {};
-      values[cfg.toKey] = { value: toVal, group: 'attendance' };
-      values[cfg.staffKey] = { value: staffVal, group: 'attendance' };
-      values[cfg.manualKey] = { value: manualVal, group: 'attendance' };
+    const values = {};
+    values[cfg.toKey] = { value: toVal, group: 'attendance' };
+    values[cfg.staffKey] = { value: staffVal, group: 'attendance' };
+    values[cfg.manualKey] = { value: manualVal, group: 'attendance' };
 
-      const perfIdx = perfByDate[date];
-      if (perfIdx !== undefined) {
-        const inputs = document.querySelectorAll('.template-input[data-row="' + perfIdx + '"]');
-        inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
-      }
+    const perfIdx = perfByDate[date];
+    if (perfIdx !== undefined) {
+      const inputs = document.querySelectorAll('.template-input[data-row="' + perfIdx + '"]');
+      inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+    }
+    return { report_date: date, values: values };
+  });
 
-      return fetch(SB_FUNCTION_URL + '?action=manual-entry', {
-        method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token, report_date: date, values: values })
-      }).then(function(res) { return res.json(); })
-        .then(function(data) { return { date: date, ok: !!data.success }; })
-        .catch(function() { return { date: date, ok: false }; });
-    }));
-
-    results.forEach(function(r) { if (r.ok) success++; else { fail++; failDates.push(r.date); } });
+  let success = 0, fail = entries.length;
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry-bulk', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, entries: entries })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '저장 실패');
+    success = data.count || entries.length;
+    fail = 0;
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '저장 실패: ' + e.message;
+    return;
   }
 
   const perfMatchedCount = attRangeRows.filter(function(d) { return perfByDate[d] !== undefined; }).length;
-  let msg = success + '건 저장 완료 (근태 ' + attRangeRows.length + '일 중 실적 동반 반영 ' + perfMatchedCount + '일)';
-  if (fail) msg += ', ' + fail + '건 실패(' + failDates.join(', ') + ')';
+  let msg = success + '건 한번에 저장 완료 (근태 ' + attRangeRows.length + '일 중 실적 동반 반영 ' + perfMatchedCount + '일)';
   if (excludedPerfOnly.length) msg += '. 근태 범위에 없어 제외된 실적 날짜: ' + excludedPerfOnly.join(', ');
   if (skippedDates.length) msg += '. 투입인원 0명이라 제외된 날짜 ' + skippedDates.length + '건: ' + skippedDates.join(', ');
 
-  statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
+  statusEl.className = 'status-msg ok';
   statusEl.textContent = msg;
 
   attRangeRows = [];
@@ -5166,9 +5170,6 @@ async function saveAttRangeRows() {
   const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
   const statusEl = document.getElementById('attStatus');
   const token = centerTokenMap[currentCenter];
-  const BATCH_SIZE = 5;
-  let success = 0, fail = 0;
-  const failDates = [];
 
   // LG전자AS/성수기는 투입인원이 0명인 날짜(휴무·임시휴점 등)는 공휴일이 아니어도 저장 대상에서 제외한다.
   const skipZeroManual = (currentCenter === 'lge' || currentCenter === 'lge_seongsu');
@@ -5181,35 +5182,38 @@ async function saveAttRangeRows() {
     saveIdx.push(idx);
   });
 
-  for (let start = 0; start < saveIdx.length; start += BATCH_SIZE) {
-    const batchIdx = saveIdx.slice(start, start + BATCH_SIZE);
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '저장 중... (' + saveIdx.length + '건 한번에 반영)';
 
-    statusEl.className = 'status-msg';
-    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, saveIdx.length) + '/' + saveIdx.length + ')';
+  const entries = saveIdx.map(function(idx) {
+    const date = attRangeRows[idx];
+    const toVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="to"]').value;
+    const staffVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="staff"]').value;
+    const manualVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]').value;
+    const values = {};
+    values[cfg.toKey] = { value: toVal, group: 'attendance' };
+    values[cfg.staffKey] = { value: staffVal, group: 'attendance' };
+    values[cfg.manualKey] = { value: manualVal, group: 'attendance' };
+    return { report_date: date, values: values };
+  });
 
-    const results = await Promise.all(batchIdx.map(function(idx) {
-      const date = attRangeRows[idx];
-      const toVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="to"]').value;
-      const staffVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="staff"]').value;
-      const manualVal = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]').value;
-
-      const values = {};
-      values[cfg.toKey] = { value: toVal, group: 'attendance' };
-      values[cfg.staffKey] = { value: staffVal, group: 'attendance' };
-      values[cfg.manualKey] = { value: manualVal, group: 'attendance' };
-
-      return fetch(SB_FUNCTION_URL + '?action=manual-entry', {
-        method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token, report_date: date, values: values })
-      }).then(function(res) { return res.json(); })
-        .then(function(data) { return { date: date, ok: !!data.success }; })
-        .catch(function() { return { date: date, ok: false }; });
-    }));
-
-    results.forEach(function(r) { if (r.ok) success++; else { fail++; failDates.push(r.date); } });
+  let success = 0, fail = entries.length;
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry-bulk', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, entries: entries })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '저장 실패');
+    success = data.count || entries.length;
+    fail = 0;
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '저장 실패: ' + e.message;
+    return;
   }
 
-  let msg = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
+  let msg = success + '건 모두 한번에 저장 완료되었습니다.';
   if (skippedDates.length) msg += ' · 투입인원 0명이라 제외된 날짜 ' + skippedDates.length + '건: ' + skippedDates.join(', ');
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
   statusEl.textContent = msg;
@@ -5457,36 +5461,30 @@ function parseGroups() {
 async function saveAllRows() {
   const statusEl = document.getElementById('manualStatus');
   const token = centerTokenMap[currentCenter];
-  let success = 0, fail = 0;
-  const failDates = [];
-  const BATCH_SIZE = 5;
   statusEl.className = 'status-msg';
+  statusEl.textContent = '저장 중... (' + parsedRows.length + '건 한번에 반영)';
 
-  for (let start = 0; start < parsedRows.length; start += BATCH_SIZE) {
-    const batch = parsedRows.slice(start, start + BATCH_SIZE);
-    const batchIdx = [];
-    for (let i = start; i < Math.min(start + BATCH_SIZE, parsedRows.length); i++) batchIdx.push(i);
+  const entries = parsedRows.map(function(row, idx) {
+    const inputs = document.querySelectorAll('.template-input[data-row="' + idx + '"]');
+    const values = {};
+    inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+    return { report_date: row.date, values: values };
+  });
 
-    statusEl.textContent = '저장 중... (' + Math.min(start + BATCH_SIZE, parsedRows.length) + '/' + parsedRows.length + ')';
-
-    const results = await Promise.all(batchIdx.map(function(idx) {
-      const row = parsedRows[idx];
-      const inputs = document.querySelectorAll('.template-input[data-row="' + idx + '"]');
-      const values = {};
-      inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
-      return fetch(SB_FUNCTION_URL + '?action=manual-entry', {
-        method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-        body: JSON.stringify({ token: token, report_date: row.date, values: values })
-      }).then(function(res) { return res.json(); })
-        .then(function(data) { return { date: row.date, ok: !!data.success }; })
-        .catch(function() { return { date: row.date, ok: false }; });
-    }));
-
-    results.forEach(function(r) { if (r.ok) success++; else { fail++; failDates.push(r.date); } });
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry-bulk', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, entries: entries })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '저장 실패');
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = (data.count || entries.length) + '건 모두 한번에 저장 완료되었습니다.';
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '저장 실패: ' + e.message;
+    return;
   }
-
-  statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
-  statusEl.textContent = fail ? (success + '건 저장 완료, ' + fail + '건 실패 (' + failDates.join(', ') + ')') : (success + '건 모두 저장 완료되었습니다.');
   document.getElementById('pasteBox').value = '';
   document.getElementById('manualSaveBtn').style.display = 'none';
   parsedRows = [];
