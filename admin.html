@@ -20,227 +20,249 @@
   }, true);
 </script>
 <style>
+  /* KKANGBY Premium Dark — look & feel only (기능 불변) */
+  :root {
+    --kb-bg:#000000; --kb-surface:#1d1d1f; --kb-surface-2:#2c2c2e; --kb-elevated:#111113;
+    --kb-border:#2c2c2e; --kb-border-soft:#3a3a3c;
+    --kb-text:#f5f5f7; --kb-muted:#a1a1a6; --kb-faint:#6e6e73;
+    --kb-accent:#0071e3; --kb-accent-2:#00A5FF; --kb-accent-soft:rgba(0,113,227,.18);
+    --kb-danger:#ff453a; --kb-success:#30d158;
+    --dash-accent:#0071e3; --dash-accent-dark:#0071e3;
+  }
   * { box-sizing: border-box; }
-  body { margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif; background: #f4f5f7; color: #1c1f26; }
+  body { margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif; background: var(--kb-bg); color: var(--kb-text); }
 
-  .topbar { display: flex; align-items: center; justify-content: space-between; background: #fff; padding: 14px 24px; border-bottom: 1px solid #e7e8ec; }
-  .topbar h1 { font-size: 18px; margin: 0; }
+  .topbar { display: flex; align-items: center; justify-content: space-between; background: var(--kb-surface); padding: 14px 24px; border-bottom: 1px solid var(--kb-border); }
+  .topbar h1 { font-size: 18px; margin: 0; color: var(--kb-text); }
   .topbar .actions { display: flex; gap: 8px; align-items: center; }
   .account-menu-wrap { position: relative; display: inline-block; }
-  .account-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 6px; background: #fff; border: 1px solid #e7e8ec; border-radius: 10px; box-shadow: 0 6px 20px rgba(0,0,0,.12); z-index: 60; overflow: hidden; min-width: 170px; }
+  .account-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 6px; background: var(--kb-surface); border: 1px solid var(--kb-border); border-radius: 12px; box-shadow: 0 8px 32px rgba(0,0,0,.5); z-index: 60; overflow: hidden; min-width: 170px; }
   .account-menu.open { display: block; }
-  .account-menu button { display: block; width: 100%; text-align: left; padding: 10px 14px; font-size: 13px; border: none; background: #fff; cursor: pointer; color: #3c4250; white-space: nowrap; }
-  .account-menu button:hover { background: #f6f7f9; }
-  .account-menu button.danger { color: #c94040; }
-  .btn-primary { background: #FE2E36; color: #FFFFFF; border: none; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
-  .btn-outline { background: #fff; color: #FE2E36; border: 1px solid #FE2E36; border-radius: 8px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
-  .btn-ghost { background: #fff; color: #5b6472; border: 1px solid #d9dce1; border-radius: 8px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .account-menu button { display: block; width: 100%; text-align: left; padding: 10px 14px; font-size: 13px; border: none; background: var(--kb-surface); cursor: pointer; color: var(--kb-text); white-space: nowrap; }
+  .account-menu button:hover { background: var(--kb-surface-2); }
+  .account-menu button.danger { color: var(--kb-danger); }
+  .btn-primary { background: var(--kb-accent); color: #FFFFFF; border: none; border-radius: 999px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-outline { background: transparent; color: var(--kb-accent); border: 1px solid var(--kb-accent); border-radius: 999px; padding: 8px 14px; font-size: 13px; font-weight: 600; cursor: pointer; }
+  .btn-ghost { background: var(--kb-elevated); color: var(--kb-muted); border: 1px solid var(--kb-border); border-radius: 999px; padding: 8px 14px; font-size: 13px; cursor: pointer; }
+  .btn-ghost:hover { color: var(--kb-text); background: var(--kb-surface-2); }
 
-  .backup-panel { display: none; background: #fff; border-bottom: 1px solid #e7e8ec; padding: 14px 24px; gap: 10px; flex-wrap: wrap; align-items: center; }
+  .backup-panel { display: none; background: var(--kb-surface); border-bottom: 1px solid var(--kb-border); padding: 14px 24px; gap: 10px; flex-wrap: wrap; align-items: center; }
   .backup-panel.open { display: flex; }
-  .backup-panel .msg { font-size: 12px; color: #5b6472; }
+  .backup-panel .msg { font-size: 12px; color: var(--kb-muted); }
 
-  .maintabs { display: flex; gap: 4px; background: #fff; padding: 0 24px; border-bottom: 1px solid #e7e8ec; }
-  .maintab { padding: 12px 16px; font-size: 14px; color: #5b6472; cursor: pointer; border-bottom: 2px solid transparent; }
-  .maintab.active { color: #FE2E36; border-bottom-color: #FE2E36; font-weight: 600; }
+  .maintabs { display: flex; gap: 4px; background: var(--kb-surface); padding: 0 24px; border-bottom: 1px solid var(--kb-border); }
+  .maintab { padding: 12px 16px; font-size: 14px; color: var(--kb-muted); cursor: pointer; border-bottom: 2px solid transparent; }
+  .maintab.active { color: var(--kb-text); border-bottom-color: var(--kb-accent); font-weight: 600; }
 
   .layout { display: flex; min-height: calc(100vh - 96px); }
-  .sidebar { width: 210px; background: #1a1d24; border-right: 1px solid #262a33; padding: 16px 0; flex-shrink: 0; display: flex; flex-direction: column; }
-  .sidebar-header { padding: 4px 20px 14px; border-bottom: 1px solid #2a2e38; margin-bottom: 10px; }
-  .sidebar-title { font-size: 14px; font-weight: 800; color: #fff; }
-  .sidebar-subtitle { font-size: 11px; color: #8b93a3; margin-top: 2px; }
-  .sidebar-conn { font-size: 11px; color: #3ddc84; margin-top: 8px; display: flex; align-items: center; gap: 5px; }
-  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: #3ddc84; box-shadow: 0 0 0 3px rgba(61,220,132,.18); }
-  .sidebar-custom { margin-top: auto; border-top: 1px solid #2a2e38; padding: 12px 20px; }
-  .sidebar-custom-locked { width: 100%; border: 1px dashed #3a3f4b; background: #21252e; border-radius: 8px; padding: 10px; font-size: 12px; color: #8b93a3; cursor: pointer; }
-  .sidebar-custom-locked:hover { border-color: #FE2E36; color: #FE2E36; }
-  .sidebar-custom summary { cursor: pointer; font-size: 12px; font-weight: 700; color: #c3c8d1; list-style: none; }
+  .sidebar { width: 210px; background: var(--kb-surface); border-right: 1px solid var(--kb-border); padding: 16px 0; flex-shrink: 0; display: flex; flex-direction: column; }
+  .sidebar-header { padding: 4px 20px 14px; border-bottom: 1px solid var(--kb-border); margin-bottom: 10px; }
+  .sidebar-title { font-size: 14px; font-weight: 800; color: var(--kb-text); }
+  .sidebar-subtitle { font-size: 11px; color: var(--kb-faint); margin-top: 2px; }
+  .sidebar-conn { font-size: 11px; color: var(--kb-success); margin-top: 8px; display: flex; align-items: center; gap: 5px; }
+  .conn-dot { width: 7px; height: 7px; border-radius: 50%; background: var(--kb-success); box-shadow: 0 0 0 3px rgba(48,209,88,.18); }
+  .sidebar-custom { margin-top: auto; border-top: 1px solid var(--kb-border); padding: 12px 20px; }
+  .sidebar-custom-locked { width: 100%; border: 1px dashed var(--kb-border-soft); background: var(--kb-elevated); border-radius: 12px; padding: 10px; font-size: 12px; color: var(--kb-faint); cursor: pointer; }
+  .sidebar-custom-locked:hover { border-color: var(--kb-accent); color: var(--kb-accent); }
+  .sidebar-custom summary { cursor: pointer; font-size: 12px; font-weight: 700; color: var(--kb-muted); list-style: none; }
   .sidebar-custom summary::-webkit-details-marker { display: none; }
   .sidebar-custom-body { margin-top: 10px; display: flex; flex-direction: column; gap: 8px; }
-  .sidebar-custom-body a { font-size: 12px; color: #c3c8d1; text-decoration: none; padding: 6px 8px; border-radius: 6px; background: #21252e; }
-  .sidebar-custom-body a:hover { background: #3a1518; color: #FF6B70; }
+  .sidebar-custom-body a { font-size: 12px; color: var(--kb-muted); text-decoration: none; padding: 6px 8px; border-radius: 8px; background: var(--kb-elevated); }
+  .sidebar-custom-body a:hover { background: var(--kb-accent-soft); color: var(--kb-accent-2); }
   .sidebar-custom-key { margin-top: 4px; }
   .key-row { display: flex; gap: 4px; }
-  .key-row input { flex: 1; min-width: 0; font-size: 10px; padding: 5px 6px; border: 1px solid #3a3f4b; border-radius: 5px; color: #8b93a3; background: #21252e; }
-  .key-row button { border: none; background: #2a2e38; color: #c3c8d1; border-radius: 5px; font-size: 11px; padding: 5px 8px; cursor: pointer; }
-  .sidebar .section-label { padding: 6px 20px; font-size: 11px; color: #6b7280; text-transform: uppercase; letter-spacing: .03em; }
+  .key-row input { flex: 1; min-width: 0; font-size: 10px; padding: 5px 6px; border: 1px solid var(--kb-border); border-radius: 8px; color: var(--kb-muted); background: var(--kb-elevated); }
+  .key-row button { border: none; background: var(--kb-surface-2); color: var(--kb-muted); border-radius: 8px; font-size: 11px; padding: 5px 8px; cursor: pointer; }
+  .sidebar .section-label { padding: 6px 20px; font-size: 11px; color: var(--kb-faint); text-transform: uppercase; letter-spacing: .03em; }
   .sidebar-search { padding: 4px 20px 10px; }
-  .sidebar-search input { width: 100%; box-sizing: border-box; padding: 8px 10px; border: 1px solid #2a2e38; border-radius: 8px; font-size: 12px; background: #21252e; color: #e5e7eb; }
-  .sidebar-search input::placeholder { color: #6b7280; }
-  .sidebar-search input:focus { outline: none; border-color: #FE2E36; background: #262a33; }
-  .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: #c3c8d1; display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: nowrap; }
+  .sidebar-search input { width: 100%; box-sizing: border-box; padding: 8px 12px; border: 1px solid var(--kb-border); border-radius: 999px; font-size: 12px; background: var(--kb-elevated); color: var(--kb-text); }
+  .sidebar-search input::placeholder { color: var(--kb-faint); }
+  .sidebar-search input:focus { outline: none; border-color: var(--kb-accent); background: var(--kb-elevated); }
+  .center-item { padding: 10px 20px; font-size: 14px; cursor: pointer; color: var(--kb-muted); display: flex; align-items: center; justify-content: space-between; gap: 6px; flex-wrap: nowrap; }
   .center-item .center-name-text { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; min-width: 0; flex: 1; }
   .center-admin-controls { display: flex; align-items: center; gap: 2px; flex-shrink: 0; }
   .kebab-wrap { position: relative; display: inline-block; }
-  .kebab-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: #fff; border: 1px solid #e7e8ec; border-radius: 8px; box-shadow: 0 4px 14px rgba(0,0,0,.12); z-index: 50; overflow: hidden; min-width: 110px; }
+  .kebab-menu { display: none; position: absolute; right: 0; top: 100%; margin-top: 4px; background: var(--kb-surface); border: 1px solid var(--kb-border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.45); z-index: 50; overflow: hidden; min-width: 110px; }
   .kebab-menu.open { display: block; }
-  .kebab-menu button { display: block; width: 100%; text-align: left; padding: 9px 14px; font-size: 12.5px; border: none; background: #fff; cursor: pointer; color: #3c4250; white-space: nowrap; }
-  .kebab-menu button:hover { background: #f6f7f9; }
-  .kebab-menu button.danger { color: #c94040; }
-  .center-item:hover { background: #21252e; }
-  .center-item.active { background: #3a1518; color: #FF6B70; font-weight: 600; border-right: 3px solid #FE2E36; }
-  .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: #4b5262; flex-shrink: 0; }
-  .center-item.active .dot { background: #FE2E36; }
+  .kebab-menu button { display: block; width: 100%; text-align: left; padding: 9px 14px; font-size: 12.5px; border: none; background: var(--kb-surface); cursor: pointer; color: var(--kb-text); white-space: nowrap; }
+  .kebab-menu button:hover { background: var(--kb-surface-2); }
+  .kebab-menu button.danger { color: var(--kb-danger); }
+  .center-item:hover { background: var(--kb-surface-2); color: var(--kb-text); }
+  .center-item.active { background: var(--kb-accent-soft); color: var(--kb-text); font-weight: 600; border-right: 3px solid var(--kb-accent); }
+  .center-item .dot { width: 7px; height: 7px; border-radius: 50%; background: var(--kb-faint); flex-shrink: 0; }
+  .center-item.active .dot { background: var(--kb-accent); }
   .signal-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; margin-right: 4px; flex-shrink: 0; }
   .signal-green { background: #3ddc84; box-shadow: 0 0 0 2px rgba(61,220,132,.2); }
   .signal-orange { background: #f5a623; box-shadow: 0 0 0 2px rgba(245,166,35,.22); }
   .signal-red { background: #ff4d4f; box-shadow: 0 0 0 2px rgba(255,77,79,.25); }
   .signal-gray { background: #6b7280; }
-  .sidebar .mv { background: #2a2e38; color: #c3c8d1; }
-  .sidebar .mv:hover { background: #3a3f4b; }
+  .sidebar .mv { background: var(--kb-surface-2); color: var(--kb-muted); }
+  .sidebar .mv:hover { background: var(--kb-border-soft); color: var(--kb-text); }
 
-  main { flex: 1; min-width: 0; padding: 22px 26px; }
+  main { flex: 1; min-width: 0; padding: 22px 26px; background: var(--kb-bg); color: var(--kb-text); }
 
   .month-bar { display: flex; align-items: center; gap: 10px; margin-bottom: 18px; }
-  .month-bar button.nav { border: 1px solid #d9dce1; background: #fff; border-radius: 6px; width: 30px; height: 30px; cursor: pointer; }
-  .month-label { font-size: 15px; font-weight: 700; min-width: 90px; text-align: center; }
-  .toggle-group { display: flex; border: 1px solid #d9dce1; border-radius: 8px; overflow: hidden; margin-left: 8px; }
-  .toggle-group button { border: none; background: #fff; padding: 6px 14px; font-size: 13px; cursor: pointer; color: #5b6472; }
-  .toggle-group button.active { background: var(--dash-accent, #FE2E36); color: #FFFFFF; }
+  .month-bar button.nav { border: 1px solid var(--kb-border); background: var(--kb-elevated); color: var(--kb-text); border-radius: 999px; width: 30px; height: 30px; cursor: pointer; }
+  .month-bar button.nav:hover { background: var(--kb-surface-2); }
+  .month-label { font-size: 15px; font-weight: 700; min-width: 90px; text-align: center; color: var(--kb-text); }
+  .toggle-group { display: flex; border: 1px solid var(--kb-border); border-radius: 999px; overflow: hidden; margin-left: 8px; }
+  .toggle-group button { border: none; background: var(--kb-elevated); padding: 6px 14px; font-size: 13px; cursor: pointer; color: var(--kb-muted); }
+  .toggle-group button.active { background: var(--dash-accent, var(--kb-accent)); color: #FFFFFF; }
 
-  .alert-card { background: #fdf1de; border: 1px solid #f3dfb2; border-radius: 10px; padding: 14px 18px; margin-bottom: 18px; font-size: 13px; color: #8a6414; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
-  .alert-chip { background: #fff; border: 1px solid #f3dfb2; color: #8a6414; font-size: 12px; padding: 6px 12px; border-radius: 20px; white-space: nowrap; }
+  .alert-card { background: rgba(245,166,35,.12); border: 1px solid rgba(245,166,35,.35); border-radius: 12px; padding: 14px 18px; margin-bottom: 18px; font-size: 13px; color: #f5c16c; display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+  .alert-chip { background: var(--kb-elevated); border: 1px solid rgba(245,166,35,.35); color: #f5c16c; font-size: 12px; padding: 6px 12px; border-radius: 20px; white-space: nowrap; }
 
   .summary-cards { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 14px; margin-bottom: 18px; }
 
   .ws-kpi-strip { display: grid; grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); gap: 14px; margin-bottom: 20px; }
-  .ws-kpi-card { background: #fff; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); border-left: 3px solid #FE2E36; }
-  .ws-kpi-card.warn { border-left-color: #c94040; background: #fdecea; }
-  .ws-kpi-card .l { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
-  .ws-kpi-card .v { font-size: 26px; font-weight: 700; color: #1c1f26; }
+  .ws-kpi-card { background: var(--kb-surface); border-radius: 12px; padding: 16px 18px; box-shadow: none; border: 1px solid var(--kb-border); border-left: 3px solid var(--kb-accent); }
+  .ws-kpi-card.warn { border-left-color: var(--kb-danger); background: rgba(255,69,58,.12); }
+  .ws-kpi-card .l { font-size: 12px; color: var(--kb-muted); margin-bottom: 6px; font-weight: 600; }
+  .ws-kpi-card .v { font-size: 26px; font-weight: 700; color: var(--kb-text); }
   .ws-card-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 14px; }
   .ws-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .ws-table th { text-align: left; padding: 10px 14px; color: #9aa1ac; font-weight: 600; font-size: 12px; border-bottom: 1px solid #f0f1f3; }
-  .ws-table td { padding: 12px 14px; border-bottom: 1px solid #f0f1f3; vertical-align: middle; }
+  .ws-table th { text-align: left; padding: 10px 14px; color: var(--kb-faint); font-weight: 600; font-size: 12px; border-bottom: 1px solid var(--kb-border); }
+  .ws-table td { padding: 12px 14px; border-bottom: 1px solid var(--kb-border); vertical-align: middle; color: var(--kb-text); }
   .ws-row { cursor: pointer; }
-  .ws-row:hover { background: #fafbfc; }
-  .ws-card { background: #fff; border-radius: 12px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); cursor: pointer; border: 1px solid transparent; transition: border-color .12s; }
-  .ws-card:hover { border-color: #FE2E36; }
-  .ws-card.warn { border: 1px solid #f0b4b4; background: #fffaf9; }
+  .ws-row:hover { background: var(--kb-surface-2); }
+  .ws-card { background: var(--kb-surface); border-radius: 12px; padding: 16px 18px; box-shadow: none; cursor: pointer; border: 1px solid var(--kb-border); transition: border-color .12s; }
+  .ws-card:hover { border-color: var(--kb-accent); }
+  .ws-card.warn { border: 1px solid rgba(255,69,58,.4); background: rgba(255,69,58,.08); }
   .ws-card .ws-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; }
-  .ws-card .ws-title { font-size: 14px; font-weight: 700; color: #1c1f26; }
+  .ws-card .ws-title { font-size: 14px; font-weight: 700; color: var(--kb-text); }
   .ws-badge { font-size: 11px; padding: 2px 10px; border-radius: 10px; font-weight: 600; }
-  .ws-badge.ok { background: #eaf7ee; color: #1a8f4c; }
-  .ws-badge.warn { background: #fdecea; color: #c94040; }
-  .ws-badge.pending { background: #f0f1f3; color: #9aa1ac; }
-  .ws-card .ws-stat { font-size: 12px; color: #5b6472; margin: 2px 0; }
-  .ws-card .ws-stat b { color: #1c1f26; }
-  .ws-card .ws-stat.warn-text { color: #c94040; font-weight: 600; }
-  .ws-add-card { border: 1px dashed #d9dce1; border-radius: 12px; display: flex; align-items: center; justify-content: center; min-height: 96px; color: #9aa1ac; font-size: 12px; cursor: pointer; }
-  .ws-add-card:hover { border-color: #FE2E36; color: #FE2E36; }
-  .summary-card2 { background: #fff; border-radius: 10px; padding: 16px 18px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
+  .ws-badge.ok { background: rgba(48,209,88,.15); color: var(--kb-success); }
+  .ws-badge.warn { background: rgba(255,69,58,.15); color: var(--kb-danger); }
+  .ws-badge.pending { background: var(--kb-elevated); color: var(--kb-faint); }
+  .ws-card .ws-stat { font-size: 12px; color: var(--kb-muted); margin: 2px 0; }
+  .ws-card .ws-stat b { color: var(--kb-text); }
+  .ws-card .ws-stat.warn-text { color: var(--kb-danger); font-weight: 600; }
+  .ws-add-card { border: 1px dashed var(--kb-border-soft); border-radius: 12px; display: flex; align-items: center; justify-content: center; min-height: 96px; color: var(--kb-faint); font-size: 12px; cursor: pointer; background: var(--kb-elevated); }
+  .ws-add-card:hover { border-color: var(--kb-accent); color: var(--kb-accent); }
+  .summary-card2 { background: var(--kb-surface); border-radius: 12px; padding: 16px 18px; box-shadow: none; border: 1px solid var(--kb-border); }
 
   .kbj-kpi-grid { display: grid; grid-template-columns: repeat(6, 1fr); gap: 12px; margin-bottom: 18px; }
-  .kbj-kpi-card { background: #fff; border-radius: 10px; padding: 14px 14px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
-  .kbj-kpi-card .l { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
-  .kbj-kpi-card .v { font-size: 22px; font-weight: 700; color: #1c1f26; }
-  .kbj-kpi-card .s { font-size: 10.5px; color: #9aa1ac; margin-top: 6px; line-height: 1.4; }
+  .kbj-kpi-card { background: var(--kb-surface); border-radius: 12px; padding: 14px 14px; box-shadow: none; border: 1px solid var(--kb-border); }
+  .kbj-kpi-card .l { font-size: 12px; color: var(--kb-muted); margin-bottom: 6px; font-weight: 600; }
+  .kbj-kpi-card .v { font-size: 22px; font-weight: 700; color: var(--kb-text); }
+  .kbj-kpi-card .s { font-size: 10.5px; color: var(--kb-faint); margin-top: 6px; line-height: 1.4; }
   .kbj-split2 { display: grid; grid-template-columns: 2fr 1fr; gap: 16px; margin-bottom: 18px; align-items: start; }
   .kbj-split-even { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 16px; margin-bottom: 18px; align-items: start; }
   .kbj-stat-box { flex: 1; text-align: center; }
-  .kbj-stat-box .l { font-size: 11px; color: #9aa1ac; }
-  .kbj-stat-box .v { font-size: 18px; font-weight: 700; margin-top: 2px; }
-  .kbj-stat-box .p { font-size: 11px; color: #9aa1ac; }
+  .kbj-stat-box .l { font-size: 11px; color: var(--kb-faint); }
+  .kbj-stat-box .v { font-size: 18px; font-weight: 700; margin-top: 2px; color: var(--kb-text); }
+  .kbj-stat-box .p { font-size: 11px; color: var(--kb-faint); }
   .kbj-perf-table { width: 100%; border-collapse: collapse; font-size: 13px; }
-  .kbj-perf-table th, .kbj-perf-table td { padding: 8px 6px; text-align: center; border-bottom: 1px solid #f0f1f3; }
-  .kbj-perf-table th { color: #9aa1ac; font-weight: 600; font-size: 11.5px; }
+  .kbj-perf-table th, .kbj-perf-table td { padding: 8px 6px; text-align: center; border-bottom: 1px solid var(--kb-border); color: var(--kb-text); }
+  .kbj-perf-table th { color: var(--kb-faint); font-weight: 600; font-size: 11.5px; }
   @media (max-width: 900px) { .kbj-kpi-grid { grid-template-columns: repeat(3, 1fr); } .kbj-split2 { grid-template-columns: 1fr; } .kbj-split-even { grid-template-columns: 1fr; } }
   .summary-card2 .sc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
-  .summary-card2 .sc-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
-  .summary-card2 .sc-copy { font-size: 11px; padding: 4px 10px; border-radius: 14px; border: 1px solid var(--dash-accent, #FE2E36); color: var(--dash-accent, #FE2E36); background: #fff; cursor: pointer; }
+  .summary-card2 .sc-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; color: var(--kb-text); }
+  .summary-card2 .sc-copy { font-size: 11px; padding: 4px 10px; border-radius: 14px; border: 1px solid var(--dash-accent, var(--kb-accent)); color: var(--dash-accent, var(--kb-accent)); background: transparent; cursor: pointer; }
   .summary-card2 .sc-row { display: grid; gap: 10px; margin-bottom: 10px; }
   .summary-card2 .sc-stat { text-align: center; }
-  .summary-card2 .sc-stat .l { font-size: 11px; color: #9aa1ac; margin-bottom: 3px; }
-  .summary-card2 .sc-stat .v { font-size: 16px; font-weight: 700; }
-  .summary-card2 .sc-stat .v .pct { font-size: 12px; color: #9aa1ac; font-weight: 400; }
-  .summary-card2 .sc-stat .sub { font-size: 10.5px; color: #9aa1ac; margin-top: 2px; }
-  .summary-card2 .sc-stat .v.warn { color: #c94040; }
-  .alert-card.none { background: #eef7f0; border-color: #cfe9d4; color: #2f7a45; }
+  .summary-card2 .sc-stat .l { font-size: 11px; color: var(--kb-faint); margin-bottom: 3px; }
+  .summary-card2 .sc-stat .v { font-size: 16px; font-weight: 700; color: var(--kb-text); }
+  .summary-card2 .sc-stat .v .pct { font-size: 12px; color: var(--kb-faint); font-weight: 400; }
+  .summary-card2 .sc-stat .sub { font-size: 10.5px; color: var(--kb-faint); margin-top: 2px; }
+  .summary-card2 .sc-stat .v.warn { color: var(--kb-danger); }
+  .alert-card.none { background: rgba(48,209,88,.12); border-color: rgba(48,209,88,.35); color: var(--kb-success); }
   .alert-card b { display: block; margin-bottom: 4px; font-size: 13px; }
 
   .split { display: grid; grid-template-columns: minmax(0, 2fr) minmax(0, 1fr); gap: 16px; margin-bottom: 18px; align-items: start; }
-  .panel { background: #fff; border-radius: 10px; padding: 18px 20px; box-shadow: 0 1px 4px rgba(0,0,0,.05); }
-  .panel h3 { font-size: 15px; margin: 0 0 12px; }
+  .panel { background: var(--kb-surface); border-radius: 12px; padding: 18px 20px; box-shadow: none; border: 1px solid var(--kb-border); color: var(--kb-text); }
+  .panel h3 { font-size: 15px; margin: 0 0 12px; color: var(--kb-text); }
 
   .mini-charts { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 12px; }
   .mini-charts.vertical { grid-template-columns: minmax(0, 1fr); }
-  .chart-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid #eee; }
+  .chart-summary { display: grid; grid-template-columns: repeat(auto-fit, minmax(90px, 1fr)); gap: 6px; margin-top: 10px; padding-top: 10px; border-top: 1px solid var(--kb-border); }
   .chart-summary .stat { text-align: center; }
-  .chart-summary .stat .l { font-size: 10px; color: #9aa1ac; }
-  .chart-summary .stat .v { font-size: 13px; font-weight: 700; }
-  .chart-summary .stat .v.warn { color: #c94040; }
-  .mini-chart-box { background: #fafbfc; border-radius: 8px; padding: 10px; }
-  .mini-chart-box .title { font-size: 12px; color: #5b6472; margin-bottom: 6px; font-weight: 600; }
+  .chart-summary .stat .l { font-size: 10px; color: var(--kb-faint); }
+  .chart-summary .stat .v { font-size: 13px; font-weight: 700; color: var(--kb-text); }
+  .chart-summary .stat .v.warn { color: var(--kb-danger); }
+  .mini-chart-box { background: var(--kb-elevated); border-radius: 12px; padding: 10px; border: 1px solid var(--kb-border); }
+  .mini-chart-box .title { font-size: 12px; color: var(--kb-muted); margin-bottom: 6px; font-weight: 600; }
   .mini-chart-box .canvas-wrap { position: relative; height: 220px; }
 
   .trend-list { display: flex; flex-direction: column; gap: 2px; }
-  .trend-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 4px; border-bottom: 1px solid #f0f1f3; font-size: 12.5px; }
-  .trend-row .label { color: #3c4250; }
-  .trend-row .vals { text-align: right; }
+  .trend-row { display: flex; justify-content: space-between; align-items: flex-start; padding: 8px 4px; border-bottom: 1px solid var(--kb-border); font-size: 12.5px; }
+  .trend-row .label { color: var(--kb-muted); }
+  .trend-row .vals { text-align: right; color: var(--kb-text); }
   .trend-row .vals .main { font-weight: 700; }
-  .trend-row .vals .sub { color: #9aa1ac; font-size: 11px; }
-  .trend-row .arrow.up { color: #c94040; }
-  .trend-row .arrow.down { color: #2f6fd1; }
-  .trend-row .cum-avg { font-weight: 700; color: #6b7280; font-size: 11px; }
-  .trend-row .compare-badge { font-size: 11px; background: #eaf4fb; padding: 2px 6px; border-radius: 4px; display: inline-block; }
+  .trend-row .vals .sub { color: var(--kb-faint); font-size: 11px; }
+  .trend-row .arrow.up { color: var(--kb-danger); }
+  .trend-row .arrow.down { color: var(--kb-accent-2); }
+  .trend-row .cum-avg { font-weight: 700; color: var(--kb-faint); font-size: 11px; }
+  .trend-row .compare-badge { font-size: 11px; background: var(--kb-accent-soft); color: var(--kb-accent-2); padding: 2px 6px; border-radius: 4px; display: inline-block; }
   .trend-row .compare-yoy { font-size: 11px; }
 
-  table { border-collapse: collapse; width: 100%; font-size: 12px; }
-  th { background: #f8f9fb; padding: 6px 7px; text-align: left; color: #5b6472; font-weight: 600; white-space: nowrap; }
-  td { padding: 5px 7px; border-top: 1px solid #f0f1f3; white-space: nowrap; }
+  table { border-collapse: collapse; width: 100%; font-size: 12px; color: var(--kb-text); }
+  th { background: var(--kb-elevated); padding: 6px 7px; text-align: left; color: var(--kb-muted); font-weight: 600; white-space: nowrap; border-bottom: 1px solid var(--kb-border); }
+  td { padding: 5px 7px; border-top: 1px solid var(--kb-border); white-space: nowrap; color: var(--kb-text); }
   .table-scroll { overflow-x: auto; }
   .status-dot { display: inline-block; width: 7px; height: 7px; border-radius: 50%; margin-right: 5px; }
-  .status-dot.success { background: #1a8f4c; }
-  .status-dot.needs_review { background: #c98a20; }
-  .status-dot.pending { background: #9aa1ac; }
+  .status-dot.success { background: var(--kb-success); }
+  .status-dot.needs_review { background: #f5a623; }
+  .status-dot.pending { background: var(--kb-faint); }
 
   .agg-tabs { display: flex; gap: 4px; margin-bottom: 14px; }
-  .agg-tab { padding: 7px 14px; font-size: 13px; border: 1px solid #d9dce1; background: #fff; border-radius: 20px; cursor: pointer; color: #5b6472; }
-  .agg-tab.active { background: var(--dash-accent-dark, #1c1f26); color: #fff; border-color: var(--dash-accent-dark, #1c1f26); }
+  .agg-tab { padding: 7px 14px; font-size: 13px; border: 1px solid var(--kb-border); background: var(--kb-elevated); border-radius: 20px; cursor: pointer; color: var(--kb-muted); }
+  .agg-tab.active { background: var(--dash-accent-dark, var(--kb-accent)); color: #fff; border-color: var(--dash-accent-dark, var(--kb-accent)); }
 
   .col-toggle-wrap { position: relative; display: inline-block; }
-  .col-toggle-btn { border: 1px solid #d9dce1; background: #fff; border-radius: 6px; padding: 6px 12px; font-size: 12px; cursor: pointer; color: #5b6472; }
-  .col-popover { display: none; position: absolute; right: 0; top: 34px; background: #fff; border: 1px solid #e7e8ec; border-radius: 8px; box-shadow: 0 4px 16px rgba(0,0,0,.1); padding: 10px; z-index: 20; max-height: 380px; overflow-y: auto; width: 260px; }
+  .col-toggle-btn { border: 1px solid var(--kb-border); background: var(--kb-elevated); border-radius: 999px; padding: 6px 12px; font-size: 12px; cursor: pointer; color: var(--kb-muted); }
+  .col-popover { display: none; position: absolute; right: 0; top: 34px; background: var(--kb-surface); border: 1px solid var(--kb-border); border-radius: 12px; box-shadow: 0 8px 24px rgba(0,0,0,.45); padding: 10px; z-index: 20; max-height: 380px; overflow-y: auto; width: 260px; color: var(--kb-text); }
   .col-popover.open { display: block; }
-  .col-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 2px; }
+  .col-item { display: flex; align-items: center; gap: 6px; font-size: 12.5px; padding: 4px 2px; color: var(--kb-text); }
   .col-item label { flex: 1; display: flex; align-items: center; gap: 6px; cursor: pointer; }
-  .mv { border: none; background: #f0f1f3; border-radius: 3px; width: 11px; height: 11px; font-size: 6px; line-height: 1; padding: 0; cursor: pointer; }
+  .mv { border: none; background: var(--kb-surface-2); color: var(--kb-muted); border-radius: 3px; width: 11px; height: 11px; font-size: 6px; line-height: 1; padding: 0; cursor: pointer; }
   .col-popover .actions { display: flex; gap: 6px; margin-top: 8px; }
-  .col-popover .actions button { flex: 1; font-size: 11px; padding: 5px; border: 1px solid #d9dce1; background: #f8f9fb; border-radius: 5px; cursor: pointer; }
+  .col-popover .actions button { flex: 1; font-size: 11px; padding: 5px; border: 1px solid var(--kb-border); background: var(--kb-elevated); color: var(--kb-text); border-radius: 8px; cursor: pointer; }
   .hidden-chips { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 10px; }
-  .hidden-chip { background: #f0f1f3; color: #5b6472; font-size: 11px; padding: 4px 8px; border-radius: 12px; cursor: pointer; }
-  .hidden-chip:hover { background: #e2e4e8; }
+  .hidden-chip { background: var(--kb-elevated); color: var(--kb-muted); font-size: 11px; padding: 4px 8px; border-radius: 12px; cursor: pointer; border: 1px solid var(--kb-border); }
+  .hidden-chip:hover { background: var(--kb-surface-2); color: var(--kb-text); }
 
   .entry-wrap { max-width: 100%; }
-  .panel.drag-over, .entry-wrap.drag-over { outline: 2px dashed #FE2E36; outline-offset: -2px; background: #fff6f6; }
-  .entry-year-box { display: flex; align-items: center; gap: 12px; background: #fff6ea; border: 1.5px solid #f3c96b; border-radius: 10px; padding: 10px 14px; margin-bottom: 14px; flex-wrap: wrap; }
-  .entry-year-box label { font-size: 13px; font-weight: 700; color: #8a6414; }
-  .entry-year-box input { width: 90px; padding: 7px 10px; font-size: 16px; font-weight: 700; border: 1.5px solid #f3c96b; border-radius: 8px; text-align: center; color: #1c1f26; }
-  .entry-year-box .hint { font-size: 12px; color: #8a6414; }
+  .panel.drag-over, .entry-wrap.drag-over { outline: 2px dashed var(--kb-accent); outline-offset: -2px; background: var(--kb-accent-soft); }
+  .entry-year-box { display: flex; align-items: center; gap: 12px; background: rgba(245,166,35,.12); border: 1.5px solid rgba(245,166,35,.4); border-radius: 12px; padding: 10px 14px; margin-bottom: 14px; flex-wrap: wrap; }
+  .entry-year-box label { font-size: 13px; font-weight: 700; color: #f5c16c; }
+  .entry-year-box input { width: 90px; padding: 7px 10px; font-size: 16px; font-weight: 700; border: 1.5px solid rgba(245,166,35,.4); border-radius: 8px; text-align: center; color: var(--kb-text); background: var(--kb-elevated); }
+  .entry-year-box .hint { font-size: 12px; color: #f5c16c; }
   .entry-row { display: flex; align-items: center; gap: 10px; margin-bottom: 14px; }
-  .entry-row label { font-size: 13px; color: #5b6472; }
+  .entry-row label { font-size: 13px; color: var(--kb-muted); }
 
-  /* 데이터입력 화면: 좌측 고정 사용설명 + 우측 선택카드/아코디언 통합 레이아웃 */
   .entry-split { display: flex; gap: 18px; align-items: flex-start; }
   .entry-split-left { flex: 0 0 300px; position: sticky; top: 16px; }
   .entry-split-right { flex: 1; min-width: 0; }
   .entry-pillrow { display: flex; gap: 10px; flex-wrap: wrap; margin-bottom: 16px; }
-  .entry-pill { flex: 1; min-width: 140px; border: 1.5px solid #e6eaf2; border-radius: 10px; padding: 14px 12px; text-align: center; cursor: pointer; font-size: 13px; font-weight: 700; color: #344054; background: #fff; transition: .15s; }
+  .entry-pill { flex: 1; min-width: 140px; border: 1.5px solid var(--kb-border); border-radius: 12px; padding: 14px 12px; text-align: center; cursor: pointer; font-size: 13px; font-weight: 700; color: var(--kb-muted); background: var(--kb-surface); transition: .15s; }
   .entry-pill .ico { display: block; font-size: 18px; margin-bottom: 4px; }
-  .entry-pill.sel { border-color: #FE2E36; background: #fff2f2; color: #FE2E36; }
+  .entry-pill.sel { border-color: var(--kb-accent); background: var(--kb-accent-soft); color: var(--kb-accent-2); }
   @media (max-width: 900px) {
     .entry-split { flex-direction: column; }
     .entry-split-left { flex: 1 1 auto; position: static; width: 100%; }
   }
-  input[type="date"], input[type="number"] { padding: 8px 10px; border: 1px solid #d9dce1; border-radius: 6px; font-size: 13px; }
-  textarea.paste-box { width: 100%; min-height: 90px; padding: 10px 12px; border: 1px solid #d9dce1; border-radius: 8px; font-size: 13px; font-family: monospace; margin-bottom: 10px; }
-  .btn-secondary { border: 1px solid #FE2E36; background: #fff; color: #FE2E36; border-radius: 8px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px; }
+  input[type="date"], input[type="number"], input[type="text"], input[type="password"], input[type="month"], select, textarea {
+    padding: 8px 10px; border: 1px solid var(--kb-border); border-radius: 12px; font-size: 13px;
+    background: var(--kb-elevated); color: var(--kb-text);
+  }
+  input:focus, select:focus, textarea:focus { outline: none; border-color: var(--kb-accent); }
+  textarea.paste-box { width: 100%; min-height: 90px; padding: 10px 12px; border: 1px solid var(--kb-border); border-radius: 12px; font-size: 13px; font-family: monospace; margin-bottom: 10px; background: var(--kb-elevated); color: var(--kb-text); }
+  .btn-secondary { border: 1px solid var(--kb-accent); background: transparent; color: var(--kb-accent); border-radius: 999px; padding: 9px 16px; font-size: 13px; font-weight: 600; cursor: pointer; margin-right: 8px; }
   .status-msg { font-size: 13px; margin-top: 10px; }
-  .status-msg.ok { color: #1a8f4c; }
-  .status-msg.err { color: #c94040; }
+  .status-msg.ok { color: var(--kb-success); }
+  .status-msg.err { color: var(--kb-danger); }
 
-  .empty { color: #9aa1ac; font-size: 13px; padding: 30px 0; text-align: center; }
-  .loading { color: #9aa1ac; font-size: 13px; padding: 60px 0; text-align: center; }
+  .empty { color: var(--kb-faint); font-size: 13px; padding: 30px 0; text-align: center; }
+  .loading { color: var(--kb-faint); font-size: 13px; padding: 60px 0; text-align: center; }
+
+  /* 모달·오버레이·이슈 등 후속 UI 안전망 */
+  .modal, .dialog, .popup, .overlay-card { background: var(--kb-surface) !important; color: var(--kb-text) !important; border: 1px solid var(--kb-border) !important; }
+  button { font-family: inherit; }
+  a { color: var(--kb-accent-2); }
+  ::-webkit-scrollbar { width: 8px; height: 8px; }
+  ::-webkit-scrollbar-thumb { background: var(--kb-border-soft); border-radius: 4px; }
+  ::-webkit-scrollbar-track { background: transparent; }
 </style>
 </head>
 <body>
@@ -443,7 +465,7 @@ function resolveMetric(row, key) {
 // 센터별 브랜드 색상은 차트(CENTER_CHART_CONFIG)와 원형그래프 팔레트에서만 반영하며,
 // 이 토글 UI에는 앞으로도 별도 등록하지 않는다.
 const CENTER_DASH_THEME = {};
-const DEFAULT_DASH_THEME = { accent: '#FE2E36', dark: '#1c1f26', soft: '#FFE8E9' };
+const DEFAULT_DASH_THEME = { accent: '#0071e3', dark: '#000000', soft: 'rgba(0,113,227,.18)' };
 
 function getDashTheme() {
   return CENTER_DASH_THEME[currentCenter] || DEFAULT_DASH_THEME;
@@ -915,7 +937,7 @@ function renderSidebarCustom() {
     + '<a href="https://supabase.com/dashboard/project/zbiwyqwjehnogxkzlhxx/sql/92974b5d-555f-48c7-957f-d666b743fd3b" target="_blank" rel="noopener">🗄 Supabase 대시보드</a>'
     + '<a href="https://vercel.com/kangseongho-s-projects/kkangbi-report" target="_blank" rel="noopener">▲ Vercel 대시보드</a>'
     + '<div class="sidebar-custom-key">'
-    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:4px;">Supabase Anon Key (공개용)</div>'
+    + '<div style="font-size:11px;color:#6e6e73;margin-bottom:4px;">Supabase Anon Key (공개용)</div>'
     + '<div class="key-row">'
     + '<input type="text" readonly id="sidebarAnonKeyDisplay" value="' + SB_ANON_KEY + '">'
     + '<button onclick="copySidebarAnonKey()" title="복사">복사</button>'
@@ -1003,7 +1025,7 @@ function renderSidebar() {
       + adminControls
       + '</div>';
   }).join('')
-  + (workspaceUnlocked ? '<div class="add-center" style="cursor:pointer;color:#FE2E36;font-weight:600;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
+  + (workspaceUnlocked ? '<div class="add-center" style="cursor:pointer;color:#0071e3;font-weight:600;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
   ;
 }
 
@@ -1487,7 +1509,7 @@ function formatHeadlineMetric(m) {
   if (m.value === null && m.monthValue === null) return m.label + ' -';
   // 이번달 값과 연초~이번달 누적평균값을 함께 표기해, "왜 이 값이 나왔는지" 산출 기준을 항상 알 수 있게 한다.
   if (m.monthValue !== null && m.value !== null && m.monthValue.toFixed(1) !== m.value.toFixed(1)) {
-    return m.label + ' ' + fmt(m.monthValue) + ' <span style="color:#9aa1ac;font-weight:400;">(누적 ' + fmt(m.value) + ')</span>';
+    return m.label + ' ' + fmt(m.monthValue) + ' <span style="color:#6e6e73;font-weight:400;">(누적 ' + fmt(m.value) + ')</span>';
   }
   return m.label + ' ' + fmt(m.value !== null ? m.value : m.monthValue);
 }
@@ -1543,11 +1565,11 @@ function renderWorkspaceOverview() {
       : '';
     const metricsHtml = s.metrics.length
       ? '<div style="display:flex;flex-wrap:wrap;column-gap:18px;row-gap:4px;">' + s.metrics.map(function(m) { return '<span style="' + (m.isWarn ? 'color:#c94040;font-weight:700;' : '') + '">' + formatHeadlineMetric(m) + '</span>'; }).join('') + '</div>'
-      : '<span style="color:#9aa1ac;">데이터 준비중</span>';
+      : '<span style="color:#6e6e73;">데이터 준비중</span>';
 
     return '<tr class="ws-row" onclick="selectCenter(\'' + s.code + '\')">'
       + '<td style="font-weight:700;">' + s.name + reorderHtml + '</td>'
-      + '<td>' + (s.staffText || '<span style="color:#9aa1ac;">-</span>') + '</td>'
+      + '<td>' + (s.staffText || '<span style="color:#6e6e73;">-</span>') + '</td>'
       + '<td>' + metricsHtml + '</td>'
       + '<td><span class="ws-badge ' + s.status + '">' + badgeText[s.status] + '</span></td>'
       + '</tr>';
@@ -1580,14 +1602,14 @@ function renderWorkspaceOverview() {
         const lastText = last ? new Date(last).toLocaleDateString('ko-KR') : '기록 없음';
         return '<div style="border:1px solid #e6eaf2;border-radius:10px;padding:10px 12px;cursor:pointer;" onclick="selectCenter(\'' + c.center_code + '\')">'
           + '<div style="display:flex;align-items:center;gap:6px;font-weight:700;font-size:13px;"><span class="signal-dot signal-' + sig.color + '"></span>' + c.center_name + '</div>'
-          + '<div style="font-size:11px;color:#9aa1ac;margin-top:4px;">최근 업로드: ' + lastText + (sig.days !== null ? ' (' + sig.days + '일 전)' : '') + '</div>'
+          + '<div style="font-size:11px;color:#6e6e73;margin-top:4px;">최근 업로드: ' + lastText + (sig.days !== null ? ' (' + sig.days + '일 전)' : '') + '</div>'
           + '</div>';
       }).join('')
     + '</div>'
-    + '<p style="font-size:11px;color:#9aa1ac;margin-top:10px;">🟢 3일 이내 업로드 · 🟠 3일째 미업로드(주의) · 🔴 7일째 미업로드(경고) — 알림 발송 조건은 좌측 "🔔 알림 설정"에서 관리합니다</p>'
+    + '<p style="font-size:11px;color:#6e6e73;margin-top:10px;">🟢 3일 이내 업로드 · 🟠 3일째 미업로드(주의) · 🔴 7일째 미업로드(경고) — 알림 발송 조건은 좌측 "🔔 알림 설정"에서 관리합니다</p>'
     + '</div>';
 
-  main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
+  main.innerHTML = '<div style="--dash-accent:#0071e3;--dash-accent-dark:#1c1f26;">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
     + '<h2 style="margin:0;font-size:20px;">관리자화면 전체 현황</h2>'
     + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview(true)">새로고침</button>'
@@ -1595,7 +1617,7 @@ function renderWorkspaceOverview() {
     + kpiHtml
     + uploadStatusHtml
     + '<div class="panel"><div class="table-scroll"><table class="ws-table"><thead><tr><th>센터</th><th>재직(TO대비)</th><th>핵심지표(이번달/누적)</th><th>상태</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
-    + (workspaceUnlocked ? '<div style="text-align:center;padding:14px;color:#9aa1ac;font-size:12px;cursor:pointer;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
+    + (workspaceUnlocked ? '<div style="text-align:center;padding:14px;color:#6e6e73;font-size:12px;cursor:pointer;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
     + '</div>'
     + trendSectionHtml
     + '</div>';
@@ -1803,15 +1825,15 @@ async function renderCenterSettingsTab() {
     return '<option value="' + o.key + '">' + o.label + '</option>';
   }).join('');
 
-  main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
+  main.innerHTML = '<div style="--dash-accent:#0071e3;--dash-accent-dark:#1c1f26;">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;flex-wrap:wrap;gap:10px;">'
     + '<h2 style="margin:0;">' + (c ? c.center_name : '') + ' · TO 및 목표값설정</h2>'
-    + '<div><label style="font-size:13px;color:#5b6472;margin-right:6px;">연도</label><select onchange="changeSettingsYear(this.value)" style="padding:5px 8px;border:1px solid #d9dce1;border-radius:6px;font-size:13px;">' + yearOptions + '</select></div>'
+    + '<div><label style="font-size:13px;color:#a1a1a6;margin-right:6px;">연도</label><select onchange="changeSettingsYear(this.value)" style="padding:5px 8px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;">' + yearOptions + '</select></div>'
     + '</div>'
 
     + '<div class="panel" style="margin-bottom:16px;">'
     + '<h3 style="margin-bottom:6px;">월별 TO 설정 (' + settingsYear + '년)</h3>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">1~12월 값을 각 칸에 직접 입력하거나, 상단 "선택" 체크박스로 여러 달을 고른 뒤 일괄값을 반영할 수 있습니다. 반영된 값도 각 칸에서 바로 수정 가능합니다.</p>'
+    + '<p style="font-size:12px;color:#6e6e73;margin:0 0 10px;">1~12월 값을 각 칸에 직접 입력하거나, 상단 "선택" 체크박스로 여러 달을 고른 뒤 일괄값을 반영할 수 있습니다. 반영된 값도 각 칸에서 바로 수정 가능합니다.</p>'
     + renderToGrid(currentCenter, settingsYear)
     + '<button class="btn-primary" style="margin-top:10px;" onclick="saveToGrid(\'' + currentCenter + '\')">TO 전체 저장</button>'
     + '<div class="status-msg" id="toGridStatus"></div>'
@@ -1819,7 +1841,7 @@ async function renderCenterSettingsTab() {
 
     + '<div class="panel">'
     + '<h3 style="margin-bottom:6px;">주요지표 목표치 설정 (' + settingsYear + '년)</h3>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">목록 맨 위(첫 번째) 지표가 전체 현황 카드의 "핵심지표"로 표시됩니다. 아래에서 지표를 먼저 추가한 뒤, 월별 목표치 표에서 1~12월 값을 채워주세요. 월별 값을 비워두면 "기본 목표값"이 대신 적용됩니다.</p>'
+    + '<p style="font-size:12px;color:#6e6e73;margin:0 0 10px;">목록 맨 위(첫 번째) 지표가 전체 현황 카드의 "핵심지표"로 표시됩니다. 아래에서 지표를 먼저 추가한 뒤, 월별 목표치 표에서 1~12월 값을 채워주세요. 월별 값을 비워두면 "기본 목표값"이 대신 적용됩니다.</p>'
     + '<div class="entry-row"><label>지표 선택</label><select id="kpiKeySelect_' + currentCenter + '" onchange="onKpiKeySelected(\'' + currentCenter + '\')" style="min-width:220px;">' + optionsHtml + '</select></div>'
     + '<div class="entry-row"><label>지표 키</label><input type="text" id="kpiKey_' + currentCenter + '" placeholder="위에서 선택하거나 직접 입력" style="width:200px;"></div>'
     + '<div class="entry-row"><label>표시 라벨</label><input type="text" id="kpiLabel_' + currentCenter + '" placeholder="예: 응답율" style="width:140px;"></div>'
@@ -1859,19 +1881,19 @@ function renderToGrid(centerCode, year) {
     const s = byYm[ym];
     headerCells.push('<th>' + m + '월</th>');
     checkCells.push('<td><input type="checkbox" class="to-grid-check" data-idx="' + idx + '"></td>');
-    managerCells.push('<td><input type="number" class="to-grid-input" data-idx="' + idx + '" data-field="manager" value="' + (s ? s.to_manager : '') + '" style="width:56px;padding:4px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>');
-    counselorCells.push('<td><input type="number" class="to-grid-input" data-idx="' + idx + '" data-field="counselor" value="' + (s ? s.to_counselor : '') + '" style="width:56px;padding:4px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>');
+    managerCells.push('<td><input type="number" class="to-grid-input" data-idx="' + idx + '" data-field="manager" value="' + (s ? s.to_manager : '') + '" style="width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>');
+    counselorCells.push('<td><input type="number" class="to-grid-input" data-idx="' + idx + '" data-field="counselor" value="' + (s ? s.to_counselor : '') + '" style="width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>');
   }
 
   return '<div class="table-scroll"><table>'
-    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;"></th>' + headerCells.join('') + '</tr></thead>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#111113;"></th>' + headerCells.join('') + '</tr></thead>'
     + '<tbody>'
-    + '<tr><td style="position:sticky;left:0;background:#f8f9fb;font-size:11px;color:#9aa1ac;">선택</td>' + checkCells.join('') + '</tr>'
-    + '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">관리자</td>' + managerCells.join('') + '</tr>'
-    + '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">상담사</td>' + counselorCells.join('') + '</tr>'
+    + '<tr><td style="position:sticky;left:0;background:#111113;font-size:11px;color:#6e6e73;">선택</td>' + checkCells.join('') + '</tr>'
+    + '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;color:#f5f5f7;">관리자</td>' + managerCells.join('') + '</tr>'
+    + '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;color:#f5f5f7;">상담사</td>' + counselorCells.join('') + '</tr>'
     + '</tbody></table></div>'
     + '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-    + '<span style="font-size:12px;color:#5b6472;">선택한 월에 일괄 반영:</span>'
+    + '<span style="font-size:12px;color:#a1a1a6;">선택한 월에 일괄 반영:</span>'
     + '<label style="font-size:12px;">관리자 <input type="number" id="toBulkManager" style="width:60px;margin-left:4px;"></label>'
     + '<label style="font-size:12px;">상담사 <input type="number" id="toBulkCounselor" style="width:60px;margin-left:4px;"></label>'
     + '<button class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="applyToGridBulk()">일괄 반영</button>'
@@ -1939,11 +1961,11 @@ function renderKpiGrid(centerCode, year) {
       const ym = monthKey(year, m);
       const override = monthlyMap[k.metric_key] ? monthlyMap[k.metric_key][ym] : undefined;
       const v = (override !== undefined && override !== null) ? override : '';
-      cells.push('<td><input type="number" class="kpi-grid-input" data-idx="' + idx + '" data-key="' + k.metric_key + '" value="' + v + '" placeholder="' + (k.target_value !== null && k.target_value !== undefined ? k.target_value : '') + '" style="width:60px;padding:4px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>');
+      cells.push('<td><input type="number" class="kpi-grid-input" data-idx="' + idx + '" data-key="' + k.metric_key + '" value="' + v + '" placeholder="' + (k.target_value !== null && k.target_value !== undefined ? k.target_value : '') + '" style="width:60px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>');
     }
-    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">'
+    return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;color:#f5f5f7;">'
       + (ri === 0 ? '<span class="ws-badge ok" style="margin-right:4px;">핵심</span>' : '') + k.metric_label
-      + '<div style="font-size:11px;color:#9aa1ac;font-weight:400;">기본값 ' + (k.target_value !== null && k.target_value !== undefined ? k.target_value : '없음') + '</div></td>'
+      + '<div style="font-size:11px;color:#6e6e73;font-weight:400;">기본값 ' + (k.target_value !== null && k.target_value !== undefined ? k.target_value : '없음') + '</div></td>'
       + cells.join('')
       + '<td><button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteKpiSetting(\'' + k.id + '\')">삭제</button></td></tr>';
   }).join('');
@@ -1951,14 +1973,14 @@ function renderKpiGrid(centerCode, year) {
   const bulkKeyOptions = kpiList.map(function(k) { return '<option value="' + k.metric_key + '">' + k.metric_label + '</option>'; }).join('');
 
   return '<div class="table-scroll" style="margin-top:12px;"><table>'
-    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">지표</th>' + headerCells.join('') + '<th></th></tr></thead>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#111113;">지표</th>' + headerCells.join('') + '<th></th></tr></thead>'
     + '<tbody>'
-    + '<tr><td style="position:sticky;left:0;background:#f8f9fb;font-size:11px;color:#9aa1ac;">선택</td>' + checkCells.join('') + '<td></td></tr>'
+    + '<tr><td style="position:sticky;left:0;background:#111113;font-size:11px;color:#6e6e73;">선택</td>' + checkCells.join('') + '<td></td></tr>'
     + bodyRows
     + '</tbody></table></div>'
     + '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
-    + '<span style="font-size:12px;color:#5b6472;">선택한 월에 일괄 반영할 지표:</span>'
-    + '<select id="kpiBulkKey" style="font-size:12px;padding:4px 6px;border:1px solid #d9dce1;border-radius:4px;">' + bulkKeyOptions + '</select>'
+    + '<span style="font-size:12px;color:#a1a1a6;">선택한 월에 일괄 반영할 지표:</span>'
+    + '<select id="kpiBulkKey" style="font-size:12px;padding:4px 6px;border:1px solid #2c2c2e;border-radius:4px;">' + bulkKeyOptions + '</select>'
     + '<label style="font-size:12px;">목표값 <input type="number" id="kpiBulkValue" style="width:70px;margin-left:4px;"></label>'
     + '<button class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="applyKpiGridBulk()">일괄 반영</button>'
     + '</div>';
@@ -2183,7 +2205,7 @@ function renderDashboard() {
     + '<button class="' + (viewMode === 'half' ? 'active' : '') + '" onclick="setViewMode(\'half\')">반기누적</button>'
     + '<button class="' + (viewMode === 'cumulative' ? 'active' : '') + '" onclick="setViewMode(\'cumulative\')">연초누적</button>'
     + '</div>'
-    + '<span style="font-size:11px;color:#9aa1ac;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
+    + '<span style="font-size:11px;color:#6e6e73;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
     + (currentCenter === 'kbjeongbi' ? renderKbjeongbiSummaryCards2(targetRows, cumulativeRows) : renderSummaryCards(targetRows, cumulativeRows, prevMonthRows))
@@ -2385,7 +2407,7 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
       + '\t' + cumDisplay);
 
     const sectionHtml = def.section
-      ? '<div style="font-size:11px;font-weight:700;color:#60584C;background:#FFF6DC;padding:5px 6px;margin-top:8px;border-radius:5px;">' + def.section + '</div>'
+      ? '<div style="font-size:11px;font-weight:700;color:#f5c16c;background:rgba(245,166,35,.15);padding:5px 6px;margin-top:8px;border-radius:5px;">' + def.section + '</div>'
       : '';
 
     return sectionHtml + '<div class="trend-row" style="display:block;padding:8px 4px;">'
@@ -2549,14 +2571,14 @@ function renderKbjeongbiExtraDashboard(centerRows, monthRows, prevMonthRows) {
   const perfTable = '<table class="kbj-perf-table">'
     + '<thead><tr><th>상담사</th><th>투입상담사</th><th>접수 Total</th><th>처리 Total</th><th>처리율</th></tr></thead>'
     + '<tbody>'
-    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#f8f9fb;">금일 (' + latest.report_date + ')</td></tr>'
+    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#111113;">금일 (' + latest.report_date + ')</td></tr>'
     + '<tr><td>' + (counselorTotal !== null ? counselorTotal + '명' : '-') + '</td><td>' + (inputCounselor !== null ? inputCounselor + '명' : '-') + '</td><td>' + jr.total.toLocaleString() + '건</td><td>' + jp.total.toLocaleString() + '건</td><td>' + rate.toFixed(1) + '%</td></tr>'
-    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#f8f9fb;">전일 평균</td></tr>'
+    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#111113;">전일 평균</td></tr>'
     + '<tr><td>' + (counselorAvgVal !== null ? fmt1(counselorAvgVal) + '명' : '-') + '</td><td>' + (inputAvg !== null ? fmt1(inputAvg) + '명' : '-') + '</td><td>' + (receiveAvg !== null ? Math.round(receiveAvg).toLocaleString() + '건' : '-') + '</td><td>' + (processAvg !== null ? Math.round(processAvg).toLocaleString() + '건' : '-') + '</td><td>' + (rateAvg !== null ? rateAvg.toFixed(1) + '%' : '-') + '</td></tr>'
-    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#f8f9fb;">전일 대비</td></tr>'
+    + '<tr><td colspan="5" style="text-align:left;font-weight:700;background:#111113;">전일 대비</td></tr>'
     + '<tr><td>' + diffArrow(counselorTotal, counselorAvgVal, '명') + '</td><td>' + diffArrow(inputCounselor, inputAvg, '명') + '</td><td>' + diffArrow(jr.total, receiveAvg, '건') + '</td><td>' + diffArrow(jp.total, processAvg, '건') + '</td><td>' + diffArrow(rate, rateAvg, '%p', true) + '</td></tr>'
     + '</tbody></table>'
-    + '<p style="font-size:11px;color:#9aa1ac;margin-top:8px;">※ 인력 운영효율 = 투입상담사 / 총 인원 기준</p>';
+    + '<p style="font-size:11px;color:#6e6e73;margin-top:8px;">※ 인력 운영효율 = 투입상담사 / 총 인원 기준</p>';
 
   // 변경기한일 준수 현황 (고지의무 / 통지의무)
   function compliancePanel(label, canvasId, target, proc, unproc) {
@@ -2564,14 +2586,14 @@ function renderKbjeongbiExtraDashboard(centerRows, monthRows, prevMonthRows) {
     const procRate = denom ? (proc / denom * 100) : 0;
     const unprocRate = 100 - procRate;
     return '<div class="panel">'
-      + '<h3 style="margin-bottom:12px;">' + label + ' 변경기한일 준수 현황 <span style="font-size:12px;color:#9aa1ac;font-weight:400;">대상 ' + target.toLocaleString() + '건</span></h3>'
+      + '<h3 style="margin-bottom:12px;">' + label + ' 변경기한일 준수 현황 <span style="font-size:12px;color:#6e6e73;font-weight:400;">대상 ' + target.toLocaleString() + '건</span></h3>'
       + '<div style="display:flex;gap:10px;margin-bottom:14px;">'
       + kbjStatBox('대상건', target, 100)
       + kbjStatBox('처리건', proc, procRate)
       + kbjStatBox('미처리건', unproc, unprocRate)
       + '</div>'
       + '<div style="width:110px;height:110px;margin:0 auto;"><canvas id="' + canvasId + '"></canvas></div>'
-      + '<div style="text-align:center;font-size:12px;color:#9aa1ac;margin-top:8px;">처리율 ' + procRate.toFixed(1) + '% · 미처리율 ' + unprocRate.toFixed(1) + '%</div>'
+      + '<div style="text-align:center;font-size:12px;color:#6e6e73;margin-top:8px;">처리율 ' + procRate.toFixed(1) + '% · 미처리율 ' + unprocRate.toFixed(1) + '%</div>'
       + '</div>';
   }
 
@@ -2581,7 +2603,7 @@ function renderKbjeongbiExtraDashboard(centerRows, monthRows, prevMonthRows) {
   return kpiHtml
     + '<div class="kbj-split2">'
     + '<div class="panel"><h3 style="margin-bottom:12px;">인력 및 처리 성과 분석</h3>' + perfTable + '</div>'
-    + '<div class="panel"><h3 style="margin-bottom:12px;">접수건 구성 비중 <span style="font-size:12px;color:#9aa1ac;font-weight:400;">(Total ' + jr.total.toLocaleString() + '건)</span></h3>'
+    + '<div class="panel"><h3 style="margin-bottom:12px;">접수건 구성 비중 <span style="font-size:12px;color:#6e6e73;font-weight:400;">(Total ' + jr.total.toLocaleString() + '건)</span></h3>'
     + '<div style="width:100%;max-width:220px;height:220px;margin:0 auto;"><canvas id="kbjComposeChart"></canvas></div></div>'
     + '</div>'
     + '<div class="kbj-split2">'
@@ -2691,9 +2713,9 @@ function renderKbjeongbiDueDateTable(label, targetKey, procKey, records) {
     const rate = targetSum ? (procSum / targetSum * 100) : 0;
     const showAvg = aggView !== 'daily';
     return '<tr><td>' + b.label + '</td>'
-      + '<td>' + targetSum.toLocaleString() + '건' + (showAvg ? ' <span style="color:#9aa1ac;font-size:11px;">(일평균 ' + targetAvg.toFixed(1) + ')</span>' : '') + '</td>'
-      + '<td>' + procSum.toLocaleString() + '건' + (showAvg ? ' <span style="color:#9aa1ac;font-size:11px;">(일평균 ' + procAvg.toFixed(1) + ')</span>' : '') + '</td>'
-      + '<td><span style="background:#fdecea;color:#c94040;font-weight:700;padding:3px 10px;border-radius:12px;font-size:12px;">' + rate.toFixed(1) + '%</span></td></tr>';
+      + '<td>' + targetSum.toLocaleString() + '건' + (showAvg ? ' <span style="color:#6e6e73;font-size:11px;">(일평균 ' + targetAvg.toFixed(1) + ')</span>' : '') + '</td>'
+      + '<td>' + procSum.toLocaleString() + '건' + (showAvg ? ' <span style="color:#6e6e73;font-size:11px;">(일평균 ' + procAvg.toFixed(1) + ')</span>' : '') + '</td>'
+      + '<td><span style="background:rgba(255,69,58,.15);color:#c94040;font-weight:700;padding:3px 10px;border-radius:12px;font-size:12px;">' + rate.toFixed(1) + '%</span></td></tr>';
   }).join('');
 
   return '<div class="panel"><h3 style="margin-bottom:10px;">' + label + ' 변경기한일 ' + aggLabel(aggView) + ' 현황</h3>'
@@ -2730,7 +2752,7 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
     + '<div class="sc-stat"><div class="l">운영 안정도</div><div class="v">' + (curPct !== null ? curPct.toFixed(0) : '-') + '%</div><div class="sub">' + (pctDiff !== null ? ('전월比 ' + (pctDiff >= 0 ? '▲' : '▼') + Math.abs(pctDiff).toFixed(0) + '%p') : '-') + '</div></div>'
     + '<div class="sc-stat"><div class="l">누적평균 재직인원</div><div class="v">' + (staffAvgCum !== null ? staffAvgCum.toFixed(1) : '-') + '명</div><div class="sub">(' + (cumPct !== null ? cumPct.toFixed(0) : '-') + '%)</div></div>'
     + '</div>'
-    + (toInfo.fullNote ? '<div class="sub" style="text-align:center;color:#9aa1ac;">※ ' + toInfo.fullNote + '</div>' : (toInfo.note ? '<div class="sub" style="text-align:center;color:#9aa1ac;">※ 전체 정원 ' + toInfo.total + '명 중 ' + toInfo.note + '</div>' : ''))
+    + (toInfo.fullNote ? '<div class="sub" style="text-align:center;color:#6e6e73;">※ ' + toInfo.fullNote + '</div>' : (toInfo.note ? '<div class="sub" style="text-align:center;color:#6e6e73;">※ 전체 정원 ' + toInfo.total + '명 중 ' + toInfo.note + '</div>' : ''))
     + '</div>';
 
   const groupCards = chartConfig.groups.map(function(group, gi) {
@@ -2845,7 +2867,7 @@ function renderCategoryOverviewPanel(centerRows, monthRows, prevMonthRows) {
   const rankHtml = rankRows.map(function(r) {
     const up = r.diff >= 0;
     const arrowColor = up ? '#c94040' : '#2f6fd1';
-    return '<tr' + (r.isAnomaly ? ' style="background:#fdecea;"' : '') + '>'
+    return '<tr' + (r.isAnomaly ? ' style="background:rgba(255,69,58,.15);"' : '') + '>'
       + '<td>' + r.key + (r.isAnomaly ? ' ⚠' : '') + '</td>'
       + '<td>' + r.curAvg.toFixed(1) + '건/일</td>'
       + '<td>' + r.prevAvg.toFixed(1) + '건/일</td>'
@@ -3115,14 +3137,14 @@ function renderColToggleButton(records) {
   const presets = loadPresets();
   const pinnedName = getPinnedPresetName();
   const presetListHtml = presets.length === 0
-    ? '<div style="font-size:11px;color:#9aa1ac;">저장된 설정이 없습니다.</div>'
+    ? '<div style="font-size:11px;color:#6e6e73;">저장된 설정이 없습니다.</div>'
     : presets.map(function(p) {
         const isPinned = p.name === pinnedName;
         return '<div style="display:flex;align-items:center;gap:6px;margin-bottom:4px;">'
-          + '<label style="display:flex;align-items:center;gap:3px;font-size:10px;color:#9aa1ac;cursor:pointer;" title="이 설정을 항상 기본값으로 고정">'
+          + '<label style="display:flex;align-items:center;gap:3px;font-size:10px;color:#6e6e73;cursor:pointer;" title="이 설정을 항상 기본값으로 고정">'
           + '<input type="checkbox" ' + (isPinned ? 'checked' : '') + ' onchange="togglePinPreset(\'' + p.name + '\', this.checked)"> 고정'
           + '</label>'
-          + '<button style="flex:1;text-align:left;font-size:11px;padding:5px 8px;border:1px solid ' + (isPinned ? '#FE2E36' : '#d9dce1') + ';background:#fff;border-radius:5px;cursor:pointer;" onclick="applyPreset(\'' + p.name + '\')">' + p.name + (isPinned ? ' 📌' : '') + '</button>'
+          + '<button style="flex:1;text-align:left;font-size:11px;padding:5px 8px;border:1px solid ' + (isPinned ? '#0071e3' : '#2c2c2e') + ';background:#1d1d1f;color:#f5f5f7;border-radius:5px;cursor:pointer;" onclick="applyPreset(\'' + p.name + '\')">' + p.name + (isPinned ? ' 📌' : '') + '</button>'
           + '<button style="border:none;background:none;color:#c94040;font-size:11px;cursor:pointer;" onclick="deletePreset(\'' + p.name + '\')">삭제</button>'
           + '</div>';
       }).join('');
@@ -3131,15 +3153,15 @@ function renderColToggleButton(records) {
     + '<button class="col-toggle-btn" type="button">표시 항목 ▾</button>'
     + '<div class="col-popover' + (colPopoverOpen ? ' open' : '') + '" id="colPopover">'
     + '<div style="padding-bottom:10px;margin-bottom:10px;border-bottom:1px solid #eee;">'
-    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;font-weight:600;">저장된 설정</div>'
+    + '<div style="font-size:11px;color:#6e6e73;margin-bottom:6px;font-weight:600;">저장된 설정</div>'
     + presetListHtml
     + '<div style="display:flex;gap:4px;margin-top:8px;">'
-    + '<input type="text" id="presetNameInput" placeholder="설정 이름" style="flex:1;font-size:12px;padding:5px 7px;border:1px solid #d9dce1;border-radius:5px;">'
-    + '<button style="font-size:11px;padding:5px 10px;border:1px solid #FE2E36;background:#FE2E36;color:#FFFFFF;border-radius:5px;cursor:pointer;" onclick="saveCurrentAsPreset()">현재설정 저장</button>'
+    + '<input type="text" id="presetNameInput" placeholder="설정 이름" style="flex:1;font-size:12px;padding:5px 7px;border:1px solid #2c2c2e;border-radius:5px;">'
+    + '<button style="font-size:11px;padding:5px 10px;border:1px solid #0071e3;background:#0071e3;color:#FFFFFF;border-radius:5px;cursor:pointer;" onclick="saveCurrentAsPreset()">현재설정 저장</button>'
     + '</div>'
     + '</div>'
-    + '<div style="font-size:10px;color:#9aa1ac;margin-bottom:8px;">"고정"에 체크하면 접속·탭 이동과 무관하게 항상 이 설정이 기본으로 적용됩니다. (일별·주별·요일별·월별·분기별·반기별 표 공통 적용)</div>'
-    + '<div style="font-size:11px;color:#9aa1ac;margin-bottom:6px;">체크 해제 시 표에서 숨겨집니다. ▲▼로 순서 변경 (주별·요일별·월별에도 동일 적용)</div>'
+    + '<div style="font-size:10px;color:#6e6e73;margin-bottom:8px;">"고정"에 체크하면 접속·탭 이동과 무관하게 항상 이 설정이 기본으로 적용됩니다. (일별·주별·요일별·월별·분기별·반기별 표 공통 적용)</div>'
+    + '<div style="font-size:11px;color:#6e6e73;margin-bottom:6px;">체크 해제 시 표에서 숨겨집니다. ▲▼로 순서 변경 (주별·요일별·월별에도 동일 적용)</div>'
     + itemsHtml
     + '<div class="actions"><button onclick="setAllColsVisible(true)">전체 표시</button><button onclick="setAllColsVisible(false)">전체 숨김</button></div>'
     + '</div></div>';
@@ -3150,7 +3172,7 @@ function renderHiddenChips() {
   const chips = colPrefs.hidden.map(function(k) {
     return '<span class="hidden-chip" onclick="toggleColVisible(\'' + k + '\')">' + k + ' 다시보기</span>';
   }).join('');
-  return '<div style="font-size:11px;color:#9aa1ac;margin-top:12px;">숨겨진 항목 (클릭하면 다시 표시):</div><div class="hidden-chips">' + chips + '</div>';
+  return '<div style="font-size:11px;color:#6e6e73;margin-top:12px;">숨겨진 항목 (클릭하면 다시 표시):</div><div class="hidden-chips">' + chips + '</div>';
 }
 
 function renderAggTable(records, view) {
@@ -3183,12 +3205,12 @@ function renderAggTable(records, view) {
       const sum = nums.length ? nums.reduce(function(a, b) { return a + b; }, 0).toLocaleString() : '-';
       return '<td>' + sum + '</td><td>' + (avg !== null ? Math.round(avg).toLocaleString() : '-') + '</td>';
     }).join('');
-    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">' + label + '</td><td>' + rows.length + '</td>' + cells + '</tr>';
+    return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;color:#f5f5f7;">' + label + '</td><td>' + rows.length + '</td>' + cells + '</tr>';
   }).join('');
 
   return '<div class="table-scroll"><table>'
-    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">' + aggLabel(view) + '</th><th>일수</th>' + headTop + '</tr>'
-    + '<tr><th style="position:sticky;left:0;background:#f8f9fb;"></th><th></th>' + headSub + '</tr></thead>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#111113;">' + aggLabel(view) + '</th><th>일수</th>' + headTop + '</tr>'
+    + '<tr><th style="position:sticky;left:0;background:#111113;"></th><th></th>' + headSub + '</tr></thead>'
     + '<tbody>' + bodyHtml + '</tbody></table></div>';
 }
 
@@ -3219,7 +3241,7 @@ const ZERO_WARN_KEYS = ['총원', '제휴CS_소계', '장기사고_소계', '장
 function zeroWarnCell(value, key) {
   const n = parseFloat(String(value === undefined || value === null ? '' : value).replace(/[%,]/g, ''));
   const isZero = ZERO_WARN_KEYS.includes(key) && n === 0;
-  const style = isZero ? ' style="background:#fdecea;color:#c94040;font-weight:700;" title="주의: 값이 0입니다"' : '';
+  const style = isZero ? ' style="background:rgba(255,69,58,.15);color:#c94040;font-weight:700;" title="주의: 값이 0입니다"' : '';
   return '<td' + style + '>' + fmt(value) + (isZero ? ' ⚠' : '') + '</td>';
 }
 
@@ -3230,12 +3252,12 @@ function buildMatrix(records) {
   const attKeys = visible.filter(function(k) { return attKeysAll.includes(k); });
   const perfKeys = visible.filter(function(k) { return perfKeysAll.includes(k); });
 
-  const headHtml = '<th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>'
+  const headHtml = '<th style="position:sticky;left:0;background:#111113;">날짜</th>'
     + attKeys.map(function(k) { return '<th>근태·' + k + '</th>'; }).join('')
     + perfKeys.map(function(k) { return '<th>실적·' + k + '</th>'; }).join('');
 
   const bodyHtml = records.slice().reverse().map(function(r) {
-    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">' + r.report_date + (isWeekendOrHoliday(r.report_date) ? ' 🔸' : '') + '</td>'
+    return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;color:#f5f5f7;">' + r.report_date + (isWeekendOrHoliday(r.report_date) ? ' 🔸' : '') + '</td>'
       + attKeys.map(function(k) { return zeroWarnCell(r.attendance_data ? r.attendance_data[k] : undefined, k); }).join('')
       + perfKeys.map(function(k) { return zeroWarnCell(r.performance_data ? r.performance_data[k] : undefined, k); }).join('')
       + '</tr>';
@@ -3272,7 +3294,7 @@ async function renderIssues() {
     + '<h3 id="issueFormTitle">' + (centerInfo ? centerInfo.center_name : '') + ' · 이슈 등록</h3>'
     + '<div class="entry-row"><label>날짜</label><input type="date" id="issueDate" value="' + today + '"></div>'
     + '<div class="entry-row" style="align-items:flex-start;"><label style="padding-top:8px;">제목</label>'
-    + '<input type="text" id="issueTitle" placeholder="예: 6/15 SL 급락, 신입 5명 입사 등" style="flex:1;padding:8px 10px;border:1px solid #d9dce1;border-radius:6px;font-size:13px;"></div>'
+    + '<input type="text" id="issueTitle" placeholder="예: 6/15 SL 급락, 신입 5명 입사 등" style="flex:1;padding:8px 10px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;"></div>'
     + '<textarea id="issueContent" class="paste-box" style="font-family:inherit;min-height:80px;" placeholder="상세 내용(선택)"></textarea>'
     + '<button class="btn-primary" id="issueSubmitBtn" onclick="submitIssue()">등록</button>'
     + '<button class="btn-ghost" id="issueCancelBtn" style="display:none;" onclick="cancelEditIssue()">취소</button>'
@@ -3281,7 +3303,7 @@ async function renderIssues() {
     + '<div class="panel">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
     + '<h3 style="margin:0;">히스토리 (최신순)</h3>'
-    + '<input type="text" id="issueSearch" placeholder="제목·내용 검색" oninput="filterIssueList()" style="padding:7px 10px;border:1px solid #d9dce1;border-radius:6px;font-size:13px;width:220px;">'
+    + '<input type="text" id="issueSearch" placeholder="제목·내용 검색" oninput="filterIssueList()" style="padding:7px 10px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;width:220px;">'
     + '</div>'
     + '<div id="issueList"><div class="loading">불러오는 중...</div></div></div>';
 
@@ -3320,18 +3342,18 @@ function renderIssueList(issues, keyword) {
   if (allIssuesCache.length === 0) { listEl.innerHTML = '<div class="empty">등록된 이슈/히스토리가 없습니다.</div>'; return; }
   if (issues.length === 0) { listEl.innerHTML = '<div class="empty">검색 결과가 없습니다.</div>'; return; }
 
-  listEl.innerHTML = '<div style="font-size:12px;color:#9aa1ac;margin-bottom:6px;">' + issues.length + '건' + (keyword ? ' (검색: "' + keyword + '")' : '') + '</div>'
+  listEl.innerHTML = '<div style="font-size:12px;color:#6e6e73;margin-bottom:6px;">' + issues.length + '건' + (keyword ? ' (검색: "' + keyword + '")' : '') + '</div>'
     + issues.map(function(item) {
     return '<div style="padding:12px 4px;border-top:1px solid #f0f1f3;">'
       + '<div style="display:flex;justify-content:space-between;align-items:baseline;">'
       + '<div><span style="font-weight:700;font-size:13px;">' + item.title + '</span>'
-      + '<span style="color:#9aa1ac;font-size:12px;margin-left:8px;">' + item.issue_date + '</span></div>'
+      + '<span style="color:#6e6e73;font-size:12px;margin-left:8px;">' + item.issue_date + '</span></div>'
       + '<div style="display:flex;gap:10px;">'
-      + '<button style="border:none;background:none;color:#5b6472;font-size:12px;cursor:pointer;" onclick="startEditIssue(\'' + item.id + '\')">수정</button>'
+      + '<button style="border:none;background:none;color:#a1a1a6;font-size:12px;cursor:pointer;" onclick="startEditIssue(\'' + item.id + '\')">수정</button>'
       + '<button style="border:none;background:none;color:#c94040;font-size:12px;cursor:pointer;" onclick="deleteIssue(\'' + item.id + '\')">삭제</button>'
       + '</div>'
       + '</div>'
-      + (item.content ? '<div style="font-size:13px;color:#3c4250;margin-top:6px;white-space:pre-wrap;">' + item.content + '</div>' : '')
+      + (item.content ? '<div style="font-size:13px;color:#f5f5f7;margin-top:6px;white-space:pre-wrap;">' + item.content + '</div>' : '')
       + '</div>';
   }).join('');
 }
@@ -3435,7 +3457,7 @@ const CENTER_GUIDES = {
 function buildGuideTable(schema, sample) {
   return schema.map(function(col, i) {
     const val = sample[i] !== undefined ? sample[i] : '-';
-    return '<tr><td style="padding:5px 8px;color:#9aa1ac;">' + (i + 1) + '</td>'
+    return '<tr><td style="padding:5px 8px;color:#6e6e73;">' + (i + 1) + '</td>'
       + '<td style="padding:5px 8px;">' + col.key + '</td>'
       + '<td style="padding:5px 8px;font-family:monospace;">' + (val === '' ? '(공란)' : val) + '</td></tr>';
   }).join('');
@@ -3535,15 +3557,15 @@ function renderNotificationSettings() {
       + '</tr>';
   }).join('');
 
-  main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
+  main.innerHTML = '<div style="--dash-accent:#0071e3;--dash-accent-dark:#1c1f26;">'
     + '<h2 style="margin:0 0 16px;font-size:20px;">🔔 알림 설정</h2>'
 
     + '<div class="panel" style="margin-bottom:16px;">'
     + '<h3 style="margin-bottom:6px;">센터별 담당자 관리</h3>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">센터당 여러 명 등록 가능하며, 체크 해제 시 발송 대상에서만 제외되고 기록은 남습니다.</p>'
+    + '<p style="font-size:12px;color:#6e6e73;margin:0 0 10px;">센터당 여러 명 등록 가능하며, 체크 해제 시 발송 대상에서만 제외되고 기록은 남습니다.</p>'
     + '<div class="entry-row"><label>센터</label><select id="notifCenterSelect" onchange="changeNotifCenter(this.value)">' + centerOptions + '</select></div>'
     + '<table style="width:100%;font-size:13px;margin-top:8px;"><thead><tr><th style="text-align:left;padding:6px;">이름</th><th style="text-align:left;padding:6px;">이메일</th><th style="padding:6px;">발송대상</th><th></th></tr></thead>'
-    + '<tbody>' + (contactsRowsHtml || '<tr><td colspan="4" style="color:#9aa1ac;padding:10px;">등록된 담당자가 없습니다.</td></tr>') + '</tbody></table>'
+    + '<tbody>' + (contactsRowsHtml || '<tr><td colspan="4" style="color:#6e6e73;padding:10px;">등록된 담당자가 없습니다.</td></tr>') + '</tbody></table>'
     + '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;">'
     + '<input type="text" id="newContactName" placeholder="이름(선택)" style="width:120px;padding:7px 10px;border:1px solid #e6eaf2;border-radius:6px;">'
     + '<input type="email" id="newContactEmail" placeholder="이메일" style="flex:1;min-width:180px;padding:7px 10px;border:1px solid #e6eaf2;border-radius:6px;">'
@@ -3554,11 +3576,11 @@ function renderNotificationSettings() {
 
     + '<div class="panel">'
     + '<h3 style="margin-bottom:6px;">발송 조건 및 메일 문구</h3>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin:0 0 10px;">제목/본문에 {center_name}, {days}, {site_link}를 넣으면 발송 시 자동으로 치환됩니다. 저장한 내용은 매시 정각 자동 점검에서 계속 재사용됩니다.</p>'
+    + '<p style="font-size:12px;color:#6e6e73;margin:0 0 10px;">제목/본문에 {center_name}, {days}, {site_link}를 넣으면 발송 시 자동으로 치환됩니다. 저장한 내용은 매시 정각 자동 점검에서 계속 재사용됩니다.</p>'
 
-    + '<div class="entry-row"><label>전체 발송 정지</label><input type="checkbox" id="notifPaused" ' + (s.is_paused ? 'checked' : '') + '> <span style="font-size:12px;color:#9aa1ac;">체크하면 모든 알림 발송이 즉시 중단됩니다</span></div>'
-    + '<div class="entry-row"><label>발송 시각</label><input type="time" id="notifSendTime" value="' + (s.send_time || '09:00') + '"><span style="font-size:12px;color:#9aa1ac;">매시 정각 점검 중 이 시각에만 실제 발송</span></div>'
-    + '<div class="entry-row"><label>반복 발송</label><input type="checkbox" id="notifRepeat" ' + (s.repeat_enabled !== false ? 'checked' : '') + '> <span style="font-size:12px;color:#9aa1ac;">해결 전까지 계속 재발송</span></div>'
+    + '<div class="entry-row"><label>전체 발송 정지</label><input type="checkbox" id="notifPaused" ' + (s.is_paused ? 'checked' : '') + '> <span style="font-size:12px;color:#6e6e73;">체크하면 모든 알림 발송이 즉시 중단됩니다</span></div>'
+    + '<div class="entry-row"><label>발송 시각</label><input type="time" id="notifSendTime" value="' + (s.send_time || '09:00') + '"><span style="font-size:12px;color:#6e6e73;">매시 정각 점검 중 이 시각에만 실제 발송</span></div>'
+    + '<div class="entry-row"><label>반복 발송</label><input type="checkbox" id="notifRepeat" ' + (s.repeat_enabled !== false ? 'checked' : '') + '> <span style="font-size:12px;color:#6e6e73;">해결 전까지 계속 재발송</span></div>'
     + '<div class="entry-row"><label>반복 주기(일)</label><input type="number" id="notifRepeatInterval" value="' + (s.repeat_interval_days || 1) + '" style="width:70px;"></div>'
 
     + '<h4 style="margin:18px 0 6px;font-size:13px;color:#8a6414;">🟠 주의 메일 (미업로드 ' + (s.warn_send_on_day || 4) + '일째 발송)</h4>'
@@ -3669,7 +3691,7 @@ function renderUploadArchive() {
       + '</tr>';
   }).join('');
 
-  main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#1c1f26;">'
+  main.innerHTML = '<div style="--dash-accent:#0071e3;--dash-accent-dark:#1c1f26;">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
     + '<h2 style="margin:0;font-size:20px;">📁 업로드 자료함</h2>'
     + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectUploadArchive()">새로고침</button>'
@@ -3682,9 +3704,9 @@ function renderUploadArchive() {
     + '</div>'
     + '<div class="panel"><div class="table-scroll"><table class="ws-table">'
     + '<thead><tr><th><input type="checkbox" id="archiveCheckAll" onchange="toggleArchiveCheckAll(this)"></th><th>센터</th><th>파일명</th><th>구분</th><th>용량</th><th>업로드일시</th><th></th></tr></thead>'
-    + '<tbody>' + (rows || '<tr><td colspan="7" style="text-align:center;color:#9aa1ac;padding:24px;">저장된 파일이 없습니다.</td></tr>') + '</tbody>'
+    + '<tbody>' + (rows || '<tr><td colspan="7" style="text-align:center;color:#6e6e73;padding:24px;">저장된 파일이 없습니다.</td></tr>') + '</tbody>'
     + '</table></div></div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:10px;">최근 300건까지 표시됩니다 · 데이터입력에서 파일을 첨부/추출할 때마다 원본이 자동으로 여기에 보관됩니다</p>'
+    + '<p style="font-size:12px;color:#6e6e73;margin-top:10px;">최근 300건까지 표시됩니다 · 데이터입력에서 파일을 첨부/추출할 때마다 원본이 자동으로 여기에 보관됩니다</p>'
     + '</div>';
 }
 
@@ -3765,20 +3787,20 @@ function renderInputGuide() {
     const rows2 = buildGuideTable(categorySchema, guide.categorySample);
 
     return '<details class="panel" style="max-width:100%;margin-bottom:16px;">'
-      + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#9aa1ac;">(원본 양식 예시 · 항목 대응표)</span></summary>'
+      + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#6e6e73;">(원본 양식 예시 · 항목 대응표)</span></summary>'
       + '<div style="margin-top:14px;">'
-      + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:18px;cursor:zoom-in;">'
+      + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #2c2c2e;border-radius:8px;margin-bottom:18px;cursor:zoom-in;">'
 
       + '<p style="font-size:14px;font-weight:700;margin-bottom:6px;">1) 일자별 실적 직접입력 방법</p>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">원본 양식 예시 (일별실적 표 기준) — 위 이미지처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">항목 대응표 (총 ' + rowSchema.length + '개 항목, 예시는 <span style="color:#009DA5;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">원본 양식 예시 (일별실적 표 기준) — 위 이미지처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">항목 대응표 (총 ' + rowSchema.length + '개 항목, 예시는 <span style="color:#009DA5;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
       + '<div class="table-scroll" style="max-height:260px;overflow-y:auto;margin-bottom:18px;">'
       + '<table><thead><tr><th>순서</th><th>표준 항목명</th><th>예시값</th></tr></thead><tbody>' + rows1 + '</tbody></table>'
       + '</div>'
 
       + '<p style="font-size:14px;font-weight:700;margin-bottom:6px;">2) 업무유형별 현황 입력 방법</p>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">원본 양식 예시 (상담유형 인입호 표 기준) — 위 이미지처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">항목 대응표 (총 ' + categorySchema.length + '개 항목, 예시는 <span style="color:#009DA5;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">원본 양식 예시 (상담유형 인입호 표 기준) — 위 이미지처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">항목 대응표 (총 ' + categorySchema.length + '개 항목, 예시는 <span style="color:#009DA5;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
       + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;">'
       + '<table><thead><tr><th>순서</th><th>표준 항목명</th><th>예시값</th></tr></thead><tbody>' + rows2 + '</tbody></table>'
       + '</div>'
@@ -3788,15 +3810,15 @@ function renderInputGuide() {
   const rows = buildGuideTable(rowSchema, guide.sample);
 
   return '<details class="panel" style="max-width:100%;margin-bottom:16px;">'
-    + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#9aa1ac;">(원본 양식 예시 · 항목 대응표)</span></summary>'
+    + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#6e6e73;">(원본 양식 예시 · 항목 대응표)</span></summary>'
     + '<div style="margin-top:14px;">'
-    + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>1) 원본 양식 예시</b> (<span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준) — 아래처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
-    + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:16px;cursor:zoom-in;">'
-    + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>2) 항목 대응표</b> (총 ' + rowSchema.length + '개 항목, 예시는 <span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;"><b>1) 원본 양식 예시</b> (<span style="color:#0071e3;font-weight:700;">' + guide.date + '</span> 데이터 기준) — 아래처럼 "일자" 행 전체를 그대로 복사하시면 됩니다.</p>'
+    + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #2c2c2e;border-radius:8px;margin-bottom:16px;cursor:zoom-in;">'
+    + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;"><b>2) 항목 대응표</b> (총 ' + rowSchema.length + '개 항목, 예시는 <span style="color:#0071e3;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
     + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;">'
     + '<table><thead><tr><th>순서</th><th>표준 항목명</th><th>예시값</th></tr></thead><tbody>' + rows + '</tbody></table>'
     + '</div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:10px;">※ 병합된 셀(예: 큰 제목 행)은 무시하고, 실제 숫자가 들어있는 맨 아래 줄 기준으로 순서를 맞추면 됩니다.</p>'
+    + '<p style="font-size:12px;color:#6e6e73;margin-top:10px;">※ 병합된 셀(예: 큰 제목 행)은 무시하고, 실제 숫자가 들어있는 맨 아래 줄 기준으로 순서를 맞추면 됩니다.</p>'
     + '</div></details>';
 }
 
@@ -4815,7 +4837,7 @@ async function renderEntry() {
   const lcBox = LONG_CONTRACT_CENTERS[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
       + '<h3>장기계약정비 RAW 엑셀에서 자동 추출</h3>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">처리구분·의무위반사항·요청일·완료일·변경기한일 컬럼이 있는 RAW 엑셀(.xlsx)을 첨부하면 일별현황을 자동 계산해 아래 붙여넣기 칸에 채워줍니다.</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">처리구분·의무위반사항·요청일·완료일·변경기한일 컬럼이 있는 RAW 엑셀(.xlsx)을 첨부하면 일별현황을 자동 계산해 아래 붙여넣기 칸에 채워줍니다.</p>'
       + '<input type="file" id="lcFile" accept=".xlsx">'
       + '<button class="btn-secondary" onclick="extractLongContractAndFill()">추출해서 채우기</button>'
       + '<div class="status-msg" id="lcStatus"></div>'
@@ -4825,7 +4847,7 @@ async function renderEntry() {
   const xlsxBox = XLSX_EXTRACTOR_FIELDS[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
       + '<h3>엑셀 파일에서 자동 추출</h3>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">월별 운영보고서(.xlsx)를 첨부하면 일자별 데이터를 읽어 아래 붙여넣기 칸에 자동으로 채워줍니다. 채워진 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">월별 운영보고서(.xlsx)를 첨부하면 일자별 데이터를 읽어 아래 붙여넣기 칸에 자동으로 채워줍니다. 채워진 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.</p>'
       + '<input type="file" id="xlsxFile" accept=".xlsx">'
       + '<button class="btn-secondary" onclick="extractXlsxAndFill()">추출해서 채우기</button>'
       + '<div class="status-msg" id="xlsxStatus"></div>'
@@ -4835,7 +4857,7 @@ async function renderEntry() {
   const hwpxBox = HWPX_FIELD_ORDER[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
       + '<h3>월별 운영보고서 한글파일(HWPX)에서 자동 추출</h3>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">월별 운영보고서(.hwpx)를 첨부하면 일자별 데이터를 읽어 아래 붙여넣기 칸에 자동으로 채워줍니다. 채워진 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">월별 운영보고서(.hwpx)를 첨부하면 일자별 데이터를 읽어 아래 붙여넣기 칸에 자동으로 채워줍니다. 채워진 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.</p>'
       + '<input type="file" id="hwpxFile" accept=".hwpx">'
       + '<button class="btn-secondary" onclick="extractHwpxAndFill()">추출해서 채우기</button>'
       + '<div class="status-msg" id="hwpxStatus"></div>'
@@ -4845,7 +4867,7 @@ async function renderEntry() {
   const lgeExcelBox = LGEX_CENTER_CONFIG[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
       + '<h3>엑셀 자동추출 (' + LGEX_CENTER_CONFIG[currentCenter].targetGroup + ' Total)</h3>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">summary 시트가 있는 엑셀(.xlsx)을 첨부하면 날짜별 T-NPS·생산성(IN+OUT)·생산성(IN)·통화시간(IN+OUT) ' + LGEX_CENTER_CONFIG[currentCenter].targetGroup + ' Total 값을 자동으로 찾아 아래 "일자별 실적 직접입력" 표에 채워줍니다. 추출 기간을 지정하면 그 기간에 해당하는 날짜만 가져옵니다(비워두면 파일 내 전체 기간).</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">summary 시트가 있는 엑셀(.xlsx)을 첨부하면 날짜별 T-NPS·생산성(IN+OUT)·생산성(IN)·통화시간(IN+OUT) ' + LGEX_CENTER_CONFIG[currentCenter].targetGroup + ' Total 값을 자동으로 찾아 아래 "일자별 실적 직접입력" 표에 채워줍니다. 추출 기간을 지정하면 그 기간에 해당하는 날짜만 가져옵니다(비워두면 파일 내 전체 기간).</p>'
       + '<input type="file" id="lgeExcelFile" accept=".xlsx,.xlsm,.xls">'
       + '<div class="entry-row"><label>추출 시작일</label><input type="date" id="lgeExcelStart"></div>'
       + '<div class="entry-row"><label>추출 종료일</label><input type="date" id="lgeExcelEnd"></div>'
@@ -4857,7 +4879,7 @@ async function renderEntry() {
   const dayReportBox = DAY_REPORT_CENTERS[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
       + '<h3>일일업무보고 한글파일(HWPX)에서 자동 추출</h3>'
-      + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;">하루치 일일업무보고(.hwpx)를 첨부하면 "일별실적"과 "상담유형별 인입호"를 함께 읽어 각각의 붙여넣기 칸에 자동으로 채워줍니다.</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">하루치 일일업무보고(.hwpx)를 첨부하면 "일별실적"과 "상담유형별 인입호"를 함께 읽어 각각의 붙여넣기 칸에 자동으로 채워줍니다.</p>'
       + '<input type="file" id="dayReportFile" accept=".hwpx">'
       + '<button class="btn-secondary" onclick="extractDailyReportAndFill()">추출해서 채우기</button>'
       + '<button class="btn-primary" onclick="applyBothForms()">전체 양식에 반영</button>'
@@ -4882,7 +4904,7 @@ async function renderEntry() {
 
   const pasteHtml = '<div class="entry-wrap panel">'
     + '<h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>'
-    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)</p>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)</p>'
     + '<textarea class="paste-box" id="pasteBox" placeholder="6/1	165.5	34	90.5	...&#10;6/2	164.5	34	89.5	..."></textarea>'
     + '<button class="btn-secondary" onclick="parseMultiPaste()">양식에 반영</button>'
     + '<button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>'
@@ -4943,7 +4965,7 @@ function renderDataManagePanel() {
   const today = new Date().toISOString().slice(0, 10);
   return '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>저장된 데이터 조회 · 일괄 삭제 · 수정</h3>'
-    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">기간을 지정해 저장된 데이터를 조회한 뒤, 잘못 입력된 날짜를 선택해 삭제하거나 위쪽 입력칸으로 불러와 수정할 수 있습니다.</p>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">기간을 지정해 저장된 데이터를 조회한 뒤, 잘못 입력된 날짜를 선택해 삭제하거나 위쪽 입력칸으로 불러와 수정할 수 있습니다.</p>'
     + '<div class="entry-row"><label>시작일</label><input type="date" id="dmStart" value="' + today + '"></div>'
     + '<div class="entry-row"><label>종료일</label><input type="date" id="dmEnd" value="' + today + '"></div>'
     + '<button class="btn-secondary" onclick="queryDataManage()">조회</button>'
@@ -5242,7 +5264,7 @@ function renderAttendanceSemiAutoPanel() {
   pendingAttRange = null; // 1회성 - 사용 후 즉시 초기화
   return '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>일자별 재직 및 투입현황 입력</h3>'
-    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">근태 파일을 업로드하면 날짜별 실제 근무 인원(상담사/관리자)이 자동으로 채워집니다. 파일이 없으면 기간만 지정해도 주말·공휴일을 제외한 영업일마다 기본값(TO·재직인원·' + cfg.manualLabel + ')이 채워지며, 어느 쪽이든 개별 수정이나 체크박스 일괄수정이 가능합니다.</p>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">근태 파일을 업로드하면 날짜별 실제 근무 인원(상담사/관리자)이 자동으로 채워집니다. 파일이 없으면 기간만 지정해도 주말·공휴일을 제외한 영업일마다 기본값(TO·재직인원·' + cfg.manualLabel + ')이 채워지며, 어느 쪽이든 개별 수정이나 체크박스 일괄수정이 가능합니다.</p>'
     + '<div class="entry-row"><label>근태파일 업로드</label><input type="file" id="attFile" accept=".xlsx,.xlsm,.xls" onchange="extractAttFile()"><button class="btn-secondary" onclick="extractAttFile()">다시 추출</button></div>'
     + '<div class="entry-row"><label>시작일</label><input type="date" id="attStart" value="' + startVal + '"></div>'
     + '<div class="entry-row"><label>종료일</label><input type="date" id="attEnd" value="' + endVal + '"></div>'
@@ -5250,8 +5272,8 @@ function renderAttendanceSemiAutoPanel() {
     + '<button class="btn-primary" id="attSaveBtn" style="display:none;" onclick="saveAttRangeRows()">근태만 저장</button>'
     + '<button class="btn-primary" id="attCombinedSaveBtn" style="display:none;background:#1a8f4c;" onclick="saveAttAndPerfCombined()">실적+근태 일괄 반영</button>'
     + '<div class="status-msg" id="attStatus"></div>'
-    + '<div id="attBulkEditBar" style="display:none;margin-top:12px;padding:10px 12px;background:#f8f9fb;border:1px solid #e6eaf2;border-radius:8px;">'
-    + '<div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#344054;">선택한 날짜 일괄수정 (<span id="attCheckedCount">0</span>건 선택됨 · 값을 채운 항목만 적용)</div>'
+    + '<div id="attBulkEditBar" style="display:none;margin-top:12px;padding:10px 12px;background:#111113;border:1px solid #e6eaf2;border-radius:8px;">'
+    + '<div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#a1a1a6;">선택한 날짜 일괄수정 (<span id="attCheckedCount">0</span>건 선택됨 · 값을 채운 항목만 적용)</div>'
     + '<div class="entry-row"><label>TO</label><input type="number" id="attBulkTO" placeholder="변경없음" style="width:80px;"></div>'
     + '<div class="entry-row"><label>재직인원</label><input type="number" id="attBulkStaff" placeholder="변경없음" style="width:80px;"></div>'
     + '<div class="entry-row"><label>' + cfg.manualLabel + '</label><input type="number" id="attBulkManual" placeholder="변경없음" style="width:80px;"></div>'
@@ -5300,18 +5322,18 @@ function renderAttRangeTemplate() {
     const manualVal = ext ? ext.상담사 : cfg.defaultManual;
     const extMark = ext ? ' style="background:#eef8f1;font-weight:600;"' : '';
     return '<tr>'
-      + '<td style="position:sticky;left:0;background:#fff;"><input type="checkbox" class="att-check" data-row="' + idx + '" onchange="updateAttCheckedCount()"></td>'
+      + '<td style="position:sticky;left:0;background:#1d1d1f;"><input type="checkbox" class="att-check" data-row="' + idx + '" onchange="updateAttCheckedCount()"></td>'
       + '<td style="font-weight:600;">' + date + (ext ? ' <span style="color:#1a8f4c;font-size:11px;font-weight:400;">(추출됨)</span>' : '') + '</td>'
-      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="to" value="' + cfg.defaultTO + '" style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
-      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="staff" value="' + staffVal + '"' + extMark + ' style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
-      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="manual" value="' + manualVal + '"' + extMark + ' style="width:70px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="to" value="' + cfg.defaultTO + '" style="width:70px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="staff" value="' + staffVal + '"' + extMark + ' style="width:70px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="manual" value="' + manualVal + '"' + extMark + ' style="width:70px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
       + '</tr>';
   }).join('');
 
   area.innerHTML = '<div class="table-scroll"><table>'
-    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;"><input type="checkbox" id="attCheckAll" onchange="toggleAttCheckAll(this)"></th><th>날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th></tr></thead>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#111113;"><input type="checkbox" id="attCheckAll" onchange="toggleAttCheckAll(this)"></th><th>날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th></tr></thead>'
     + '<tbody>' + rows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 초록색 배경은 근태파일에서 자동 추출된 값입니다. 값은 직접 클릭해 수정하거나, 체크박스로 여러 날짜를 선택해 일괄수정할 수 있습니다</p>';
+    + '<p style="font-size:12px;color:#6e6e73;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 초록색 배경은 근태파일에서 자동 추출된 값입니다. 값은 직접 클릭해 수정하거나, 체크박스로 여러 날짜를 선택해 일괄수정할 수 있습니다</p>';
   updateAttCheckedCount();
 }
 
@@ -5505,21 +5527,21 @@ function renderCategoryInputGuide() {
 
   const rows = categorySchema.map(function(col, i) {
     const sample = guide.sample[i] !== undefined ? guide.sample[i] : '-';
-    return '<tr><td style="padding:5px 8px;color:#9aa1ac;">' + (i + 1) + '</td>'
+    return '<tr><td style="padding:5px 8px;color:#6e6e73;">' + (i + 1) + '</td>'
       + '<td style="padding:5px 8px;">' + col.key + '</td>'
       + '<td style="padding:5px 8px;font-family:monospace;">' + sample + '</td></tr>';
   }).join('');
 
   return '<details class="panel" style="max-width:100%;margin-top:16px;">'
-    + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#9aa1ac;">(원본 양식 예시 · 항목 대응표)</span></summary>'
+    + '<summary style="cursor:pointer;font-weight:700;font-size:14px;line-height:1.5;">사용설명보기<br><span style="font-size:12px;font-weight:400;color:#6e6e73;">(원본 양식 예시 · 항목 대응표)</span></summary>'
     + '<div style="margin-top:14px;">'
-    + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>1) 원본 양식 예시</b> (<span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준) — "건수" 행의 합계부터 기타까지를 순서대로 복사하시면 됩니다. "응대율(%)" 행은 입력하지 않아도 자동 계산됩니다.</p>'
-    + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #e7e8ec;border-radius:8px;margin-bottom:16px;cursor:zoom-in;">'
-    + '<p style="font-size:13px;color:#5b6472;margin-bottom:8px;"><b>2) 항목 대응표</b> (총 ' + categorySchema.length + '개 항목, 예시는 <span style="color:#FE2E36;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;"><b>1) 원본 양식 예시</b> (<span style="color:#0071e3;font-weight:700;">' + guide.date + '</span> 데이터 기준) — "건수" 행의 합계부터 기타까지를 순서대로 복사하시면 됩니다. "응대율(%)" 행은 입력하지 않아도 자동 계산됩니다.</p>'
+    + '<img src="' + guide.image + '" onclick="openImageLightbox(this.src)" title="클릭하면 크게 보기" style="max-width:100%;border:1px solid #2c2c2e;border-radius:8px;margin-bottom:16px;cursor:zoom-in;">'
+    + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;"><b>2) 항목 대응표</b> (총 ' + categorySchema.length + '개 항목, 예시는 <span style="color:#0071e3;font-weight:700;">' + guide.date + '</span> 데이터 기준)</p>'
     + '<div class="table-scroll" style="max-height:320px;overflow-y:auto;">'
     + '<table><thead><tr><th>순서</th><th>표준 항목명</th><th>예시값(건수)</th></tr></thead><tbody>' + rows + '</tbody></table>'
     + '</div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:10px;">※ "합계"는 반드시 첫 번째 항목이어야 하며, 나머지 항목의 비중(%)은 합계 대비 자동 계산됩니다.</p>'
+    + '<p style="font-size:12px;color:#6e6e73;margin-top:10px;">※ "합계"는 반드시 첫 번째 항목이어야 하며, 나머지 항목의 비중(%)은 합계 대비 자동 계산됩니다.</p>'
     + '</div></details>';
 }
 
@@ -5531,7 +5553,7 @@ function renderCategoryEntryPanel() {
     + '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>업무유형별 인입현황 입력</h3>'
     + '<div class="entry-row"><label>기준 연도</label><input type="number" id="categoryEntryYear" value="' + thisYear + '" style="width:90px;"></div>'
-    + '<p style="font-size:13px;color:#5b6472;margin:10px 0 6px;">날짜 다음에 "합계"부터 "기타"까지 건수만 순서대로 붙여넣으세요 (응대율/비중은 자동 계산됩니다)</p>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">날짜 다음에 "합계"부터 "기타"까지 건수만 순서대로 붙여넣으세요 (응대율/비중은 자동 계산됩니다)</p>'
     + '<textarea class="paste-box" id="categoryPasteBox" style="min-height:70px;" placeholder="6/1	1493	99	235	261	240	184	45	75	80	16	11	219	28"></textarea>'
     + '<button class="btn-secondary" onclick="parseCategoryPaste()">양식에 반영</button>'
     + '<button class="btn-primary" id="categorySaveBtn" style="display:none;" onclick="saveCategoryRows()">전체 저장</button>'
@@ -5582,21 +5604,21 @@ function renderCategoryPreview() {
   const bodyRows = categoryParsedRows.map(function(row, ri) {
     const total = parseFloat(String(row.values[totalIdx]).replace(/,/g, '')) || 0;
     const cells = row.values.map(function(v, ci) {
-      return '<td><input type="text" class="category-input" data-row="' + ri + '" data-idx="' + ci + '" data-key="' + categorySchema[ci].key + '" value="' + v + '" style="width:64px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;" oninput="renderCategoryShareRow(' + ri + ')"></td>';
+      return '<td><input type="text" class="category-input" data-row="' + ri + '" data-idx="' + ci + '" data-key="' + categorySchema[ci].key + '" value="' + v + '" style="width:64px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;" oninput="renderCategoryShareRow(' + ri + ')"></td>';
     }).join('');
     const shares = row.values.map(function(v, ci) {
-      if (ci === totalIdx || total === 0) return '<td style="color:#9aa1ac;">-</td>';
+      if (ci === totalIdx || total === 0) return '<td style="color:#6e6e73;">-</td>';
       const n = parseFloat(String(v).replace(/,/g, '')) || 0;
-      return '<td style="color:#9aa1ac;" id="catShare_' + ri + '_' + ci + '">' + (n / total * 100).toFixed(1) + '%</td>';
+      return '<td style="color:#6e6e73;" id="catShare_' + ri + '_' + ci + '">' + (n / total * 100).toFixed(1) + '%</td>';
     }).join('');
-    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">' + row.date + ' (건수)</td>' + cells + '</tr>'
-      + '<tr><td style="position:sticky;left:0;background:#fff;color:#9aa1ac;">비중(%)</td>' + shares + '</tr>';
+    return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;color:#f5f5f7;">' + row.date + ' (건수)</td>' + cells + '</tr>'
+      + '<tr><td style="position:sticky;left:0;background:#1d1d1f;color:#6e6e73;">비중(%)</td>' + shares + '</tr>';
   }).join('');
 
   area.innerHTML = '<div class="table-scroll"><table>'
-    + '<thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>' + headCells + '</tr></thead>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#111113;">날짜</th>' + headCells + '</tr></thead>'
     + '<tbody>' + bodyRows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + categoryParsedRows.length + '개 날짜 · 비중(%)은 합계 대비 자동 계산되며 저장 시 함께 기록됩니다</p>';
+    + '<p style="font-size:12px;color:#6e6e73;margin-top:6px;">' + categoryParsedRows.length + '개 날짜 · 비중(%)은 합계 대비 자동 계산되며 저장 시 함께 기록됩니다</p>';
 }
 
 function renderCategoryShareRow(ri) {
@@ -5703,18 +5725,18 @@ function renderPreviewTable() {
   while (i < cols.length) {
     let span = 1;
     while (i + span < cols.length && cols[i + span].dispGroup === cols[i].dispGroup) span++;
-    groupCells.push('<th colspan="' + span + '" style="text-align:center;background:#FFF6DC;color:#60584C;">' + cols[i].dispGroup + '</th>');
+    groupCells.push('<th colspan="' + span + '" style="text-align:center;background:rgba(245,166,35,.15);color:#f5c16c;">' + cols[i].dispGroup + '</th>');
     i += span;
   }
   const labelCells = cols.map(function(c) { return '<th style="text-align:center;">' + c.label + '</th>'; }).join('');
   const bodyRows = parsedRows.map(function(row, ri) {
     const cells = row.values.map(function(v, ci) {
-      return '<td><input type="text" class="template-input" data-row="' + ri + '" data-idx="' + ci + '" data-key="' + cols[ci].key + '" data-group="' + cols[ci].origGroup + '" value="' + v + '" style="width:64px;padding:5px;border:1px solid #d9dce1;border-radius:4px;font-size:12px;text-align:center;"></td>';
+      return '<td><input type="text" class="template-input" data-row="' + ri + '" data-idx="' + ci + '" data-key="' + cols[ci].key + '" data-group="' + cols[ci].origGroup + '" value="' + v + '" style="width:64px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>';
     }).join('');
-    return '<tr><td style="position:sticky;left:0;background:#fff;font-weight:600;">' + row.date + '</td>' + cells + '</tr>';
+    return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;color:#f5f5f7;">' + row.date + '</td>' + cells + '</tr>';
   }).join('');
-  area.innerHTML = '<div class="table-scroll"><table><thead><tr><th style="position:sticky;left:0;background:#f8f9fb;">날짜</th>' + groupCells.join('') + '</tr><tr><th style="position:sticky;left:0;background:#f8f9fb;"></th>' + labelCells + '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#9aa1ac;margin-top:6px;">' + parsedRows.length + '개 날짜 · 값은 직접 클릭해 수정할 수 있습니다</p>';
+  area.innerHTML = '<div class="table-scroll"><table><thead><tr><th style="position:sticky;left:0;background:#111113;">날짜</th>' + groupCells.join('') + '</tr><tr><th style="position:sticky;left:0;background:#111113;"></th>' + labelCells + '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>'
+    + '<p style="font-size:12px;color:#6e6e73;margin-top:6px;">' + parsedRows.length + '개 날짜 · 값은 직접 클릭해 수정할 수 있습니다</p>';
 }
 
 function parseGroups() {
