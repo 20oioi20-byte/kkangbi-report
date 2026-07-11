@@ -5,75 +5,87 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>센터 실적/근태 업로드</title>
 <style>
+  /* KKANGBY Premium Dark — look & feel only */
+  :root {
+    --kb-bg:#000000; --kb-surface:#1d1d1f; --kb-surface-2:#2c2c2e; --kb-elevated:#111113;
+    --kb-border:#2c2c2e; --kb-border-soft:#3a3a3c;
+    --kb-text:#f5f5f7; --kb-muted:#a1a1a6; --kb-faint:#6e6e73;
+    --kb-accent:#0071e3; --kb-accent-2:#00A5FF; --kb-accent-soft:rgba(0,113,227,.18);
+    --kb-danger:#ff453a; --kb-success:#30d158;
+  }
   * { box-sizing: border-box; }
   body {
     margin: 0; font-family: -apple-system, "Malgun Gothic", sans-serif;
-    background: #f4f5f7; color: #1c1f26; min-height: 100vh;
+    background: var(--kb-bg); color: var(--kb-text); min-height: 100vh;
     display: flex; align-items: center; justify-content: center; padding: 24px;
   }
   .card {
-    background: #fff; border-radius: 12px; padding: 32px 28px;
-    max-width: 720px; width: 100%; box-shadow: 0 2px 12px rgba(0,0,0,.06);
+    background: var(--kb-surface); border: 1px solid var(--kb-border); border-radius: 20px; padding: 32px 28px;
+    max-width: 720px; width: 100%; box-shadow: none;
   }
   .tabs { display: flex; gap: 8px; margin-bottom: 20px; }
   .tab-btn {
-    flex: 1; padding: 10px; border: 1px solid #d9dce1; background: #fff; border-radius: 8px;
-    cursor: pointer; font-size: 14px; color: #5b6472;
+    flex: 1; padding: 10px; border: 1px solid var(--kb-border); background: var(--kb-elevated); border-radius: 999px;
+    cursor: pointer; font-size: 14px; color: var(--kb-muted);
   }
-  .tab-btn.active { background: #3b6ef6; color: #fff; border-color: #3b6ef6; }
+  .tab-btn.active { background: var(--kb-accent); color: #fff; border-color: var(--kb-accent); }
   .tab-panel { display: none; }
   .tab-panel.active { display: block; }
   textarea.paste-box {
-    width: 100%; min-height: 60px; padding: 10px 12px; border: 1px solid #d9dce1;
-    border-radius: 8px; font-size: 13px; font-family: monospace; margin-bottom: 10px;
+    width: 100%; min-height: 60px; padding: 10px 12px; border: 1px solid var(--kb-border);
+    border-radius: 12px; font-size: 13px; font-family: monospace; margin-bottom: 10px;
+    background: var(--kb-elevated); color: var(--kb-text);
   }
-  .preview-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; display: block; overflow-x: auto; white-space: nowrap; }
-  .preview-table th { background: #f4f5f7; padding: 6px; text-align: left; color: #5b6472; }
-  .preview-table td { padding: 4px; }
+  .preview-table { width: 100%; border-collapse: collapse; font-size: 12px; margin: 12px 0; display: block; overflow-x: auto; white-space: nowrap; color: var(--kb-text); }
+  .preview-table th { background: var(--kb-elevated); padding: 6px; text-align: left; color: var(--kb-muted); border-bottom: 1px solid var(--kb-border); }
+  .preview-table td { padding: 4px; border-bottom: 1px solid var(--kb-border); }
   .preview-table input {
-    width: 70px; padding: 4px 6px; border: 1px solid #d9dce1; border-radius: 4px; font-size: 12px;
+    width: 70px; padding: 4px 6px; border: 1px solid var(--kb-border); border-radius: 8px; font-size: 12px;
+    background: var(--kb-elevated); color: var(--kb-text);
   }
   button.secondary {
-    width: 100%; padding: 11px; border: 1px solid #3b6ef6; border-radius: 8px;
-    background: #fff; color: #3b6ef6; font-size: 14px; font-weight: 600; cursor: pointer; margin-bottom: 8px;
+    width: 100%; padding: 11px; border: 1px solid var(--kb-accent); border-radius: 999px;
+    background: transparent; color: var(--kb-accent); font-size: 14px; font-weight: 600; cursor: pointer; margin-bottom: 8px;
   }
-  h1 { font-size: 20px; margin: 0 0 4px; }
-  .center-name { font-size: 15px; color: #5b6472; margin-bottom: 24px; }
+  h1 { font-size: 20px; margin: 0 0 4px; color: var(--kb-text); }
+  .center-name { font-size: 15px; color: var(--kb-muted); margin-bottom: 24px; }
   .date-row { display: flex; align-items: center; gap: 8px; margin-bottom: 20px; }
-  .date-row label { font-size: 14px; color: #5b6472; }
+  .date-row label { font-size: 14px; color: var(--kb-muted); }
   input[type="date"] {
-    flex: 1; padding: 10px 12px; border: 1px solid #d9dce1; border-radius: 8px; font-size: 14px;
+    flex: 1; padding: 10px 12px; border: 1px solid var(--kb-border); border-radius: 12px; font-size: 14px;
+    background: var(--kb-elevated); color: var(--kb-text);
   }
   .dropzone {
-    border: 2px dashed #c7cbd3; border-radius: 10px; padding: 32px 16px;
+    border: 2px dashed var(--kb-border-soft); border-radius: 16px; padding: 32px 16px;
     text-align: center; cursor: pointer; transition: all .15s; margin-bottom: 16px;
+    background: var(--kb-elevated);
   }
-  .dropzone.drag { border-color: #3b6ef6; background: #f0f4ff; }
-  .dropzone p { margin: 4px 0; color: #5b6472; font-size: 14px; }
-  .dropzone .hint { font-size: 12px; color: #9aa1ac; }
+  .dropzone.drag { border-color: var(--kb-accent); background: var(--kb-accent-soft); }
+  .dropzone p { margin: 4px 0; color: var(--kb-muted); font-size: 14px; }
+  .dropzone .hint { font-size: 12px; color: var(--kb-faint); }
   #fileInput { display: none; }
   .filelist { margin-bottom: 16px; }
   .fileitem {
     display: flex; justify-content: space-between; align-items: center;
-    background: #f4f5f7; border-radius: 8px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
+    background: var(--kb-elevated); border: 1px solid var(--kb-border); border-radius: 12px; padding: 8px 12px; margin-bottom: 6px; font-size: 13px;
   }
-  .fileitem button { border: none; background: none; color: #c94040; cursor: pointer; font-size: 13px; }
+  .fileitem button { border: none; background: none; color: var(--kb-danger); cursor: pointer; font-size: 13px; }
   button.submit {
-    width: 100%; padding: 13px; border: none; border-radius: 8px;
-    background: #3b6ef6; color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
+    width: 100%; padding: 13px; border: none; border-radius: 999px;
+    background: var(--kb-accent); color: #fff; font-size: 15px; font-weight: 600; cursor: pointer;
   }
-  button.submit:disabled { background: #c7cbd3; cursor: not-allowed; }
-  .status { margin-top: 14px; font-size: 13px; text-align: center; min-height: 18px; }
-  .status.ok { color: #1a8f4c; }
-  .status.err { color: #c94040; }
+  button.submit:disabled { background: var(--kb-border-soft); cursor: not-allowed; color: var(--kb-faint); }
+  .status { margin-top: 14px; font-size: 13px; text-align: center; min-height: 18px; color: var(--kb-muted); }
+  .status.ok { color: var(--kb-success); }
+  .status.err { color: var(--kb-danger); }
   .invalid { text-align: center; padding: 40px 20px; }
-  .invalid h2 { color: #c94040; }
+  .invalid h2 { color: var(--kb-danger); }
 </style>
 </head>
 <body>
 
 <div class="card" id="app">
-  <p style="text-align:center;color:#9aa1ac;">확인 중...</p>
+  <p style="text-align:center;color:#6e6e73;">확인 중...</p>
 </div>
 
 <script>
@@ -124,7 +136,7 @@ function renderInvalid() {
   app.innerHTML = `
     <div class="invalid">
       <h2>유효하지 않은 링크입니다</h2>
-      <p style="color:#5b6472;font-size:14px;">관리자에게 새 업로드 링크를 요청해 주세요.</p>
+      <p style="color:#a1a1a6;font-size:14px;">관리자에게 새 업로드 링크를 요청해 주세요.</p>
     </div>`;
 }
 
@@ -232,7 +244,7 @@ function previewPaste() {
 
   const rowsHtml = rowSchema.map((col, i) => `
     <tr>
-      <td style="color:#5b6472;">${col.key}</td>
+      <td style="color:#a1a1a6;">${col.key}</td>
       <td><input type="text" data-key="${col.key}" data-group="${col.group}" value="${values[i] ?? ''}"></td>
     </tr>`).join('');
 
@@ -283,7 +295,7 @@ async function saveManualEntry() {
 async function loadHistory() {
   const section = document.getElementById('historySection');
   if (!section) return;
-  section.innerHTML = `<p style="text-align:center;color:#9aa1ac;font-size:13px;margin-top:20px;">누적 현황 불러오는 중...</p>`;
+  section.innerHTML = `<p style="text-align:center;color:#6e6e73;font-size:13px;margin-top:20px;">누적 현황 불러오는 중...</p>`;
 
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=history&token=' + encodeURIComponent(token), {
@@ -303,7 +315,7 @@ async function loadHistory() {
 function renderHistory(rows) {
   const section = document.getElementById('historySection');
   if (!rows || rows.length === 0) {
-    section.innerHTML = `<p style="text-align:center;color:#9aa1ac;font-size:13px;margin-top:20px;">아직 등록된 실적이 없습니다.</p>`;
+    section.innerHTML = `<p style="text-align:center;color:#6e6e73;font-size:13px;margin-top:20px;">아직 등록된 실적이 없습니다.</p>`;
     return;
   }
 
@@ -318,7 +330,7 @@ function renderHistory(rows) {
       <tr>
         <td style="padding:8px 6px;border-bottom:1px solid #eee;">${r.report_date}</td>
         <td style="padding:8px 6px;border-bottom:1px solid #eee;color:${color};font-weight:600;">${label}</td>
-        <td style="padding:8px 6px;border-bottom:1px solid #eee;font-size:12px;color:#5b6472;">${summary}</td>
+        <td style="padding:8px 6px;border-bottom:1px solid #eee;font-size:12px;color:#a1a1a6;">${summary}</td>
       </tr>`;
   }).join('');
 
@@ -326,7 +338,7 @@ function renderHistory(rows) {
     <h2 style="font-size:15px;margin:24px 0 10px;">누적 업로드 현황 (최근 ${rows.length}건)</h2>
     <table style="width:100%;border-collapse:collapse;font-size:13px;">
       <thead>
-        <tr style="text-align:left;color:#9aa1ac;font-size:12px;">
+        <tr style="text-align:left;color:#6e6e73;font-size:12px;">
           <th style="padding:6px;">보고일자</th><th style="padding:6px;">상태</th><th style="padding:6px;">주요 실적</th>
         </tr>
       </thead>
