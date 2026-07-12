@@ -147,7 +147,9 @@
   @media (max-width: 900px) { .kbj-kpi-grid { grid-template-columns: repeat(3, 1fr); } .kbj-split2 { grid-template-columns: 1fr; } .kbj-split-even { grid-template-columns: 1fr; } }
   .summary-card2 .sc-head { display: flex; justify-content: space-between; align-items: center; margin-bottom: 14px; }
   .summary-card2 .sc-title { font-weight: 700; font-size: 14px; display: flex; align-items: center; gap: 6px; }
-  .summary-card2 .sc-copy { font-size: 11px; padding: 4px 10px; border-radius: 14px; border: 1px solid var(--dash-accent, #FE2E36); color: var(--dash-accent, #FE2E36); background: #1d1d1f; cursor: pointer; }
+  .summary-card2 .sc-copy, .copy-icon-btn { display: inline-flex; align-items: center; justify-content: center; width: 26px; height: 26px; flex-shrink: 0; padding: 0; border-radius: 8px; border: 1px solid #2c2c2e; color: #a1a1a6; background: #232326; cursor: pointer; }
+  .summary-card2 .sc-copy:hover, .copy-icon-btn:hover { background: #2c2c2e; color: #f5f5f7; border-color: #3a3f4b; }
+  .summary-card2 .sc-copy svg, .copy-icon-btn svg { width: 13px; height: 13px; pointer-events: none; }
   .summary-card2 .sc-row { display: grid; gap: 10px; margin-bottom: 10px; }
   .summary-card2 .sc-stat { text-align: center; }
   .summary-card2 .sc-stat .l { font-size: 11px; color: #86868b; margin-bottom: 3px; }
@@ -1387,7 +1389,7 @@ function buildTablePanelInner(sortedTarget) {
   return '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
     + '<h3 style="margin:0;">' + aggLabel(aggView) + ' 현황 (' + sortedTarget.length + '건 기준)</h3>'
     + '<div style="display:flex;gap:6px;align-items:center;">'
-    + '<button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTableToClipboard()">표 복사</button>'
+    + '<button class="copy-icon-btn" title="표 복사" onclick="copyTableToClipboard()">' + COPY_ICON_SVG + '</button>'
     + (aggView === 'daily' ? renderColToggleButton(sortedTarget) : '')
     + '</div>'
     + '</div>'
@@ -2202,6 +2204,12 @@ function renderDashboard() {
   // 상단 기간 토글(단월/분기누적/반기누적/연초누적)에 따라 "일평균" 기준 구간이 바뀌도록 targetRows를 그대로 사용한다.
   const trendHtml = renderTrendList(targetRows, cumulativeRows, prevYearMonthRows, prevMonthRows);
 
+  // 상단 핵심지표 카드의 "누적" 수치도 토글에 맞춰 범위가 바뀌어야 한다.
+  // - 단월: 연초~현재월(기존과 동일, "이번달 vs 연초누적" 비교 기준으로 유지)
+  // - 분기누적/반기누적: 해당 분기·반기 범위로 좁혀서 누적
+  // - 연초누적: 연초~현재월(= cumulativeRows와 동일하므로 그대로)
+  const cardCumRows = viewMode === 'quarter' ? quarterRows : viewMode === 'half' ? halfRows : cumulativeRows;
+
   const chartConfig = CENTER_CHART_CONFIG[currentCenter] || { groups: [] };
   const excludeBarLabel = (aggView === 'monthly' && chartConfig.excludeBarOnMonthly) ? chartConfig.excludeBarOnMonthly : null;
 
@@ -2214,7 +2222,7 @@ function renderDashboard() {
     const lineTitle = group.lineLabels.join('/') + '(선' + (group.threshold ? ', 기준 ' + group.threshold.value : '') + ')';
     const summaryHtml = aggView === 'daily' ? '' : renderChartSummary(group, sortedTarget, excludeBarLabel);
     chartBoxes += '<div class="mini-chart-box"><div class="title">' + group.title + ' · ' + barTitle + ' · ' + lineTitle + '</div><div class="canvas-wrap"><canvas id="miniChart' + i + '"></canvas></div>' + summaryHtml + '</div>';
-    copyButtonsHtml += '<button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyChartImage(' + i + ')">' + group.title + ' 복사</button>';
+    copyButtonsHtml += '<button class="copy-icon-btn" title="' + group.title + ' 복사" onclick="copyChartImage(' + i + ')">' + COPY_ICON_SVG + '</button>';
   }
   const wideRange = viewMode === 'cumulative' || viewMode === 'quarter' || viewMode === 'half';
   const chartsClass = (aggView === 'daily' || wideRange) ? 'mini-charts vertical' : 'mini-charts';
@@ -2234,10 +2242,10 @@ function renderDashboard() {
     + '<span style="font-size:11px;color:#86868b;margin-left:auto;">평균값은 주말·공휴일 제외 기준</span>'
     + '</div>'
     + alertInfo.html
-    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiSummaryCards2(targetRows, cumulativeRows) : renderSummaryCards(targetRows, cumulativeRows, prevMonthRows))
+    + (currentCenter === 'kbjeongbi' ? renderKbjeongbiSummaryCards2(targetRows, cardCumRows) : renderSummaryCards(targetRows, cardCumRows, prevMonthRows))
     + '<div class="split">'
     + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">지표 추이</h3><div style="display:flex;gap:6px;">' + copyButtonsHtml + '</div></div><div class="' + chartsClass + '">' + chartBoxes + '</div></div>'
-    + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="copyTrendList()">복사</button></div><div class="trend-list">' + trendHtml + '</div></div>'
+    + '<div class="panel"><div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:12px;"><h3 style="margin:0;">' + (centerInfo ? centerInfo.center_name : '') + ' · 주요지표 (일평균 / 누적평균)</h3><button class="copy-icon-btn" title="주요지표 복사" onclick="copyTrendList()">' + COPY_ICON_SVG + '</button></div><div class="trend-list">' + trendHtml + '</div></div>'
     + '</div>'
     + (currentCenter === 'kbjeongbi' ? renderKbjeongbiDueDateTables(sortedTarget) : '')
     + renderCategoryOverviewPanel(centerRows, monthRows, prevMonthRows)
@@ -2416,6 +2424,13 @@ function periodAvgLabel() {
   return '';
 }
 
+// 핵심지표 카드의 "누적" 계열 라벨: 토글에 맞춰 분기누적/반기누적/연초누적으로 표시 (단월 모드는 연초누적 기준 유지)
+function periodCumLabel() {
+  if (viewMode === 'quarter') return '분기누적';
+  if (viewMode === 'half') return '반기누적';
+  return '연초누적';
+}
+
 function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonthRows) {
   lastTrendLines = ['지표\t' + (periodAvgLabel() || '일평균') + '\t전월비\t전년동월비\t누적평균'];
   const defs = CENTER_KPI_DEFS[currentCenter] || [];
@@ -2449,12 +2464,10 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
       + '\t' + (prevYearAvg !== null ? formatKpiValue(def, prevYearAvg) : '-')
       + '\t' + cumDisplay);
 
-    const sectionHtml = def.section
-      ? '<div style="font-size:11px;font-weight:700;color:#60584C;background:#FFF6DC;padding:5px 6px;margin-top:8px;border-radius:5px;">' + def.section + '</div>'
-      : '';
+    const labelText = (def.section ? def.section + ' ' : '') + def.label;
 
-    return sectionHtml + '<div class="trend-row" style="display:block;padding:8px 4px;">'
-      + '<span class="label" style="font-weight:600;">' + def.label + '</span>'
+    return '<div class="trend-row" style="display:block;padding:8px 4px;">'
+      + '<span class="label" style="font-weight:600;">' + labelText + '</span>'
       + '&nbsp; ' + parts.join(' &nbsp;/&nbsp; ')
       + '</div>';
   }).join('');
@@ -2539,6 +2552,8 @@ function computeAlert(centerRows) {
 // 전체 현황 요약 카드 (이상징후와 지표추이 사이) - 센터별 설정 기반 공통 함수
 // ============================================
 const GROUP_ICONS = ['🎧', '🚗', '📋', '💼', '🏢'];
+// 복사 버튼 아이콘(다크 테마 중립톤 버튼에 사용) - 텍스트 "복사" 대신 아이콘+title 툴팁으로 표시
+const COPY_ICON_SVG = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><rect x="9" y="9" width="11" height="11" rx="2"></rect><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"></path></svg>';
 
 // ============================================
 // KB손보정비 전용 대시보드 (참고 이미지 반영)
@@ -2711,16 +2726,16 @@ function renderKbjeongbiSummaryCards2(monthRows, cumulativeRows) {
     const cumUnproc = cumAcc - cumProc;
     const cardId = 'kbjSumCard' + i;
     return '<div class="summary-card2" id="' + cardId + '">'
-      + '<div class="sc-head"><span class="sc-title">' + c.icon + ' ' + c.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">복사</button></div>'
+      + '<div class="sc-head"><span class="sc-title">' + c.icon + ' ' + c.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" title="복사" onclick="copySummaryCard(\'' + cardId + '\')">' + COPY_ICON_SVG + '</button></div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
       + '<div class="sc-stat"><div class="l">일평균 접수건</div><div class="v">' + (dailyAcc !== null ? dailyAcc.toFixed(1) : '-') + '건</div></div>'
-      + '<div class="sc-stat"><div class="l">누적 접수건</div><div class="v">' + cumAcc.toLocaleString() + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 접수건</div><div class="v">' + cumAcc.toLocaleString() + '건</div></div>'
       + '<div class="sc-stat"><div class="l">일평균 처리건</div><div class="v">' + (dailyProc !== null ? dailyProc.toFixed(1) : '-') + '건</div></div>'
       + '</div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">'
-      + '<div class="sc-stat"><div class="l">누적 처리건</div><div class="v">' + cumProc.toLocaleString() + '건</div></div>'
-      + '<div class="sc-stat"><div class="l">누적 처리율</div><div class="v">' + (cumRate !== null ? cumRate.toFixed(1) + '%' : '-') + '</div></div>'
-      + '<div class="sc-stat"><div class="l">누적 미처리건</div><div class="v warn">' + cumUnproc.toLocaleString() + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 처리건</div><div class="v">' + cumProc.toLocaleString() + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 처리율</div><div class="v">' + (cumRate !== null ? cumRate.toFixed(1) + '%' : '-') + '</div></div>'
+      + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 미처리건</div><div class="v warn">' + cumUnproc.toLocaleString() + '건</div></div>'
       + '</div>'
       + '</div>';
   }).join('');
@@ -2789,11 +2804,11 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
   const pctDiff = (curPct !== null && prevPct !== null) ? (curPct - prevPct) : null;
 
   const overviewCard = '<div class="summary-card2" id="sumCardOverview">'
-    + '<div class="sc-head"><span class="sc-title">👥 전체 운영 요약' + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" onclick="copySummaryCard(\'sumCardOverview\')">복사</button></div>'
+    + '<div class="sc-head"><span class="sc-title">👥 전체 운영 요약' + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" title="복사" onclick="copySummaryCard(\'sumCardOverview\')">' + COPY_ICON_SVG + '</button></div>'
     + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
     + '<div class="sc-stat"><div class="l">전체 재직인원(TO대비)</div><div class="v">' + (staffAvgMonth !== null ? staffAvgMonth.toFixed(1) : '-') + '명</div><div class="sub">(' + (curPct !== null ? curPct.toFixed(0) : '-') + '%)</div></div>'
     + '<div class="sc-stat"><div class="l">운영 안정도</div><div class="v">' + (curPct !== null ? curPct.toFixed(0) : '-') + '%</div><div class="sub">' + (pctDiff !== null ? ('전월比 ' + (pctDiff >= 0 ? '▲' : '▼') + Math.abs(pctDiff).toFixed(0) + '%p') : '-') + '</div></div>'
-    + '<div class="sc-stat"><div class="l">누적평균 재직인원</div><div class="v">' + (staffAvgCum !== null ? staffAvgCum.toFixed(1) : '-') + '명</div><div class="sub">(' + (cumPct !== null ? cumPct.toFixed(0) : '-') + '%)</div></div>'
+    + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 평균 재직인원</div><div class="v">' + (staffAvgCum !== null ? staffAvgCum.toFixed(1) : '-') + '명</div><div class="sub">(' + (cumPct !== null ? cumPct.toFixed(0) : '-') + '%)</div></div>'
     + '</div>'
     + (toInfo.fullNote ? '<div class="sub" style="text-align:center;color:#86868b;">※ ' + toInfo.fullNote + '</div>' : (toInfo.note ? '<div class="sub" style="text-align:center;color:#86868b;">※ 전체 정원 ' + toInfo.total + '명 중 ' + toInfo.note + '</div>' : ''))
     + '</div>';
@@ -2819,7 +2834,7 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
     const thresholdIdx = group.threshold ? group.lineKeys.indexOf(group.threshold.key) : -1;
     const thresholdLabel = thresholdIdx >= 0 ? group.lineLabels[thresholdIdx].replace('(%)', '') : secondLabel;
     return '<div class="summary-card2" id="' + cardId + '">'
-      + '<div class="sc-head"><span class="sc-title">' + GROUP_ICONS[gi % GROUP_ICONS.length] + ' ' + group.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" onclick="copySummaryCard(\'' + cardId + '\')">' + group.title + ' 복사</button></div>'
+      + '<div class="sc-head"><span class="sc-title">' + GROUP_ICONS[gi % GROUP_ICONS.length] + ' ' + group.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" title="' + group.title + ' 복사" onclick="copySummaryCard(\'' + cardId + '\')">' + COPY_ICON_SVG + '</button></div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
       + '<div class="sc-stat"><div class="l">' + group.barLabels[0] + '</div><div class="v">' + (inboundAvg !== null ? Math.round(inboundAvg).toLocaleString() : '-') + '건</div></div>'
       + (group.barKeys[1] ? '<div class="sc-stat"><div class="l">' + group.barLabels[1] + '</div><div class="v">' + (answeredAvg !== null ? Math.round(answeredAvg).toLocaleString() : '-') + '건</div></div>' : '')
@@ -4605,7 +4620,17 @@ async function extractLongContractAndFill() {
     }
     if (records.length === 0) throw new Error('집계 가능한 데이터 행을 찾지 못했습니다.');
 
-    const dailyRows = lcBuildDailyRows(records);
+    let dailyRows = lcBuildDailyRows(records);
+    const rangeStartVal = document.getElementById('lcStart').value;
+    const rangeEndVal = document.getElementById('lcEnd').value;
+    if (rangeStartVal && rangeEndVal && rangeStartVal > rangeEndVal) throw new Error('추출 시작일이 종료일보다 늦을 수 없습니다.');
+    const fullRangeNote = ' (파일 내 전체 기간 ' + (dailyRows.length ? dailyRows[0].dateKey + ' ~ ' + dailyRows[dailyRows.length - 1].dateKey : '-') + ')';
+    if (rangeStartVal || rangeEndVal) {
+      dailyRows = dailyRows.filter(function(row) {
+        return (!rangeStartVal || row.dateKey >= rangeStartVal) && (!rangeEndVal || row.dateKey <= rangeEndVal);
+      });
+      if (dailyRows.length === 0) throw new Error('지정한 기간에 해당하는 데이터가 없습니다.' + fullRangeNote);
+    }
     const lines = dailyRows.map(function(row) {
       const dateLabel = lcDisplayDate(row.dateKey);
       const values = LC_FLAT_KEYS.map(function(k) { return row.values[k]; });
@@ -4613,7 +4638,7 @@ async function extractLongContractAndFill() {
     });
     document.getElementById('pasteBox').value = lines.join('\n');
     statusEl.className = 'status-msg ok';
-    statusEl.textContent = dailyRows.length + '일치 추출 완료(원본 ' + records.length + '건). 직접입력 화면으로 이동해 표를 채웠습니다. 확인 후 "전체 저장"을 눌러주세요.';
+    statusEl.textContent = dailyRows.length + '일치 추출 완료(원본 ' + records.length + '건)' + ((rangeStartVal || rangeEndVal) ? ' · 지정 기간만 반영' : '') + fullRangeNote + '. 직접입력 화면으로 이동해 표를 채웠습니다. 확인 후 "전체 저장"을 눌러주세요.';
     selectEntryMethod('paste');
     parseMultiPaste();
     const lcDates = dailyRows.map(function(row) { return row.dateKey; }).sort();
@@ -4794,8 +4819,21 @@ async function extractXlsxAndFill() {
   statusEl.textContent = '엑셀 파일을 읽는 중...';
   try {
     const workbook = await xlsxParseWorkbook(await f.arrayBuffer());
-    const daily = xlsxExtractDaily(workbook, fields);
+    let daily = xlsxExtractDaily(workbook, fields);
     if (daily.length === 0) throw new Error('일자별 데이터를 찾지 못했습니다. 문서 양식이 다를 수 있습니다.');
+
+    const year = document.getElementById('entryYear').value;
+    const rangeStartVal = document.getElementById('xlsxStart').value;
+    const rangeEndVal = document.getElementById('xlsxEnd').value;
+    if (rangeStartVal && rangeEndVal && rangeStartVal > rangeEndVal) throw new Error('추출 시작일이 종료일보다 늦을 수 없습니다.');
+    if (rangeStartVal || rangeEndVal) {
+      daily = daily.filter(function(row) {
+        const iso = toIsoDate(row.date, year);
+        if (!iso) return true; // 날짜 변환 실패시 안전하게 포함(누락 방지)
+        return (!rangeStartVal || iso >= rangeStartVal) && (!rangeEndVal || iso <= rangeEndVal);
+      });
+      if (daily.length === 0) throw new Error('지정한 기간에 해당하는 데이터가 없습니다.');
+    }
 
     const lines = daily.map(function(row) {
       const values = fields.map(function(f) { return xlsxFmtValue(row[f[0]], f[1]); });
@@ -4803,7 +4841,7 @@ async function extractXlsxAndFill() {
     });
     document.getElementById('pasteBox').value = lines.join('\n');
     statusEl.className = 'status-msg ok';
-    statusEl.textContent = daily.length + '일치 추출 완료. 직접입력 화면으로 이동해 표를 채웠습니다. 확인 후 "전체 저장"을 눌러주세요.';
+    statusEl.textContent = daily.length + '일치 추출 완료' + ((rangeStartVal || rangeEndVal) ? ' · 지정 기간만 반영' : '') + '. 직접입력 화면으로 이동해 표를 채웠습니다. 확인 후 "전체 저장"을 눌러주세요.';
     selectEntryMethod('paste');
     parseMultiPaste();
   } catch (e) {
@@ -4880,9 +4918,11 @@ async function renderEntry() {
   const thisYear = new Date().getFullYear();
   const lcBox = LONG_CONTRACT_CENTERS[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
-      + '<h3>장기계약정비 RAW 엑셀에서 자동 추출</h3>'
-      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">처리구분·의무위반사항·요청일·완료일·변경기한일 컬럼이 있는 RAW 엑셀(.xlsx)을 첨부하면 일별현황을 자동 계산해 아래 붙여넣기 칸에 채워줍니다.</p>'
+      + '<h3>엑셀 자동추출</h3>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">처리구분·의무위반사항·요청일·완료일·변경기한일 컬럼이 있는 RAW 엑셀(.xlsx)을 첨부하면 일별현황을 자동 계산해 아래 붙여넣기 칸에 채워줍니다. 추출 기간을 지정하면 그 기간에 해당하는 날짜만 가져옵니다(비워두면 파일 내 전체 기간).</p>'
       + '<input type="file" id="lcFile" accept=".xlsx">'
+      + '<div class="entry-row"><label>추출 시작일</label><input type="date" id="lcStart"></div>'
+      + '<div class="entry-row"><label>추출 종료일</label><input type="date" id="lcEnd"></div>'
       + '<button class="btn-secondary" onclick="extractLongContractAndFill()">추출해서 채우기</button>'
       + '<div class="status-msg" id="lcStatus"></div>'
       + '</div>'
@@ -4891,8 +4931,10 @@ async function renderEntry() {
   const xlsxBox = XLSX_EXTRACTOR_FIELDS[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
       + '<h3>엑셀 파일에서 자동 추출</h3>'
-      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">월별 운영보고서(.xlsx)를 첨부하면 일자별 데이터를 읽어 아래 붙여넣기 칸에 자동으로 채워줍니다. 채워진 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.</p>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">월별 운영보고서(.xlsx)를 첨부하면 일자별 데이터를 읽어 아래 붙여넣기 칸에 자동으로 채워줍니다. 추출 기간을 지정하면 그 기간에 해당하는 날짜만 가져옵니다(비워두면 파일 내 전체 기간). 채워진 내용을 확인한 뒤 "양식에 반영"을 눌러주세요.</p>'
       + '<input type="file" id="xlsxFile" accept=".xlsx">'
+      + '<div class="entry-row"><label>추출 시작일</label><input type="date" id="xlsxStart"></div>'
+      + '<div class="entry-row"><label>추출 종료일</label><input type="date" id="xlsxEnd"></div>'
       + '<button class="btn-secondary" onclick="extractXlsxAndFill()">추출해서 채우기</button>'
       + '<div class="status-msg" id="xlsxStatus"></div>'
       + '</div>'
@@ -4937,7 +4979,7 @@ async function renderEntry() {
   if (DAY_REPORT_CENTERS[currentCenter]) {
     extraction = { label: '일일업무보고(HWPX) 자동추출', html: dayReportBox };
   } else if (LONG_CONTRACT_CENTERS[currentCenter]) {
-    extraction = { label: 'RAW 엑셀 자동추출', html: lcBox };
+    extraction = { label: '엑셀 자동추출', html: lcBox };
   } else if (XLSX_EXTRACTOR_FIELDS[currentCenter]) {
     extraction = { label: '엑셀 자동추출', html: xlsxBox };
   } else if (HWPX_FIELD_ORDER[currentCenter]) {
@@ -5308,13 +5350,14 @@ function renderAttendanceSemiAutoPanel() {
   pendingAttRange = null; // 1회성 - 사용 후 즉시 초기화
   return '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>일자별 재직 및 투입현황 입력</h3>'
-    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">근태 파일을 업로드하면 날짜별 실제 근무 인원(상담사/관리자)이 자동으로 채워집니다. 파일이 없으면 기간만 지정해도 주말·공휴일을 제외한 영업일마다 기본값(TO·재직인원·' + cfg.manualLabel + ')이 채워지며, 어느 쪽이든 개별 수정이나 체크박스 일괄수정이 가능합니다.</p>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">근태 파일을 업로드하면 날짜별 실제 근무 인원(상담사/관리자)이 자동으로 채워집니다. 파일이 없으면 기간만 지정해도 주말·공휴일을 제외한 영업일마다 기본값(TO·재직인원·' + cfg.manualLabel + ')이 채워지며, 어느 쪽이든 개별 수정이나 체크박스 일괄수정이 가능합니다. "근태만 저장"은 이 표의 근태 값만, "실적만 저장"은 위쪽 "일자별 실적 직접입력"에 붙여넣은 실적만(겹치는 날짜 한정) 반영하고 나머지는 건드리지 않습니다.</p>'
     + '<div class="entry-row"><label>근태파일 업로드</label><input type="file" id="attFile" accept=".xlsx,.xlsm,.xls" onchange="extractAttFile()"><button class="btn-secondary" onclick="extractAttFile()">다시 추출</button></div>'
     + '<div class="entry-row"><label>시작일</label><input type="date" id="attStart" value="' + startVal + '"></div>'
     + '<div class="entry-row"><label>종료일</label><input type="date" id="attEnd" value="' + endVal + '"></div>'
     + '<button class="btn-secondary" onclick="generateAttRangeRows()">기간 적용</button>'
     + '<button class="btn-primary" id="attSaveBtn" style="display:none;" onclick="saveAttRangeRows()">근태만 저장</button>'
     + '<button class="btn-primary" id="attCombinedSaveBtn" style="display:none;background:#34c759;" onclick="saveAttAndPerfCombined()">실적+근태 일괄 반영</button>'
+    + '<button class="btn-primary" id="attPerfOnlySaveBtn" style="display:none;background:#5ac8fa;" onclick="saveAttPerfOnly()">실적만 저장</button>'
     + '<div class="status-msg" id="attStatus"></div>'
     + '<div id="attBulkEditBar" style="display:none;margin-top:12px;padding:10px 12px;background:#111113;border:1px solid #2c2c2e;border-radius:8px;">'
     + '<div style="font-size:12px;font-weight:700;margin-bottom:8px;color:#f5f5f7;">선택한 날짜 일괄수정 (<span id="attCheckedCount">0</span>건 선택됨 · 값을 채운 항목만 적용)</div>'
@@ -5350,6 +5393,7 @@ function generateAttRangeRows() {
   renderAttRangeTemplate();
   document.getElementById('attSaveBtn').style.display = attRangeRows.length ? 'inline-block' : 'none';
   document.getElementById('attCombinedSaveBtn').style.display = attRangeRows.length ? 'inline-block' : 'none';
+  document.getElementById('attPerfOnlySaveBtn').style.display = attRangeRows.length ? 'inline-block' : 'none';
   document.getElementById('attCombinedPreview').innerHTML = '';
 }
 
@@ -5493,6 +5537,7 @@ async function saveAttAndPerfCombined() {
   document.getElementById('attTemplateArea').innerHTML = '';
   document.getElementById('attSaveBtn').style.display = 'none';
   document.getElementById('attCombinedSaveBtn').style.display = 'none';
+  document.getElementById('attPerfOnlySaveBtn').style.display = 'none';
   document.getElementById('pasteBox').value = '';
   document.getElementById('manualSaveBtn').style.display = 'none';
   parsedRows = [];
@@ -5554,7 +5599,63 @@ async function saveAttRangeRows() {
   attRangeRows = [];
   attExtractedByDate = {};
   document.getElementById('attSaveBtn').style.display = 'none';
+  document.getElementById('attCombinedSaveBtn').style.display = 'none';
+  document.getElementById('attPerfOnlySaveBtn').style.display = 'none';
   document.getElementById('attTemplateArea').innerHTML = '';
+  await loadOverviewForCurrent();
+}
+
+// 재직 및 투입현황 화면에서 "실적만 저장": 근태(TO/재직인원/투입인원)는 전혀 건드리지 않고,
+// 위쪽 "일자별 실적 직접입력"에 붙여넣어둔 실적 데이터만 근태 기간(attRangeRows)과 겹치는 날짜에 반영한다.
+async function saveAttPerfOnly() {
+  const statusEl = document.getElementById('attStatus');
+  const token = centerTokenMap[currentCenter];
+  if (attRangeRows.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 기간을 적용해 주세요.'; return; }
+
+  parseMultiPaste(); // 위쪽 실적 붙여넣기 내용을 최신 상태로 반영
+
+  const perfByDate = {};
+  parsedRows.forEach(function(r, idx) { perfByDate[r.date] = idx; });
+  const matchedDates = attRangeRows.filter(function(d) { return perfByDate[d] !== undefined; });
+  if (matchedDates.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '근태 기간과 겹치는 실적 데이터가 없습니다. 위쪽 "일자별 실적 직접입력"에 실적을 붙여넣어 주세요.'; return; }
+
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '저장 중... (실적만 ' + matchedDates.length + '건 반영, 근태는 변경하지 않습니다)';
+
+  const entries = matchedDates.map(function(date) {
+    const perfIdx = perfByDate[date];
+    const values = {};
+    const inputs = document.querySelectorAll('.template-input[data-row="' + perfIdx + '"]');
+    inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+    return { report_date: date, values: values };
+  });
+
+  let success = 0;
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry-bulk', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, entries: entries })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '저장 실패');
+    success = data.count || entries.length;
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '저장 실패: ' + e.message;
+    return;
+  }
+
+  const notMatched = attRangeRows.filter(function(d) { return perfByDate[d] === undefined; });
+  let msg = success + '건 실적만 저장 완료(근태 값은 변경하지 않았습니다).';
+  if (notMatched.length) msg += ' 실적 데이터가 없어 제외된 날짜 ' + notMatched.length + '건: ' + notMatched.join(', ');
+  statusEl.className = 'status-msg ok';
+  statusEl.textContent = msg;
+
+  // 근태 표는 아직 저장 전일 수 있으므로 그대로 유지하고, 실적 붙여넣기 칸만 정리한다.
+  document.getElementById('pasteBox').value = '';
+  document.getElementById('manualSaveBtn').style.display = 'none';
+  parsedRows = [];
+  document.getElementById('templateArea').innerHTML = '';
   await loadOverviewForCurrent();
 }
 
@@ -5779,8 +5880,22 @@ function renderPreviewTable() {
     }).join('');
     return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + row.date + '</td>' + cells + '</tr>';
   }).join('');
+
+  // 근태 컬럼과 실적 컬럼이 한 양식에 함께 있는 센터(예: KB손보부천)는 한쪽만 다시 반영할 수 있게 버튼을 추가로 보여준다.
+  // (기존 데이터 중 근태는 잘 들어갔는데 실적만 새로 바꾸고 싶은 경우 등)
+  const hasAttGroup = cols.some(function(c) { return c.origGroup === 'attendance'; });
+  const hasPerfGroup = cols.some(function(c) { return c.origGroup !== 'attendance'; });
+  const groupButtonsHtml = (hasAttGroup && hasPerfGroup)
+    ? '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
+      + '<button class="btn-primary" style="background:#5ac8fa;" onclick="saveAllRows(\'attendance\')">근태만 저장</button>'
+      + '<button class="btn-primary" style="background:#34c759;" onclick="saveAllRows(\'performance\')">실적만 저장</button>'
+      + '<span style="font-size:11px;color:#86868b;">기존에 저장된 근태 또는 실적 중 한쪽만 이 표 내용으로 덮어쓰고, 나머지 한쪽은 그대로 둡니다.</span>'
+      + '</div>'
+    : '';
+
   area.innerHTML = '<div class="table-scroll"><table><thead><tr><th style="position:sticky;left:0;background:#111113;">날짜</th>' + groupCells.join('') + '</tr><tr><th style="position:sticky;left:0;background:#111113;"></th>' + labelCells + '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + parsedRows.length + '개 날짜 · 값은 직접 클릭해 수정할 수 있습니다</p>';
+    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + parsedRows.length + '개 날짜 · 값은 직접 클릭해 수정할 수 있습니다</p>'
+    + groupButtonsHtml;
 }
 
 function parseGroups() {
@@ -5792,16 +5907,23 @@ function parseGroups() {
   });
 }
 
-async function saveAllRows() {
+async function saveAllRows(groupFilter) {
   const statusEl = document.getElementById('manualStatus');
   const token = centerTokenMap[currentCenter];
+  const groupLabel = groupFilter === 'attendance' ? '근태만' : groupFilter === 'performance' ? '실적만' : '전체';
   statusEl.className = 'status-msg';
-  statusEl.textContent = '저장 중... (' + parsedRows.length + '건 한번에 반영)';
+  statusEl.textContent = '저장 중... (' + parsedRows.length + '건, ' + groupLabel + ' 반영)';
 
   const entries = parsedRows.map(function(row, idx) {
     const inputs = document.querySelectorAll('.template-input[data-row="' + idx + '"]');
     const values = {};
-    inputs.forEach(function(inp) { values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group }; });
+    inputs.forEach(function(inp) {
+      // groupFilter가 지정된 경우, 다른 그룹(예: 실적만 저장인데 근태 컬럼)은 아예 전송하지 않아
+      // 서버에 이미 저장돼 있던 값이 덮어써지지 않도록 한다.
+      if (groupFilter === 'attendance' && inp.dataset.group !== 'attendance') return;
+      if (groupFilter === 'performance' && inp.dataset.group === 'attendance') return;
+      values[inp.dataset.key] = { value: inp.value, group: inp.dataset.group };
+    });
     return { report_date: row.date, values: values };
   });
 
@@ -5813,7 +5935,7 @@ async function saveAllRows() {
     const data = await res.json();
     if (!data.success) throw new Error(data.error || '저장 실패');
     statusEl.className = 'status-msg ok';
-    statusEl.textContent = (data.count || entries.length) + '건 모두 한번에 저장 완료되었습니다.';
+    statusEl.textContent = (data.count || entries.length) + '건 (' + groupLabel + ') 저장 완료되었습니다.';
   } catch (e) {
     statusEl.className = 'status-msg err';
     statusEl.textContent = '저장 실패: ' + e.message;
