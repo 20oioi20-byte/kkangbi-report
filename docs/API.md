@@ -1,0 +1,56 @@
+# API.md — Edge Function `center-report-upload` 액션 목록
+
+베이스 URL: `https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/center-report-upload?action=<ACTION>`
+모든 요청은 헤더 `Authorization: Bearer <SUPABASE_ANON_KEY>` 필요.
+인증 방식: `token`(센터별 upload_token, 본인 센터만) / `workspace_password`(관리자, 전체) / Origin 자동인증(관리자 도메인).
+
+## 실적/근태 데이터
+| action | method | 인증 | 설명 |
+|---|---|---|---|
+| `schema` | GET | token | 센터 row_schema 조회 |
+| `manual-entry` | POST | token | 단일 날짜 실적/근태 저장 |
+| `manual-entry-bulk` | POST | token | **여러 날짜 한번에 저장** (5건씩 나눠 보내던 방식 대체) |
+| `history` | GET | token | 최근 30일 조회(센터 자신) |
+| `admin-overview` | GET | 공개 | 전체 센터 최근 300건 조회 (워크스페이스 대시보드용) |
+| `delete-dates` | POST | token | 선택 날짜 일괄삭제 (낙관적 UI 갱신 필요 — `SYSTEM.md`/`CHANGELOG.md` 참고) |
+
+## 센터/설정 관리
+| action | method | 인증 | 설명 |
+|---|---|---|---|
+| `add-center` / `rename-center` / `delete-center` / `reorder-centers` | POST | workspace | 센터 CRUD |
+| `save-row-schema` | POST | workspace | row_schema 등록 |
+| `list-monthly-to` / `save-monthly-to` / `save-monthly-to-bulk` / `delete-monthly-to` | GET/POST | workspace 또는 본인센터 | TO(정원) 설정 |
+| `list-kpi-settings` / `save-kpi-setting` / `delete-kpi-setting` | GET/POST | workspace 또는 본인센터 | 핵심지표 기본 목표값 |
+| `list-kpi-monthly-targets` / `save-kpi-monthly-targets-bulk` | GET/POST | workspace 또는 본인센터 | 핵심지표 월별 목표값 |
+| `save-workspace-password` / `save-center-password` | POST | workspace | 비밀번호 변경 |
+
+## 업로드 자료함
+| action | method | 인증 | 설명 |
+|---|---|---|---|
+| `archive-upload-file` | POST | token | 원본 파일 Storage 저장 + 로그 기록 |
+| `archive-list-files` | GET | workspace(전체) 또는 token(본인센터) | 목록/검색 |
+| `archive-file-url` | POST | workspace 또는 본인센터 | 다운로드 서명URL(120초 유효) 발급 |
+| `archive-delete-file` / `archive-delete-files-bulk` | POST | workspace 또는 본인센터 | 삭제(Storage+로그 동시) |
+
+## 업로드 모니터링 + 이메일 알림
+| action | method | 인증 | 설명 |
+|---|---|---|---|
+| `list-last-upload` | GET | **공개**(CORS `*`, 외부 사이트 연동용) | 센터별 최근 업로드 시각 |
+| `list-contacts` / `save-contact` / `delete-contact` | GET/POST | workspace 또는 본인센터 | 담당자 이메일 CRUD |
+| `get-notification-settings` | GET | 공개(읽기 전용) | 발송 설정 조회 |
+| `save-notification-settings` | POST | workspace | 발송 설정 저장 |
+| `list-notification-log` | GET | workspace | 발송 이력 |
+| `check-and-notify` | GET/POST | **크론 전용**(인증 없음, pg_cron이 매시 정각 호출) | 미업로드 감지 + 메일 발송 |
+
+## Google Drive 완전자동
+| action | method | 인증 | 설명 |
+|---|---|---|---|
+| `save-gdrive-folder` | POST | workspace | 센터별 Drive 폴더 등록 |
+| `list-gdrive-folders` | GET | workspace | 등록된 폴더 조회 |
+| `list-gdrive-log` | GET | workspace | 처리 이력 조회 |
+| `gdrive-poll-and-process` | GET/POST | **크론 전용**(인증 없음, pg_cron이 15분마다 호출) | 폴더 감시 + 자동 분석·반영 |
+
+## 참고사항
+- `list-last-upload`, `get-notification-settings`는 **의도적으로 공개 GET**입니다(CORS `*`). 캘린더 통합사이트 등 외부 사이트에서 직접 fetch로 신호등을 그리는 용도.
+- `check-and-notify`, `gdrive-poll-and-process`는 사람이 아니라 **pg_cron이 내부적으로 호출**합니다. 별도 인증이 없으므로 새 액션을 추가할 때 이 두 개처럼 "무인증 + 파괴적이지 않은 동작"만 허용하도록 설계해야 합니다.
+- 새 액션 추가 시 반드시 `AGENTS.md`의 "보안 경계 유지" 규칙(workspace/token 인증 분리)을 따르고 이 표에 줄을 추가합니다.
