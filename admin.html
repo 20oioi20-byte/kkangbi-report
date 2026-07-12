@@ -4994,6 +4994,8 @@ async function renderEntry() {
     + '<textarea class="paste-box" id="pasteBox" placeholder="6/1	165.5	34	90.5	...&#10;6/2	164.5	34	89.5	..."></textarea>'
     + '<button class="btn-secondary" onclick="parseMultiPaste()">양식에 반영</button>'
     + '<button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>'
+    + '<button class="btn-primary" id="manualSaveAttBtn" style="display:none;background:#5ac8fa;" onclick="saveAllRows(\'attendance\')">근태만 저장</button>'
+    + '<button class="btn-primary" id="manualSavePerfBtn" style="display:none;background:#34c759;" onclick="saveAllRows(\'performance\')">실적만 저장</button>'
     + '<div class="status-msg" id="manualStatus"></div>'
     + '<div id="templateArea" style="margin-top:16px;"></div>'
     + '</div>';
@@ -5540,6 +5542,8 @@ async function saveAttAndPerfCombined() {
   document.getElementById('attPerfOnlySaveBtn').style.display = 'none';
   document.getElementById('pasteBox').value = '';
   document.getElementById('manualSaveBtn').style.display = 'none';
+  document.getElementById('manualSaveAttBtn').style.display = 'none';
+  document.getElementById('manualSavePerfBtn').style.display = 'none';
   parsedRows = [];
   document.getElementById('templateArea').innerHTML = '';
   await loadOverviewForCurrent();
@@ -5654,6 +5658,8 @@ async function saveAttPerfOnly() {
   // 근태 표는 아직 저장 전일 수 있으므로 그대로 유지하고, 실적 붙여넣기 칸만 정리한다.
   document.getElementById('pasteBox').value = '';
   document.getElementById('manualSaveBtn').style.display = 'none';
+  document.getElementById('manualSaveAttBtn').style.display = 'none';
+  document.getElementById('manualSavePerfBtn').style.display = 'none';
   parsedRows = [];
   document.getElementById('templateArea').innerHTML = '';
   await loadOverviewForCurrent();
@@ -5861,10 +5867,12 @@ function toIsoDate(token, fallbackYear) {
 
 function renderPreviewTable() {
   const area = document.getElementById('templateArea');
-  if (parsedRows.length === 0) { area.innerHTML = '<p class="empty">반영할 데이터가 없습니다.</p>'; return; }
+  const attBtnEl = document.getElementById('manualSaveAttBtn');
+  const perfBtnEl = document.getElementById('manualSavePerfBtn');
+  if (parsedRows.length === 0) { area.innerHTML = '<p class="empty">반영할 데이터가 없습니다.</p>'; if (attBtnEl) attBtnEl.style.display = 'none'; if (perfBtnEl) perfBtnEl.style.display = 'none'; return; }
   const cols = parseGroups();
-  if (cols.length === 0) { area.innerHTML = '<p style="color:#FF6B70;font-size:13px;">입력양식(row_schema)이 없어 표를 표시할 수 없습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.</p>'; return; }
-  if (cols.length !== parsedRows[0].values.length) { area.innerHTML = '<p style="color:#FF6B70;font-size:13px;">입력양식 항목 수(' + cols.length + '개)와 추출된 값 개수(' + parsedRows[0].values.length + '개)가 일치하지 않습니다.</p>'; return; }
+  if (cols.length === 0) { area.innerHTML = '<p style="color:#FF6B70;font-size:13px;">입력양식(row_schema)이 없어 표를 표시할 수 없습니다. 페이지를 새로고침한 뒤 다시 시도해 주세요.</p>'; if (attBtnEl) attBtnEl.style.display = 'none'; if (perfBtnEl) perfBtnEl.style.display = 'none'; return; }
+  if (cols.length !== parsedRows[0].values.length) { area.innerHTML = '<p style="color:#FF6B70;font-size:13px;">입력양식 항목 수(' + cols.length + '개)와 추출된 값 개수(' + parsedRows[0].values.length + '개)가 일치하지 않습니다.</p>'; if (attBtnEl) attBtnEl.style.display = 'none'; if (perfBtnEl) perfBtnEl.style.display = 'none'; return; }
   const groupCells = [];
   let i = 0;
   while (i < cols.length) {
@@ -5881,21 +5889,16 @@ function renderPreviewTable() {
     return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + row.date + '</td>' + cells + '</tr>';
   }).join('');
 
-  // 근태 컬럼과 실적 컬럼이 한 양식에 함께 있는 센터(예: KB손보부천)는 한쪽만 다시 반영할 수 있게 버튼을 추가로 보여준다.
-  // (기존 데이터 중 근태는 잘 들어갔는데 실적만 새로 바꾸고 싶은 경우 등)
+  // 근태 컬럼과 실적 컬럼이 한 양식에 함께 있는 센터(예: KB손보부천)는 "전체 저장" 옆의
+  // "근태만 저장"/"실적만 저장" 버튼을 보여준다 (기존 데이터 중 한쪽만 새로 반영하고 싶은 경우 등)
   const hasAttGroup = cols.some(function(c) { return c.origGroup === 'attendance'; });
   const hasPerfGroup = cols.some(function(c) { return c.origGroup !== 'attendance'; });
-  const groupButtonsHtml = (hasAttGroup && hasPerfGroup)
-    ? '<div style="margin-top:10px;display:flex;gap:8px;flex-wrap:wrap;align-items:center;">'
-      + '<button class="btn-primary" style="background:#5ac8fa;" onclick="saveAllRows(\'attendance\')">근태만 저장</button>'
-      + '<button class="btn-primary" style="background:#34c759;" onclick="saveAllRows(\'performance\')">실적만 저장</button>'
-      + '<span style="font-size:11px;color:#86868b;">기존에 저장된 근태 또는 실적 중 한쪽만 이 표 내용으로 덮어쓰고, 나머지 한쪽은 그대로 둡니다.</span>'
-      + '</div>'
-    : '';
+  const showGroupBtns = hasAttGroup && hasPerfGroup;
+  if (attBtnEl) attBtnEl.style.display = showGroupBtns ? 'inline-block' : 'none';
+  if (perfBtnEl) perfBtnEl.style.display = showGroupBtns ? 'inline-block' : 'none';
 
   area.innerHTML = '<div class="table-scroll"><table><thead><tr><th style="position:sticky;left:0;background:#111113;">날짜</th>' + groupCells.join('') + '</tr><tr><th style="position:sticky;left:0;background:#111113;"></th>' + labelCells + '</tr></thead><tbody>' + bodyRows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + parsedRows.length + '개 날짜 · 값은 직접 클릭해 수정할 수 있습니다</p>'
-    + groupButtonsHtml;
+    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + parsedRows.length + '개 날짜 · 값은 직접 클릭해 수정할 수 있습니다' + (showGroupBtns ? ' · "근태만 저장"/"실적만 저장"은 한쪽만 이 표 내용으로 덮어쓰고 나머지 한쪽은 그대로 둡니다' : '') + '</p>';
 }
 
 function parseGroups() {
@@ -5943,6 +5946,8 @@ async function saveAllRows(groupFilter) {
   }
   document.getElementById('pasteBox').value = '';
   document.getElementById('manualSaveBtn').style.display = 'none';
+  document.getElementById('manualSaveAttBtn').style.display = 'none';
+  document.getElementById('manualSavePerfBtn').style.display = 'none';
   parsedRows = [];
   document.getElementById('templateArea').innerHTML = '';
   await loadOverviewForCurrent();
