@@ -28,3 +28,9 @@
 
 ## 검증 방법
 실제 파일이 있으면 반드시 `bash_tool`로 Node에 SheetJS(`xlsx` npm 패키지)를 설치해 브라우저 로직과 동일한 코드를 돌려보고 결과를 사용자에게 표로 보여준다. 코드 리뷰만으로 "정상일 것"이라 결론 내지 않는다.
+
+### duration(시:분:초) 목표값 입력 패턴 (2026-07-12 추가)
+- 통화시간처럼 "H:MM:SS"로 다뤄야 하는 지표의 목표값은 `DURATION_METRIC_KEYS`(센터코드→metric_key 배열)에 등록하면, TO및목표값설정 화면의 기본목표값/월별그리드/일괄반영 입력창이 자동으로 `4:00:00` 형식 입력을 받아 `parseKpiTargetInput()`으로 초 단위로 변환해 저장하고, `formatKpiTargetDisplay()`로 다시 H:MM:SS로 표시한다. 저장 컬럼(target_value)은 항상 숫자(초)이므로 대시보드 쪽 `resolveMetric`/`CENTER_COMPUTED_METRICS`의 `*_초` 계산지표와 단위가 맞는지 새 지표 추가 시 반드시 확인한다.
+
+### 상단 탭 → 사이드바 서브메뉴 (2026-07-12 변경)
+- 예전엔 페이지 상단에 고정된 `.maintabs` 탭바가 있었으나 제거되었다. 화면 전환은 `switchMainTab(tab)`이 그대로 담당하지만, 탭 버튼 자체는 `renderSidebar()` 안 `renderCenterSubmenu()`가 **현재 선택된 센터 바로 아래**에만 그린다. 새 메인 화면(탭)을 추가하려면 상단바가 아니라 `MAIN_TABS` 배열에 항목을 추가해야 한다.
