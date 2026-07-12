@@ -4120,7 +4120,7 @@ async function extractLgeExcelAndFill() {
   const fileInput = document.getElementById('lgeExcelFile');
   const file = fileInput && fileInput.files[0];
   if (!file) { statusEl.className = 'status-msg err'; statusEl.textContent = '엑셀 파일을 선택해 주세요.'; return; }
-  uploadFileToArchive(file, '실적파일');
+  pendingPerfArchiveFile = file; // 실제 저장 성공 시 업로드
 
   // jsdelivr CDN이 막힌 네트워크에서는 보조 CDN(unpkg) 재시도가 끝날 때까지 잠시 기다려 준다.
   if (!window.XLSX) {
@@ -4335,6 +4335,7 @@ async function extractDailyReportAndFill() {
       if (catBoxEl) catBoxEl.value = line;
     }
 
+    pendingPerfArchiveFile = f; // "전체저장" 성공 시에만 업로드 자료함에 반영 (saveEverything 참고)
     statusEl.className = 'status-msg ok';
     statusEl.textContent = titleInfo.date + ' 자료 추출 완료. "전체 양식에 반영"을 눌러 두 표에 함께 반영하세요.';
   } catch (e) {
@@ -4352,11 +4353,18 @@ async function saveEverything() {
   const statusEl = document.getElementById('dayReportStatus');
   parseMultiPaste();
   parseCategoryPaste();
+  // saveAllRows()가 내부에서 pendingPerfArchiveFile을 소비(및 초기화)하므로,
+  // saveCategoryRows()만 성공한 경우(=일별실적표는 없고 업무유형별 인입호만 추출된 경우)에도
+  // 자료함 반영을 판단할 수 있도록 미리 별도로 붙잡아 둔다.
+  const fileToArchive = pendingPerfArchiveFile;
   if (statusEl) { statusEl.className = 'status-msg'; statusEl.textContent = '일자별 실적 저장 중...'; }
-  if (typeof parsedRows !== 'undefined' && parsedRows.length) await saveAllRows();
+  let dailyOk = false, categoryOk = false;
+  if (typeof parsedRows !== 'undefined' && parsedRows.length) dailyOk = await saveAllRows();
   if (statusEl) statusEl.textContent = '업무유형별 인입현황 저장 중...';
-  if (typeof categoryParsedRows !== 'undefined' && categoryParsedRows.length) await saveCategoryRows();
+  if (typeof categoryParsedRows !== 'undefined' && categoryParsedRows.length) categoryOk = await saveCategoryRows();
   if (statusEl) { statusEl.className = 'status-msg ok'; statusEl.textContent = '일자별 실적 + 업무유형별 인입현황 저장을 모두 완료했습니다.'; }
+  // dailyOk일 때는 saveAllRows()가 이미 자료함에 반영했으므로 중복 업로드하지 않는다.
+  if (!dailyOk && categoryOk && fileToArchive) { uploadFileToArchive(fileToArchive, '실적파일'); pendingPerfArchiveFile = null; }
 }
 
 const HWPX_FIELD_ORDER = {
@@ -4589,7 +4597,7 @@ async function extractLongContractAndFill() {
   const fileInput = document.getElementById('lcFile');
   const f = fileInput.files[0];
   if (!f) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 .xlsx 파일을 선택해 주세요.'; return; }
-  uploadFileToArchive(f, '실적파일');
+  pendingPerfArchiveFile = f; // 실제 저장 성공 시 업로드
 
   statusEl.className = 'status-msg';
   statusEl.textContent = '엑셀 파일을 읽는 중...';
@@ -4812,7 +4820,7 @@ async function extractXlsxAndFill() {
   const fileInput = document.getElementById('xlsxFile');
   const f = fileInput.files[0];
   if (!f) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 .xlsx 파일을 선택해 주세요.'; return; }
-  uploadFileToArchive(f, '실적파일');
+  pendingPerfArchiveFile = f; // 실제 저장 성공 시 업로드
 
   const fields = XLSX_EXTRACTOR_FIELDS[currentCenter];
   statusEl.className = 'status-msg';
@@ -4855,7 +4863,7 @@ async function extractHwpxAndFill() {
   const fileInput = document.getElementById('hwpxFile');
   const f = fileInput.files[0];
   if (!f) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 .hwpx 파일을 선택해 주세요.'; return; }
-  uploadFileToArchive(f, '실적파일');
+  pendingPerfArchiveFile = f; // 실제 저장 성공 시 업로드
 
   const fieldOrder = HWPX_FIELD_ORDER[currentCenter];
   statusEl.className = 'status-msg';
@@ -5297,7 +5305,7 @@ async function extractAttFile() {
   const file = fileInput && fileInput.files[0];
   if (!file) { statusEl.className = 'status-msg err'; statusEl.textContent = '근태 파일을 선택해 주세요.'; return; }
   if (!window.XLSX) { statusEl.className = 'status-msg err'; statusEl.textContent = '엑셀 해석 라이브러리를 불러오지 못했습니다. 인터넷 연결을 확인해 주세요.'; return; }
-  uploadFileToArchive(file, '근태파일');
+  pendingAttArchiveFile = file; // 실제 저장(근태만 저장/실적+근태 일괄반영) 성공 시 업로드
 
   statusEl.className = 'status-msg';
   statusEl.textContent = file.name + ' 파일에서 근태를 추출하는 중입니다.';
@@ -5342,6 +5350,11 @@ const ATTENDANCE_SEMI_AUTO = {
 };
 
 let pendingAttRange = null; // 엑셀 자동추출에서 넘어온 "적용할 기간" 대기값 - 재직현황 패널을 그릴 때 최우선으로 사용
+
+// 업로드 자료함(archive-upload-file)은 파일을 "추출"만 했을 때가 아니라 실제로 저장(반영)이 성공했을 때만 올라가야 한다.
+// 추출 함수에서는 이 변수에 File 객체만 잠깐 보관해두고, 각 저장 함수가 성공한 시점에 실제로 업로드한다.
+let pendingPerfArchiveFile = null; // 일자별 실적 직접입력(pasteBox)을 채운 원본 파일 - "전체/근태만/실적만 저장" 성공 시 업로드
+let pendingAttArchiveFile = null;  // 재직및투입현황의 근태파일 - "근태만/실적+근태 저장" 성공 시 업로드
 
 function renderAttendanceSemiAutoPanel() {
   const cfg = ATTENDANCE_SEMI_AUTO[currentCenter];
@@ -5526,6 +5539,10 @@ async function saveAttAndPerfCombined() {
     return;
   }
 
+  // 저장이 실제로 성공했을 때만 업로드 자료함에 원본 파일을 반영한다.
+  if (pendingAttArchiveFile) { uploadFileToArchive(pendingAttArchiveFile, '근태파일'); pendingAttArchiveFile = null; }
+  if (pendingPerfArchiveFile) { uploadFileToArchive(pendingPerfArchiveFile, '실적파일'); pendingPerfArchiveFile = null; }
+
   const perfMatchedCount = attRangeRows.filter(function(d) { return perfByDate[d] !== undefined; }).length;
   let msg = success + '건 한번에 저장 완료 (근태 ' + attRangeRows.length + '일 중 실적 동반 반영 ' + perfMatchedCount + '일)';
   if (excludedPerfOnly.length) msg += '. 근태 범위에 없어 제외된 실적 날짜: ' + excludedPerfOnly.join(', ');
@@ -5596,6 +5613,9 @@ async function saveAttRangeRows() {
     return;
   }
 
+  // 저장이 실제로 성공했을 때만 업로드 자료함에 근태파일을 반영한다.
+  if (pendingAttArchiveFile) { uploadFileToArchive(pendingAttArchiveFile, '근태파일'); pendingAttArchiveFile = null; }
+
   let msg = success + '건 모두 한번에 저장 완료되었습니다.';
   if (skippedDates.length) msg += ' · 투입인원 0명이라 제외된 날짜 ' + skippedDates.length + '건: ' + skippedDates.join(', ');
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
@@ -5648,6 +5668,9 @@ async function saveAttPerfOnly() {
     statusEl.textContent = '저장 실패: ' + e.message;
     return;
   }
+
+  // 저장이 실제로 성공했을 때만 업로드 자료함에 실적파일을 반영한다.
+  if (pendingPerfArchiveFile) { uploadFileToArchive(pendingPerfArchiveFile, '실적파일'); pendingPerfArchiveFile = null; }
 
   const notMatched = attRangeRows.filter(function(d) { return perfByDate[d] === undefined; });
   let msg = success + '건 실적만 저장 완료(근태 값은 변경하지 않았습니다).';
@@ -5828,6 +5851,7 @@ async function saveCategoryRows() {
   categoryParsedRows = [];
   document.getElementById('categoryTemplateArea').innerHTML = '';
   await loadOverviewForCurrent();
+  return success > 0;
 }
 
 function parseMultiPaste() {
@@ -5942,8 +5966,12 @@ async function saveAllRows(groupFilter) {
   } catch (e) {
     statusEl.className = 'status-msg err';
     statusEl.textContent = '저장 실패: ' + e.message;
-    return;
+    return false;
   }
+
+  // 저장이 실제로 성공했을 때만 업로드 자료함에 원본 파일을 반영한다.
+  if (pendingPerfArchiveFile) { uploadFileToArchive(pendingPerfArchiveFile, '실적파일'); pendingPerfArchiveFile = null; }
+
   document.getElementById('pasteBox').value = '';
   document.getElementById('manualSaveBtn').style.display = 'none';
   document.getElementById('manualSaveAttBtn').style.display = 'none';
@@ -5951,6 +5979,7 @@ async function saveAllRows(groupFilter) {
   parsedRows = [];
   document.getElementById('templateArea').innerHTML = '';
   await loadOverviewForCurrent();
+  return true;
 }
 
 function exportData() { return JSON.stringify(allRows, null, 2); }
