@@ -67,7 +67,9 @@
 - ✅ 담당자 다중 등록(센터당 여러 명), 발송대상 on/off
 - ✅ 주의(4일째)/경고(8일째) 메일 제목·본문 편집(치환자: `{center_name}`,`{days}`,`{site_link}`), 발송정지/발송시각/반복주기 설정
 - ✅ (2026-07-13) "⚡ 즉시 발송" 버튼 추가 — 발송시각/반복주기/중복방지 조건을 모두 건너뛰고 지금 조건(며칠째 미업로드)에 맞는 센터에 바로 발송(`send-notification-now`). `check-and-notify`(매시 크론)와 핵심 로직(`runNotificationCheck`)을 공유해 이중 유지보수 부담 없음. 발송 로그에 즉시발송 여부 표시(`notification_log.is_manual`, `schema_addendum_10`).
-- 🟡 발송 로직(SendGrid) — **SENDGRID_API_KEY 시크릿 등록 여부 미확인**, 실제 발송 테스트 필요. "즉시 발송" 버튼으로 바로 테스트 가능해짐.
+- ✅ (2026-07-13 8차) 즉시발송 결과를 센터별 표(성공/실패 + **실패 사유**)로 표시. `sendNotificationEmail()`이 실패 이유(시크릿 미설정/SendGrid HTTP 에러/네트워크 오류)를 구분해서 반환하고 `notification_log.send_ok`/`send_error`에도 기록됨(`schema_addendum_10`). "대상 N건"은 담당자 등록 건수가 아니라 **지금 주의/경고 조건에 걸린 센터 수**라는 점 문서화.
+- ✅ (2026-07-13 9차) 즉시발송을 "이 센터만"/"전체 센터"로 분리(`send-notification-now`가 `center_code` 선택적 파라미터 지원). SendGrid 관련해서는 `SENDGRID_API_KEY`는 이미 등록되어 있음을 확인 — 남은 의심 지점은 `SENDGRID_FROM_EMAIL` 미등록으로 인한 발신자 미인증.
+- 🟡 발송 로직(SendGrid) — **SENDGRID_API_KEY는 등록 확인됨.** `SENDGRID_FROM_EMAIL` 등록 여부와 SendGrid 발신자 인증 상태는 아직 미확인, 실제 발송 테스트 필요.
 - 검증: `notification_log` 테이블에 실제 발송 기록이 쌓이는지 확인 필요
 
 ## 9. 스마트업로드 (관리자 전용)
@@ -102,7 +104,7 @@
 - ✅ (2026-07-13) 사용자가 실제 `index.ts`를 제공해줘서 **AI 액션 3개(`ai-suggest-xlsx-mapping`/`save·get-xlsx-field-override`/`ai-summarize-issues`) 전부 실제 index.ts에 병합 완료**. 더 이상 "병합용 스니펫" 상태가 아니라 바로 배포 가능한 완전한 파일 상태.
 - **남은 것은 배포뿐**:
   1. `schema_addendum_9_ai_provider.sql` 실행 (신규 테이블 2개: `center_xlsx_field_override`, `ai_call_log`)
-  2. Function Secrets 등록: `SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY`
+  2. Function Secrets: `MOT_GATEWAY_URL`/`MOT_GATEWAY_KEY` **이미 등록되어 있음 확인됨**(다른 kkangbi 프로젝트와 값 공유) — 추가 등록 불필요
   3. 서강MOT Gateway의 실제 엔드포인트/요청·응답 스펙이 OpenAI 호환(chat/completions)과 다르면 `callSogangMOT()`만 조정
   4. `supabase functions deploy center-report-upload`로 재배포 후 두 기능 실제 동작 검증(정상 케이스 + 크레딧 소진 등 실패 케이스 모두)
 
