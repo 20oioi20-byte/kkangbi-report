@@ -2,6 +2,19 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-13 (6차) — AI Provider 단순화: 서강MOT 단일 Provider(GPT5.5 고정)
+- **요청 반영**: Claude API 등으로의 자동 failover를 제거하고, **서강MOT API 단일 Provider**로만 AI 기능(엑셀 매핑 제안/이슈 요약)을 호출하도록 변경. 모델은 선택 기능 없이 항상 GPT5.5로 고정.
+- **크레딧 소진 등 실패 시 동작 변경**: 이전엔 다른 Provider로 조용히 전환했지만, 이제는 실패하면 화면에 "⚠️ AI 기능을 지금 사용할 수 없습니다(크레딧 소진 등)" 배너를 띄우고, "기존 방식(직접 입력/붙여넣기, 자동추출·저장)은 그대로 쓸 수 있다"는 안내 문구를 함께 보여준다(`renderAiUnavailableNotice()`). 엑셀 매핑 기능과 이슈 요약 기능 양쪽에 동일하게 적용.
+- **기존 기능 영향 없음 재확인**: 데이터 입력·자동추출·저장(manual-entry-bulk 등)은 애초에 AI를 거치지 않는 별도 경로라, AI 실패 여부와 무관하게 100% 그대로 동작한다.
+- `edge-function-addendum-ai-provider.ts`를 v2로 갱신(Claude 관련 코드 전부 제거, `AiUnavailableError`로 실패 사유를 프론트엔드에 명확히 전달). `schema_addendum_9_ai_provider.sql`은 주석만 정정(테이블 구조는 동일).
+- **미완료는 여전히 동일**: 백엔드(index.ts) 병합 + Secrets 등록(`SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY`만 필요, `ANTHROPIC_API_KEY` 불필요해짐) + 재배포.
+
+## 2026-07-13 (5차) — AI 보조기능 신규 (🟡 프론트엔드만 완료, 백엔드 미배포)
+- **엑셀 양식 변경 자동대응(KB손보부천)**: 자동추출이 실패("일자별 데이터를 찾지 못했습니다")하면 "🤖 AI로 양식 분석하기" 버튼 노출 → 헤더 텍스트+기존 필드정의를 AI에 보내 새 헤더 키워드 매핑 제안 → 사용자 검토 후 저장하면(`center_xlsx_field_override`) 다음부터 AI 호출 없이 자동 적용(`getEffectiveXlsxFields`, `loadXlsxFieldOverride`).
+- **이슈 히스토리 AI 요약**: 이슈및히스토리 화면에 "🤖 AI 요약" 버튼 추가, 최근 이슈 최대 50건을 반복패턴/미해결추정/특이사항 관점으로 요약(`summarizeIssuesWithAI`).
+- **AI Provider 정책**: 서강MOT API(1순위) 호출 → 크레딧부족/RateLimit/Timeout/장애 시 Claude API로 자동 failover(백엔드에서 처리, 사용자는 인지 못함). 비용민감도 원칙에 따라 AI는 "추출 실패 시"/"사용자가 요약 버튼을 누를 때"만 호출되고, 평소 데이터 추출·저장 흐름에는 전혀 관여하지 않음(기존 규칙기반 로직 100% 유지).
+- **미완료(다음 세션 필요)**: `schema_addendum_9_ai_provider.sql` 실행, `edge-function-addendum-ai-provider.ts`를 실제 `index.ts`에 병합(인증 헬퍼 이름 교체 필요), 서강MOT 실제 API 스펙 확인 후 `callSogangMOT()` 조정, Function Secrets 4개 등록(`SOGANG_MOT_API_URL/KEY/MODEL`, `ANTHROPIC_API_KEY`). **이 저장소에 Edge Function 원본(index.ts)이 없어서 AGENTS.md의 "전체 교체 파일 원칙"을 지키지 못하고 병합용 스니펫으로만 제공함 — 다음 세션에서 index.ts를 공유해주시면 전체 파일로 정리 가능.**
+
 ## 2026-07-13 (4차)
 - **평택시청 일일업무보고**: 원래 자료함 업로드 로직이 아예 없어 이 문제와 무관했으나, 요청에 따라 다른 센터와 동일하게 "최종저장"(`saveEverything`, 일자별 실적+업무유형별 인입현황을 함께 저장하는 버튼)이 실제로 성공했을 때만 원본 HWPX 파일이 자료함에 반영되도록 신규 추가. 추출만 하고 저장하지 않으면 자료함에 올라가지 않음.
 - 일자별 실적 저장(`saveAllRows`)이 성공하면 그쪽에서 자료함 반영을 처리하고, 일자별 실적표 없이 업무유형별 인입현황만 추출·저장된 경우에도 `saveEverything`에서 별도로 자료함 반영을 판단해 중복 업로드 없이 처리.
