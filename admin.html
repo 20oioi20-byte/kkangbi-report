@@ -3660,6 +3660,8 @@ function renderNotificationSettings() {
   const centerOptions = allCentersMeta.map(function(c) {
     return '<option value="' + c.center_code + '"' + (notifSelectedCenter === c.center_code ? ' selected' : '') + '>' + c.center_name + '</option>';
   }).join('');
+  const notifSelectedCenterMeta = allCentersMeta.find(function(c) { return c.center_code === notifSelectedCenter; });
+  const notifSelectedCenterName = notifSelectedCenterMeta ? notifSelectedCenterMeta.center_name : notifSelectedCenter;
 
   const centerContacts = allContactsCache.filter(function(c) { return c.center_code === notifSelectedCenter; });
   const contactsRowsHtml = centerContacts.map(function(c) {
@@ -3708,8 +3710,9 @@ function renderNotificationSettings() {
     + '<textarea id="notifDangerBody" rows="4" style="width:100%;padding:8px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;">' + (s.danger_body || '') + '</textarea>'
 
     + '<button class="btn-primary" style="margin-top:14px;" onclick="saveNotificationSettings()">설정 저장</button>'
-    + '<button class="btn-secondary" style="margin-top:14px;margin-left:8px;color:#f5a623;border-color:#f5a623;" onclick="sendNotificationNow()">⚡ 즉시 발송</button>'
-    + '<span style="font-size:11px;color:#86868b;margin-left:8px;">발송 시각·반복주기·중복방지를 무시하고, 지금 조건(며칠째)에 맞는 센터에 바로 발송합니다</span>'
+    + '<button class="btn-secondary" style="margin-top:14px;margin-left:8px;color:#f5a623;border-color:#f5a623;" onclick="sendNotificationNow(false)">⚡ 이 센터만 즉시발송</button>'
+    + '<button class="btn-secondary" style="margin-top:14px;margin-left:8px;color:#FF6B70;border-color:#FF6B70;" onclick="sendNotificationNow(true)">⚡⚡ 전체 센터 즉시발송</button>'
+    + '<div style="font-size:11px;color:#86868b;margin-top:4px;">발송 시각·반복주기·중복방지를 무시하고, 지금 조건(며칠째)에 맞는 센터에 바로 발송합니다. "이 센터만"은 위에서 선택한 센터(' + (notifSelectedCenterName || notifSelectedCenter || '') + ') 기준입니다.</div>'
     + '<div class="status-msg" id="notifSettingsStatus"></div>'
     + '</div>'
     + '</div>';
@@ -3786,26 +3789,49 @@ async function saveNotificationSettings() {
 }
 
 // "즉시 발송" 버튼: 매시 정각 발송시각 체크와 반복발송 중복방지를 건너뛰고,
-// 지금 이 순간 조건(며칠째 미업로드)에 맞는 센터에는 바로 발송한다. (테스트/긴급 발송용)
-async function sendNotificationNow() {
+// 지금 이 순간 조건(며칠째 미업로드)에 맞는 센터에 바로 발송한다.
+// allCenters=false면 알림설정에서 선택된 센터 1곳만, true면 활성 센터 전체를 대상으로 한다.
+async function sendNotificationNow(allCenters) {
   const statusEl = document.getElementById('notifSettingsStatus');
-  if (!confirm('발송 시각·반복주기·중복방지 조건을 모두 무시하고 지금 바로 발송합니다. 계속할까요?')) return;
+  const selectedMeta = allCentersMeta.find(function(c) { return c.center_code === notifSelectedCenter; });
+  const targetLabel = allCenters ? '전체 센터' : ('"' + (selectedMeta ? selectedMeta.center_name : notifSelectedCenter) + '" 센터만');
+  if (!confirm(targetLabel + '을 대상으로, 발송 시각·반복주기·중복방지 조건을 모두 무시하고 지금 바로 발송합니다. 계속할까요?')) return;
   statusEl.className = 'status-msg';
-  statusEl.textContent = '즉시 발송 중...';
+  statusEl.textContent = '즉시 발송 중... (' + targetLabel + ')';
   try {
+    const payload = { workspace_password: workspacePasswordCache };
+    if (!allCenters) payload.center_code = notifSelectedCenter;
     const res = await fetch(SB_FUNCTION_URL + '?action=send-notification-now', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_password: workspacePasswordCache })
+      body: JSON.stringify(payload)
     });
     const data = await res.json();
     if (!data.success) { statusEl.className = 'status-msg err'; statusEl.textContent = '발송 실패: ' + data.error; return; }
     const results = data.results || [];
     const sentCount = results.filter(function(r) { return r.sendOk; }).length;
     const noContact = results.filter(function(r) { return r.skipped === 'no-contacts'; }).length;
-    statusEl.className = 'status-msg ok';
-    statusEl.textContent = '즉시 발송 완료: 대상 ' + results.length + '건 중 ' + sentCount + '건 발송 성공'
-      + (noContact ? ' · 담당자 미등록으로 제외 ' + noContact + '건' : '')
-      + (results.length === 0 ? ' (지금 조건에 해당하는 센터가 없습니다)' : '');
+
+    if (results.length === 0) {
+      statusEl.className = 'status-msg ok';
+      statusEl.textContent = targetLabel + ' 중 지금 조건(주의/경고 며칠째)에 해당하는 센터가 없습니다.';
+      await loadNotificationData();
+      return;
+    }
+
+    // "센터 수(대상 N건)"와 "담당자 등록 건수"는 서로 다른 숫자라 헷갈릴 수 있어, 센터별로 결과와 실패 사유를 상세히 보여준다.
+    const rowsHtml = results.map(function(r) {
+      const levelBadge = r.level === 'danger' ? '🔴 경고' : '🟠 주의';
+      if (r.skipped === 'no-contacts') {
+        return '<tr><td>' + (r.center_name || r.center) + '</td><td>' + levelBadge + '(' + r.daysSince + '일째)</td><td colspan="2" style="color:#86868b;">담당자 미등록으로 건너뜀</td></tr>';
+      }
+      const statusText = r.sendOk ? '<span style="color:#34c759;">✅ 발송 성공</span>' : '<span style="color:#FF6B70;">❌ 발송 실패</span>';
+      return '<tr><td>' + (r.center_name || r.center) + '</td><td>' + levelBadge + '(' + r.daysSince + '일째)</td><td>' + statusText + ' (' + (r.emails || []).length + '명)</td><td style="color:#86868b;font-size:11px;">' + escapeHtml(r.sendError || '') + '</td></tr>';
+    }).join('');
+
+    statusEl.className = sentCount > 0 ? 'status-msg ok' : 'status-msg err';
+    statusEl.innerHTML = '<div style="margin-bottom:6px;">즉시 발송 완료(' + targetLabel + '): 대상 센터 ' + results.length + '건 중 발송 성공 ' + sentCount + '건'
+      + (noContact ? ' · 담당자 미등록 ' + noContact + '건' : '') + '</div>'
+      + '<div class="table-scroll"><table style="width:100%;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 6px;">센터</th><th style="text-align:left;padding:4px 6px;">단계</th><th style="text-align:left;padding:4px 6px;">결과</th><th style="text-align:left;padding:4px 6px;">실패 사유</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
     await loadNotificationData();
   } catch (e) { statusEl.className = 'status-msg err'; statusEl.textContent = '오류: ' + e.message; }
 }
