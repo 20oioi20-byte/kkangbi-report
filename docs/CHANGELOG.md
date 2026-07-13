@@ -2,6 +2,15 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-13 (7차) — index.ts 실제 병합 완료 + 즉시발송 + 로딩속도 개선
+- **index.ts 전체 병합**: 사용자가 실제 Edge Function 소스(`index.ts`)를 제공해줘서, 지난번 병합용 스니펫이 아니라 **완전한 파일**로 AI 보조기능 3개 액션(`ai-suggest-xlsx-mapping`, `save/get-xlsx-field-override`, `ai-summarize-issues`)을 실제 인증 헬퍼(`isCenterOrWorkspaceAuthorized`/`isWorkspaceAuthorized`)와 응답 헬퍼(`json`)를 그대로 사용해 병합했습니다. `checkAuth(...)` 같은 임시 자리표시자는 이제 없습니다. `schema_addendum_9_ai_provider.sql` 실행 + Secrets 2개(`SOGANG_MOT_API_URL`/`KEY`) 등록 + 재배포만 하면 바로 동작합니다.
+- **알림 설정에 "⚡ 즉시 발송" 버튼 추가**: 발송시각/반복주기/중복방지 조건을 모두 건너뛰고 지금 조건(며칠째 미업로드)에 맞는 센터에 바로 발송(`send-notification-now` 액션). 매시 크론이 쓰던 로직을 `runNotificationCheck()`로 공용화해서 `check-and-notify`와 코드 중복 없이 재사용. 발송 로그에 즉시발송 여부 기록(`notification_log.is_manual`, `schema_addendum_10_notification_manual.sql`).
+- **초기 로딩(버퍼링) 개선**:
+  - `admin.html` 상단의 Chart.js/XLSX `<script>` 태그에 `defer` 추가 — 두 라이브러리 다운로드가 첫 화면 렌더를 막지 않게 됨(두 라이브러리는 전부 함수 내부에서만 쓰여서 안전함을 확인 후 적용).
+  - 자주 안 바뀌는 조회성 API 6종(`schema`, `get-notification-settings`, `list-kpi-settings`, `list-kpi-monthly-targets`, `list-monthly-to`, `centers-manage-list`, `get-xlsx-field-override`)에 짧은 캐시(`jsonCached`, `private, max-age=20`) 적용. 실적/근태/자료함 등 실시간성이 중요한 API는 기존처럼 `no-store` 유지.
+- **SQL 신규**: `schema_addendum_10_notification_manual.sql` (`notification_log.is_manual` 컬럼 추가)
+- 검증: 재배포 후 (1) AI 두 기능 정상 케이스, (2) 알림 즉시발송 버튼, (3) 초기 진입 체감 속도를 실제로 확인 필요.
+
 ## 2026-07-13 (6차) — AI Provider 단순화: 서강MOT 단일 Provider(GPT5.5 고정)
 - **요청 반영**: Claude API 등으로의 자동 failover를 제거하고, **서강MOT API 단일 Provider**로만 AI 기능(엑셀 매핑 제안/이슈 요약)을 호출하도록 변경. 모델은 선택 기능 없이 항상 GPT5.5로 고정.
 - **크레딧 소진 등 실패 시 동작 변경**: 이전엔 다른 Provider로 조용히 전환했지만, 이제는 실패하면 화면에 "⚠️ AI 기능을 지금 사용할 수 없습니다(크레딧 소진 등)" 배너를 띄우고, "기존 방식(직접 입력/붙여넣기, 자동추출·저장)은 그대로 쓸 수 있다"는 안내 문구를 함께 보여준다(`renderAiUnavailableNotice()`). 엑셀 매핑 기능과 이슈 요약 기능 양쪽에 동일하게 적용.
