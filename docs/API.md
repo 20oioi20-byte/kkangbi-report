@@ -50,6 +50,18 @@
 | `list-gdrive-log` | GET | workspace | 처리 이력 조회 |
 | `gdrive-poll-and-process` | GET/POST | **크론 전용**(인증 없음, pg_cron이 15분마다 호출) | 폴더 감시 + 자동 분석·반영 |
 
+## AI 보조기능 (2026-07-13 추가, ⛔ Edge Function 미배포 상태)
+| action | method | 인증 | 설명 |
+|---|---|---|---|
+| `ai-suggest-xlsx-mapping` | POST | token 또는 workspace | 엑셀 헤더 텍스트+기존 필드정의를 보고 새 헤더 키워드 매핑을 AI가 제안 |
+| `save-xlsx-field-override` | POST | token 또는 workspace | 승인된 매핑을 센터별로 저장 (`center_xlsx_field_override`) |
+| `get-xlsx-field-override` | GET | token 또는 workspace | 저장된 매핑 조회 (데이터입력 화면 진입 시 자동 로드) |
+| `ai-summarize-issues` | POST | token 또는 workspace | 이슈/히스토리 목록을 AI가 요약(반복패턴/미해결추정/특이사항) |
+
+- 모든 AI 액션은 **서강MOT API 단일 Provider**로만 호출(모델 고정: GPT5.5, 선택 기능 없음). 크레딧 소진 등으로 실패하면 다른 Provider로 전환하지 않고, 프론트엔드가 "AI 사용 불가 · 직접 입력해달라"는 안내를 띄운다(기존 수동 붙여넣기/저장 기능은 AI와 무관하게 항상 정상 동작).
+- 필요 Function Secrets: `SOGANG_MOT_API_URL`, `SOGANG_MOT_API_KEY`.
+- 실제 코드는 `edge-function-addendum-ai-provider.ts` 참고 — index.ts 원본이 이 저장소에 없어 전체 파일이 아닌 병합용 스니펫으로 제공됨. `checkAuth(...)` 부분은 기존 index.ts의 실제 인증 헬퍼로 교체 필요.
+
 ## 참고사항
 - `list-last-upload`, `get-notification-settings`는 **의도적으로 공개 GET**입니다(CORS `*`). 캘린더 통합사이트 등 외부 사이트에서 직접 fetch로 신호등을 그리는 용도.
 - `check-and-notify`, `gdrive-poll-and-process`는 사람이 아니라 **pg_cron이 내부적으로 호출**합니다. 별도 인증이 없으므로 새 액션을 추가할 때 이 두 개처럼 "무인증 + 파괴적이지 않은 동작"만 허용하도록 설계해야 합니다.
