@@ -91,9 +91,22 @@
 ## 12. 이슈 및 히스토리 (전 센터 공통)
 - ✅ 센터별 이슈/히스토리 등록(날짜/제목/내용), 검색(제목·내용), 수정/삭제
 - ✅ (2026-07-12) 목록은 제목+날짜만 표시하고, 클릭(펼치기)하면 상세 내용이 아코디언(`<details>`)으로 펼쳐지는 방식으로 변경 (`renderIssueList()`, 전 센터 공통 함수라 자동으로 5개 센터 모두 적용됨)
+- 🟡 (2026-07-13) "🤖 AI 요약" 버튼 추가 — 최근 이슈 최대 50건을 반복패턴/미해결추정/특이사항 관점으로 AI가 요약 (`summarizeIssuesWithAI()`). **프론트엔드는 완성됐지만 백엔드 액션(`ai-summarize-issues`)이 아직 미배포**라 실제로는 동작하지 않음 — 섹션13 참고.
 - 검증: 이슈 등록 후 목록에서 접힌 상태(제목·날짜만) 확인 → 클릭 시 내용 펼쳐짐 → 수정/삭제 버튼이 펼치기 토글과 겹치지 않고 정상 동작하는지 확인
+
+## 13. AI 보조기능 (신규, 🟡 Edge Function 미배포)
+- 🟡 **엑셀 양식 변경 자동대응(KB손보부천)**: 엑셀 자동추출이 "일자별 데이터를 찾지 못했습니다"로 실패하면 "🤖 AI로 양식 분석하기" 버튼이 뜬다. 클릭하면 헤더 텍스트(시트별 최대 12행)와 기존 필드정의(기대 키워드)를 AI에 보내 새 헤더 키워드 매핑을 제안받고, 검토 후 "이 매핑 저장하고 다시 추출"을 누르면 센터별로 저장(`center_xlsx_field_override`)되어 **다음부터는 AI 호출 없이 자동 적용**됨(`getEffectiveXlsxFields()`가 기본 정의 위에 override를 병합). 데이터입력 화면 진입 시 저장된 override를 자동으로 불러옴(`loadXlsxFieldOverride`).
+- 🟡 **이슈 히스토리 AI 요약**: 섹션12 참고.
+- **Provider 정책 (2026-07-13 수정)**: 서강MOT API **단일** Provider만 사용, 모델은 GPT5.5로 고정(선택 기능 없음). 다른 Provider로의 자동 failover는 없음 — 서강MOT API가 실패하면(크레딧 소진 등) `renderAiUnavailableNotice()`가 "AI 기능을 지금 사용할 수 없습니다" 배너를 띄우고, 기존 수동 붙여넣기·자동추출·저장 흐름은 AI와 완전히 무관하게 그대로 동작한다는 점을 명시적으로 안내한다.
+- **미완료 항목(다음 세션에서 이어서 진행)**:
+  1. `schema_addendum_9_ai_provider.sql` 실행 (신규 테이블 2개: `center_xlsx_field_override`, `ai_call_log`)
+  2. `edge-function-addendum-ai-provider.ts`의 코드를 실제 `index.ts`에 병합 — 특히 `checkAuth(...)` 부분을 기존 인증 헬퍼로 교체
+  3. 서강MOT Gateway의 실제 엔드포인트/요청·응답 스펙 확인 후 `callSogangMOT()` 조정 (현재는 OpenAI 호환 형식 + GPT5.5 모델명 가정 — 실제 Gateway가 쓰는 모델 식별자 표기 확인 필요)
+  4. Function Secrets 등록: `SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY`
+  5. `center-report-upload` 재배포 후 두 기능 실제 동작 검증(정상 케이스 + 크레딧 소진 등 실패 케이스 모두)
 
 ## 다음 세션에서 우선 확인할 것
 1. SendGrid 실제 발송 테스트 (섹션 8)
 2. Google Drive 완전자동 실사용 테스트 (섹션 10)
 3. KB손보부천/정비/평택시청 서버측 파서 포팅 (실제 파일 필요)
+4. AI 보조기능(섹션 13) 백엔드 배포 및 실동작 검증 — 현재 프론트엔드만 완성된 상태
