@@ -2,6 +2,17 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-13 (9차)
+- **시크릿 통일**: AI 보조기능이 새로 만든 `SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY` 대신, 다른 kkangbi 프로젝트에서 이미 쓰던 `MOT_GATEWAY_URL`/`MOT_GATEWAY_KEY`를 사용하도록 변경(값은 동일하다고 확인됨). 새로 등록하셨던 `SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY`는 이제 안 쓰이니, 정리하려면 Supabase Secrets에서 삭제하셔도 됩니다(안 지워도 무해함).
+- **SendGrid 관련 확인**: 시크릿 목록 확인 결과 `SENDGRID_API_KEY`는 이미 등록되어 있음. 지난 "0건 발송" 원인이 키 누락이 아니라 **`SENDGRID_FROM_EMAIL` 미등록으로 인한 발신자 미인증(SendGrid 403)일 가능성**으로 정정 — 재배포 후 즉시발송 실패 사유 컬럼에서 실제 원인 확인 필요.
+- **즉시발송 센터별/전체 분리**: "⚡ 이 센터만 즉시발송"(알림설정에서 선택된 센터 1곳만) / "⚡⚡ 전체 센터 즉시발송"(활성 센터 전체) 버튼으로 분리. 백엔드 `send-notification-now`가 `center_code`를 선택적으로 받아 `runNotificationCheck(settings, forceSend, centerCodeFilter)`로 대상 범위를 좁힘 — `check-and-notify`(매시 크론)는 기존처럼 필터 없이 전체 대상 그대로 동작.
+
+## 2026-07-13 (8차) — 즉시발송 결과 진단 개선
+- **문의 배경**: 즉시발송 테스트에서 "대상 3건 중 0건 성공"이 나왔는데, "대상 건수"(주의/경고 조건에 걸린 센터 수)와 화면에 보이는 "담당자 건수"(알림설정에서 선택한 센터 1곳만의 담당자 수)가 서로 다른 스코프라 혼동이 있었음 + 발송 실패 사유가 전혀 안 보여서 원인 파악 불가.
+- **개선**: `sendNotificationEmail()`이 이제 성공/실패만이 아니라 **실패 사유**(`SENDGRID_API_KEY 시크릿 없음` / `SendGrid HTTP 4xx·5xx 응답 본문` / `네트워크 오류`)까지 반환. `runNotificationCheck()`가 이를 `notification_log`(`send_ok`, `send_error` 컬럼 신규)에 기록하고, "즉시 발송" 결과 화면도 집계 숫자 한 줄이 아니라 **센터별 표**(센터명/단계/성공·실패/실패사유)로 보여주도록 변경.
+- **SQL 추가**: `schema_addendum_10_notification_manual.sql`에 `send_ok boolean`, `send_error text` 컬럼 추가(기존 `is_manual`과 함께 한 파일에 정리).
+- 검증: 재배포 후 즉시발송을 다시 눌러 실패 사유 컬럼에 `SENDGRID_API_KEY 시크릿이 설정되지 않았습니다.`가 뜨는지부터 확인 — 뜬다면 Supabase Secrets에 `SENDGRID_API_KEY`/`SENDGRID_FROM_EMAIL`을 등록해야 발송이 됨.
+
 ## 2026-07-13 (7차) — index.ts 실제 병합 완료 + 즉시발송 + 로딩속도 개선
 - **index.ts 전체 병합**: 사용자가 실제 Edge Function 소스(`index.ts`)를 제공해줘서, 지난번 병합용 스니펫이 아니라 **완전한 파일**로 AI 보조기능 3개 액션(`ai-suggest-xlsx-mapping`, `save/get-xlsx-field-override`, `ai-summarize-issues`)을 실제 인증 헬퍼(`isCenterOrWorkspaceAuthorized`/`isWorkspaceAuthorized`)와 응답 헬퍼(`json`)를 그대로 사용해 병합했습니다. `checkAuth(...)` 같은 임시 자리표시자는 이제 없습니다. `schema_addendum_9_ai_provider.sql` 실행 + Secrets 2개(`SOGANG_MOT_API_URL`/`KEY`) 등록 + 재배포만 하면 바로 동작합니다.
 - **알림 설정에 "⚡ 즉시 발송" 버튼 추가**: 발송시각/반복주기/중복방지 조건을 모두 건너뛰고 지금 조건(며칠째 미업로드)에 맞는 센터에 바로 발송(`send-notification-now` 액션). 매시 크론이 쓰던 로직을 `runNotificationCheck()`로 공용화해서 `check-and-notify`와 코드 중복 없이 재사용. 발송 로그에 즉시발송 여부 기록(`notification_log.is_manual`, `schema_addendum_10_notification_manual.sql`).
