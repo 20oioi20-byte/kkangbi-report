@@ -22,13 +22,13 @@
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |
 |---|---|---|
-| `SENDGRID_API_KEY` | 업로드 알림 메일 발송 | 발송 조용히 실패(로그만 남음) |
-| `SENDGRID_FROM_EMAIL` | 발신자 주소 | 위와 동일 |
+| `SENDGRID_API_KEY` | 업로드 알림 메일 발송 — **이미 등록 확인됨(2026-07-13)** | 그래도 발송 안 되면 `SENDGRID_FROM_EMAIL` 또는 SendGrid 발신자 인증 문제일 가능성 |
+| `SENDGRID_FROM_EMAIL` | 발신자 주소 — **2026-07-13 시크릿 목록 확인 시 안 보였음, 미등록 의심** | 미등록이면 기본값(`noreply@example.com`)으로 시도하다 SendGrid가 미인증 발신자로 거부(403) 가능성 |
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Drive 폴더 접근 | `gdrive-poll-and-process`가 에러 반환 |
 | `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | Drive 인증 서명 | 위와 동일 |
 | `GEMINI_API_KEY` | (다른 기능에서 사용중, 이 기능들과 무관) | - |
-| `SOGANG_MOT_API_URL` | AI 보조기능 Provider 엔드포인트 (신규) | `ai-*` 액션이 "AI 사용 불가" 안내를 띄움(기존 기능은 영향 없음) |
-| `SOGANG_MOT_API_KEY` | 서강MOT API 키 (신규) | 위와 동일 |
+| `MOT_GATEWAY_URL` | AI 보조기능 Provider 엔드포인트 — **이미 등록 확인됨**(다른 kkangbi 프로젝트와 값 공유) | - |
+| `MOT_GATEWAY_KEY` | MOT Gateway 키 — **이미 등록 확인됨** | - |
 
 ## 3. Edge Function 재배포
 ```
