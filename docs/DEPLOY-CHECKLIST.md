@@ -13,10 +13,10 @@
 8. `schema_addendum_7_upload_monitor.sql` — 신호등+알림 (**pg_cron 필요**)
 9. `schema_addendum_8_gdrive.sql` — Google Drive 완전자동 (**pg_cron 필요**)
 10. `schema_addendum_9_ai_provider.sql` — AI 보조기능(엑셀 매핑 override + 호출 로그) 테이블 신규
+11. `schema_addendum_10_notification_manual.sql` — 알림 로그에 즉시발송 여부(`is_manual`) 컬럼 추가
 
-## 1-1. Edge Function 코드 병합 (AI 보조기능, 이번 배포에서 신규)
-- `edge-function-addendum-ai-provider.ts`의 내용을 실제 `index.ts`에 병합해야 합니다(이 저장소엔 index.ts 원본이 없어 전체 파일로 못 드림).
-- 특히 `checkAuth(...)` 호출부는 기존 index.ts에 있는 실제 인증 검증 함수 이름/시그니처로 교체 필요.
+## 1-1. Edge Function 배포 (2026-07-13, index.ts 전체 병합 완료)
+- 이전엔 index.ts 원본이 없어 병합용 스니펫으로만 드렸지만, 이제 사용자가 제공한 실제 `index.ts`에 AI 보조기능 3개 액션 + "즉시 발송" 액션 + 캐싱 헬퍼가 전부 반영된 **완전한 파일**을 드립니다. 그대로 `supabase functions deploy center-report-upload`만 하면 됩니다(코드 수정 불필요).
 - `callSogangMOT()`는 OpenAI 호환(chat/completions) 형식을 가정해 작성했습니다. 서강MOT Gateway의 실제 스펙과 다르면 이 함수만 수정하면 됩니다.
 
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
