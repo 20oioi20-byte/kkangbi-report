@@ -433,6 +433,14 @@ function isDurationMetricKey(centerCode, key) {
   return (DURATION_METRIC_KEYS[centerCode] || []).indexOf(key) !== -1;
 }
 
+// AI 응답, 사용자 입력 등 신뢰할 수 없는 텍스트를 innerHTML에 넣기 전 이스케이프
+function escapeHtml(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/[&<>"']/g, function(c) {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+  });
+}
+
 function sumMetric(rows, key) {
   return rows.reduce(function(sum, r) { const v = resolveMetric(r, key); return sum + (v || 0); }, 0);
 }
@@ -3359,13 +3367,60 @@ async function renderIssues() {
     + '<div class="status-msg" id="issueStatus"></div>'
     + '</div>'
     + '<div class="panel">'
-    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap;">'
     + '<h3 style="margin:0;">히스토리 (최신순)</h3>'
+    + '<div style="display:flex;gap:8px;align-items:center;">'
+    + '<button class="btn-secondary" id="issueAiSummaryBtn" style="padding:6px 12px;font-size:12px;" onclick="summarizeIssuesWithAI()">🤖 AI 요약</button>'
     + '<input type="text" id="issueSearch" placeholder="제목·내용 검색" oninput="filterIssueList()" style="padding:7px 10px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;width:220px;">'
     + '</div>'
+    + '</div>'
+    + '<div id="issueAiSummary"></div>'
     + '<div id="issueList"><div class="loading">불러오는 중...</div></div></div>';
 
   await loadIssueList();
+}
+
+// 이슈/히스토리 목록을 AI로 요약 (반복 패턴·미해결 추정 건·특이사항). 서강MOT API 우선 호출, 실패 시 Claude API로 자동 전환(백엔드 처리).
+// AI(서강MOT API) 호출이 실패했을 때 - 이제 다른 Provider로 자동 전환하지 않으므로,
+// 사용자가 헷갈리지 않도록 "AI는 잠시 안 되고, 기존 방식(직접 입력/붙여넣기)은 그대로 된다"를 명확히 안내한다.
+function renderAiUnavailableNotice(rawError, manualHint) {
+  const isCredit = /AI_UNAVAILABLE|크레딧|credit|quota|429|402|403/i.test(rawError || '');
+  return '<div class="panel" style="background:rgba(245,166,35,.10);border:1px solid rgba(245,166,35,.5);margin-bottom:14px;padding:14px 16px;">'
+    + '<div style="font-size:13px;font-weight:700;color:#f5a623;margin-bottom:4px;">⚠️ AI 기능을 지금 사용할 수 없습니다' + (isCredit ? ' (크레딧 소진 등)' : '') + '</div>'
+    + '<div style="font-size:13px;line-height:1.6;color:#f5f5f7;">' + manualHint + '</div>'
+    + '<div style="font-size:11px;color:#86868b;margin-top:6px;">(상세 오류: ' + escapeHtml(rawError || '') + ')</div>'
+    + '</div>';
+}
+
+async function summarizeIssuesWithAI() {
+  const box = document.getElementById('issueAiSummary');
+  const btn = document.getElementById('issueAiSummaryBtn');
+  if (!allIssuesCache || allIssuesCache.length === 0) {
+    box.innerHTML = '<p style="font-size:13px;color:#86868b;margin-bottom:10px;">요약할 이슈가 없습니다.</p>';
+    return;
+  }
+  btn.disabled = true;
+  const prevLabel = btn.textContent;
+  btn.textContent = '요약 중...';
+  box.innerHTML = '<div class="loading">AI가 이슈 히스토리를 읽고 있습니다...</div>';
+  try {
+    const issuesPayload = allIssuesCache.slice(0, 50).map(function(i) { return { date: i.issue_date, title: i.title, content: i.content || '' }; });
+    const res = await fetch(SB_FUNCTION_URL + '?action=ai-summarize-issues', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], issues: issuesPayload })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'AI 요약 실패');
+    box.innerHTML = '<div class="panel" style="background:rgba(0,165,255,.08);border:1px solid rgba(0,165,255,.3);margin-bottom:14px;padding:14px 16px;">'
+      + '<div style="font-size:12px;color:#5ac8fa;font-weight:700;margin-bottom:6px;">🤖 AI 요약 (최근 ' + issuesPayload.length + '건 기준)</div>'
+      + '<div style="font-size:13px;line-height:1.6;white-space:pre-wrap;">' + escapeHtml(data.summary) + '</div>'
+      + '</div>';
+  } catch (e) {
+    box.innerHTML = renderAiUnavailableNotice(e.message, '이슈 목록은 아래에서 그대로 확인하실 수 있고, 등록·수정·삭제도 평소처럼 하실 수 있습니다. 요약만 잠시 제공되지 않는 상태입니다.');
+  } finally {
+    btn.disabled = false;
+    btn.textContent = prevLabel;
+  }
 }
 
 async function loadIssueList() {
@@ -4815,6 +4870,118 @@ function xlsxFmtValue(v, type) {
   return rounded.toLocaleString('ko-KR', { minimumFractionDigits: Number.isInteger(rounded) ? 0 : 1, maximumFractionDigits: 1 });
 }
 
+// 엑셀 양식이 바뀌어 기본 헤더 키워드(XLSX_EXTRACTOR_FIELDS)로 못 찾을 때, AI가 제안하고 사용자가 저장한
+// 대체 키워드를 센터별로 캐시해뒀다가 기본값 위에 덮어써서 사용한다.
+let xlsxFieldOverrideCache = {}; // { centerCode: { field_key: [tokens...] } }
+
+function getEffectiveXlsxFields(centerCode) {
+  const base = XLSX_EXTRACTOR_FIELDS[centerCode];
+  if (!base) return base;
+  const override = xlsxFieldOverrideCache[centerCode];
+  if (!override) return base;
+  return base.map(function(f) {
+    const newTokens = override[f[0]];
+    return (newTokens && newTokens.length) ? [f[0], f[1], newTokens, f[3]] : f;
+  });
+}
+
+async function loadXlsxFieldOverride(centerCode) {
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=get-xlsx-field-override&center_code=' + encodeURIComponent(centerCode) + '&token=' + encodeURIComponent(centerTokenMap[centerCode] || ''), {
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }
+    });
+    const data = await res.json();
+    if (data.success) xlsxFieldOverrideCache[centerCode] = data.override || null;
+  } catch (e) { /* 저장된 override가 없거나 조회 실패해도 기본값으로 계속 동작 */ }
+}
+
+function xlsxReadHeaderBlockText(workbook) {
+  // AI에게 보여줄 헤더 추정 구간(시트별 최대 12행)을 사람이 읽기 쉬운 표 텍스트로 변환
+  const blocks = [];
+  workbook.sheets.forEach(function(sheet, si) {
+    const rows = [];
+    for (let r = 1; r <= Math.min(sheet.maxRow, 12); r++) {
+      const cells = [];
+      for (let c = 1; c <= Math.min(sheet.maxCol, 40); c++) {
+        const v = xlsxGet(sheet.grid, r, c);
+        cells.push(v === null || v === undefined ? '' : String(v));
+      }
+      rows.push((r) + '행: ' + cells.join(' | '));
+    }
+    blocks.push('[시트 ' + (si + 1) + ']\n' + rows.join('\n'));
+  });
+  return blocks.join('\n\n');
+}
+
+// 엑셀 자동추출이 실패했을 때(또는 사용자가 직접 요청할 때) AI에게 헤더 구조를 보여주고
+// 새 헤더 키워드 매핑을 제안받는다. 서강MOT API 우선 → 실패 시 Claude API로 자동 전환(백엔드 처리, 사용자는 결과만 받음).
+async function aiAnalyzeXlsxFormat() {
+  const statusEl = document.getElementById('xlsxStatus');
+  const fileInput = document.getElementById('xlsxFile');
+  const f = fileInput && fileInput.files[0];
+  if (!f) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 .xlsx 파일을 선택해 주세요.'; return; }
+  const fields = XLSX_EXTRACTOR_FIELDS[currentCenter];
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '🤖 AI가 엑셀 헤더 구조를 분석하는 중입니다... (최대 20초)';
+  try {
+    const workbook = await xlsxParseWorkbook(await f.arrayBuffer());
+    const headerText = xlsxReadHeaderBlockText(workbook);
+    const fieldDefs = fields.map(function(fd) { return { field_key: fd[0], expected_tokens: fd[2] }; });
+    const res = await fetch(SB_FUNCTION_URL + '?action=ai-suggest-xlsx-mapping', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], center_code: currentCenter, header_text: headerText, field_defs: fieldDefs })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || 'AI 분석 실패');
+    renderXlsxMappingReview(data.diagnosis || '', data.suggested_mapping || []);
+  } catch (e) {
+    statusEl.className = 'status-msg';
+    statusEl.innerHTML = renderAiUnavailableNotice(e.message, '엑셀 파일을 직접 열어 날짜·데이터가 있는 열을 확인하신 뒤, "직접입력" 방식으로 표에 붙여넣어 저장해 주세요. 자동추출·저장 기능 자체는 AI와 무관하게 그대로 사용하실 수 있습니다.');
+  }
+}
+
+function renderXlsxMappingReview(diagnosis, mapping) {
+  const statusEl = document.getElementById('xlsxStatus');
+  const rows = mapping.map(function(m) {
+    return '<tr><td style="padding:4px 8px;">' + escapeHtml(m.field_key) + '</td>'
+      + '<td style="padding:4px 8px;"><input type="text" class="xlsx-map-input" data-key="' + escapeHtml(m.field_key) + '" value="' + escapeHtml((m.suggested_tokens || []).join(', ')) + '" style="width:100%;padding:4px 6px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;background:#111113;color:#f5f5f7;box-sizing:border-box;"></td></tr>';
+  }).join('');
+  statusEl.className = 'status-msg';
+  statusEl.innerHTML = '<div class="panel" style="background:rgba(0,165,255,.08);border:1px solid rgba(0,165,255,.3);padding:14px 16px;margin-top:10px;">'
+    + '<div style="font-size:12px;color:#5ac8fa;font-weight:700;margin-bottom:6px;">🤖 AI 양식 분석 결과</div>'
+    + '<div style="font-size:13px;line-height:1.6;white-space:pre-wrap;margin-bottom:10px;">' + escapeHtml(diagnosis) + '</div>'
+    + (rows ? '<div class="table-scroll"><table style="width:100%;font-size:12px;margin-bottom:10px;"><thead><tr><th style="text-align:left;padding:4px 8px;">필드</th><th style="text-align:left;padding:4px 8px;">이 파일에서 찾은 헤더 키워드(쉼표로 구분 · 필요하면 직접 수정)</th></tr></thead><tbody>' + rows + '</tbody></table></div>' : '')
+    + (rows ? '<button class="btn-primary" onclick="applyXlsxMapping()">이 매핑 저장하고 다시 추출</button>' : '')
+    + '</div>';
+}
+
+async function applyXlsxMapping() {
+  const statusEl = document.getElementById('xlsxStatus');
+  const inputs = document.querySelectorAll('.xlsx-map-input');
+  const override = {};
+  inputs.forEach(function(inp) {
+    const tokens = inp.value.split(',').map(function(t) { return t.trim(); }).filter(Boolean);
+    if (tokens.length) override[inp.dataset.key] = tokens;
+  });
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '매핑 저장 중...';
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=save-xlsx-field-override', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], center_code: currentCenter, override: override })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '저장 실패');
+    xlsxFieldOverrideCache[currentCenter] = override;
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = '매핑을 저장했습니다. 다음부터는 이 키워드로 자동 인식됩니다. 다시 추출합니다...';
+    await extractXlsxAndFill();
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '매핑 저장 실패: ' + e.message;
+  }
+}
+
 async function extractXlsxAndFill() {
   const statusEl = document.getElementById('xlsxStatus');
   const fileInput = document.getElementById('xlsxFile');
@@ -4822,13 +4989,18 @@ async function extractXlsxAndFill() {
   if (!f) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 .xlsx 파일을 선택해 주세요.'; return; }
   pendingPerfArchiveFile = f; // 실제 저장 성공 시 업로드
 
-  const fields = XLSX_EXTRACTOR_FIELDS[currentCenter];
+  const fields = getEffectiveXlsxFields(currentCenter);
   statusEl.className = 'status-msg';
   statusEl.textContent = '엑셀 파일을 읽는 중...';
   try {
     const workbook = await xlsxParseWorkbook(await f.arrayBuffer());
     let daily = xlsxExtractDaily(workbook, fields);
-    if (daily.length === 0) throw new Error('일자별 데이터를 찾지 못했습니다. 문서 양식이 다를 수 있습니다.');
+    if (daily.length === 0) {
+      statusEl.className = 'status-msg err';
+      statusEl.innerHTML = '일자별 데이터를 찾지 못했습니다. 문서 양식이 바뀌었을 수 있습니다.'
+        + ' <button class="btn-secondary" style="padding:4px 10px;font-size:12px;margin-left:6px;" onclick="aiAnalyzeXlsxFormat()">🤖 AI로 양식 분석하기</button>';
+      return;
+    }
 
     const year = document.getElementById('entryYear').value;
     const rangeStartVal = document.getElementById('xlsxStart').value;
@@ -5049,6 +5221,7 @@ async function renderEntry() {
     if (catArea) catArea.innerHTML = renderCategoryEntryPanel();
     const dmArea = document.getElementById('dataManageArea');
     if (dmArea) dmArea.innerHTML = renderDataManagePanel();
+    if (XLSX_EXTRACTOR_FIELDS[currentCenter]) await loadXlsxFieldOverride(currentCenter);
   } catch (e) { document.getElementById('templateArea').innerHTML = '<p class="empty">양식을 불러오지 못했습니다.</p>'; }
 }
 
