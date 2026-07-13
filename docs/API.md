@@ -60,9 +60,15 @@
 
 - 모든 AI 액션은 **서강MOT API 단일 Provider**로만 호출(모델 고정: GPT5.5, 선택 기능 없음). 크레딧 소진 등으로 실패하면 다른 Provider로 전환하지 않고, 프론트엔드가 "AI 사용 불가 · 직접 입력해달라"는 안내를 띄운다(기존 수동 붙여넣기/저장 기능은 AI와 무관하게 항상 정상 동작).
 - 필요 Function Secrets: `SOGANG_MOT_API_URL`, `SOGANG_MOT_API_KEY`.
-- 실제 코드는 `edge-function-addendum-ai-provider.ts` 참고 — index.ts 원본이 이 저장소에 없어 전체 파일이 아닌 병합용 스니펫으로 제공됨. `checkAuth(...)` 부분은 기존 index.ts의 실제 인증 헬퍼로 교체 필요.
+- (2026-07-13 갱신) 사용자가 실제 `index.ts`를 공유해주셔서, 이제 **전체 파일**(`index.ts`)에 병합 완료된 상태로 제공됩니다. 이전의 병합용 스니펫(`edge-function-addendum-ai-provider.ts`)은 삭제했습니다.
+
+## 업로드 모니터링 알림 — 즉시 발송 (2026-07-13 추가)
+| action | method | 인증 | 설명 |
+|---|---|---|---|
+| `send-notification-now` | POST | workspace | 발송시각/반복주기/중복방지 조건을 모두 무시하고, 지금 조건(며칠째 미업로드)에 맞는 센터에 바로 발송. `check-and-notify`와 핵심 로직(`runNotificationCheck`)을 공유.
 
 ## 참고사항
 - `list-last-upload`, `get-notification-settings`는 **의도적으로 공개 GET**입니다(CORS `*`). 캘린더 통합사이트 등 외부 사이트에서 직접 fetch로 신호등을 그리는 용도.
 - `check-and-notify`, `gdrive-poll-and-process`는 사람이 아니라 **pg_cron이 내부적으로 호출**합니다. 별도 인증이 없으므로 새 액션을 추가할 때 이 두 개처럼 "무인증 + 파괴적이지 않은 동작"만 허용하도록 설계해야 합니다.
 - 새 액션 추가 시 반드시 `AGENTS.md`의 "보안 경계 유지" 규칙(workspace/token 인증 분리)을 따르고 이 표에 줄을 추가합니다.
+- (2026-07-13) 응답 캐싱: 대부분의 GET은 `json()`으로 `no-store`(항상 최신) 응답하지만, `schema`/`get-notification-settings`/`list-kpi-settings`/`list-kpi-monthly-targets`/`list-monthly-to`/`centers-manage-list`/`get-xlsx-field-override`처럼 **자주 안 바뀌는 조회성 GET**만 `jsonCached()`로 짧은(`private, max-age=20`) 캐시를 둔다. 실적/근태/자료함처럼 실시간성이 중요한 응답에는 절대 쓰지 않는다. 새 조회성 액션을 추가할 때 이 기준으로 캐시 여부를 판단할 것.
