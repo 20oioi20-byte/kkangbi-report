@@ -12,6 +12,12 @@
 7. `schema_addendum_6_upload_archive.sql` — 업로드자료함 (Storage 버킷 포함)
 8. `schema_addendum_7_upload_monitor.sql` — 신호등+알림 (**pg_cron 필요**)
 9. `schema_addendum_8_gdrive.sql` — Google Drive 완전자동 (**pg_cron 필요**)
+10. `schema_addendum_9_ai_provider.sql` — AI 보조기능(엑셀 매핑 override + 호출 로그) 테이블 신규
+
+## 1-1. Edge Function 코드 병합 (AI 보조기능, 이번 배포에서 신규)
+- `edge-function-addendum-ai-provider.ts`의 내용을 실제 `index.ts`에 병합해야 합니다(이 저장소엔 index.ts 원본이 없어 전체 파일로 못 드림).
+- 특히 `checkAuth(...)` 호출부는 기존 index.ts에 있는 실제 인증 검증 함수 이름/시그니처로 교체 필요.
+- `callSogangMOT()`는 OpenAI 호환(chat/completions) 형식을 가정해 작성했습니다. 서강MOT Gateway의 실제 스펙과 다르면 이 함수만 수정하면 됩니다.
 
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |
@@ -21,6 +27,8 @@
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Drive 폴더 접근 | `gdrive-poll-and-process`가 에러 반환 |
 | `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | Drive 인증 서명 | 위와 동일 |
 | `GEMINI_API_KEY` | (다른 기능에서 사용중, 이 기능들과 무관) | - |
+| `SOGANG_MOT_API_URL` | AI 보조기능 Provider 엔드포인트 (신규) | `ai-*` 액션이 "AI 사용 불가" 안내를 띄움(기존 기능은 영향 없음) |
+| `SOGANG_MOT_API_KEY` | 서강MOT API 키 (신규) | 위와 동일 |
 
 ## 3. Edge Function 재배포
 ```
