@@ -66,7 +66,8 @@
 - ✅ 사이드바 센터명 옆 신호등: 🟢 3일 이내 / 🟠 3일째 미업로드 / 🔴 7일째 미업로드
 - ✅ 담당자 다중 등록(센터당 여러 명), 발송대상 on/off
 - ✅ 주의(4일째)/경고(8일째) 메일 제목·본문 편집(치환자: `{center_name}`,`{days}`,`{site_link}`), 발송정지/발송시각/반복주기 설정
-- 🟡 발송 로직(SendGrid) — **SENDGRID_API_KEY 시크릿 등록 여부 미확인**, 실제 발송 테스트 필요
+- ✅ (2026-07-13) "⚡ 즉시 발송" 버튼 추가 — 발송시각/반복주기/중복방지 조건을 모두 건너뛰고 지금 조건(며칠째 미업로드)에 맞는 센터에 바로 발송(`send-notification-now`). `check-and-notify`(매시 크론)와 핵심 로직(`runNotificationCheck`)을 공유해 이중 유지보수 부담 없음. 발송 로그에 즉시발송 여부 표시(`notification_log.is_manual`, `schema_addendum_10`).
+- 🟡 발송 로직(SendGrid) — **SENDGRID_API_KEY 시크릿 등록 여부 미확인**, 실제 발송 테스트 필요. "즉시 발송" 버튼으로 바로 테스트 가능해짐.
 - 검증: `notification_log` 테이블에 실제 발송 기록이 쌓이는지 확인 필요
 
 ## 9. 스마트업로드 (관리자 전용)
@@ -94,16 +95,22 @@
 - 🟡 (2026-07-13) "🤖 AI 요약" 버튼 추가 — 최근 이슈 최대 50건을 반복패턴/미해결추정/특이사항 관점으로 AI가 요약 (`summarizeIssuesWithAI()`). **프론트엔드는 완성됐지만 백엔드 액션(`ai-summarize-issues`)이 아직 미배포**라 실제로는 동작하지 않음 — 섹션13 참고.
 - 검증: 이슈 등록 후 목록에서 접힌 상태(제목·날짜만) 확인 → 클릭 시 내용 펼쳐짐 → 수정/삭제 버튼이 펼치기 토글과 겹치지 않고 정상 동작하는지 확인
 
-## 13. AI 보조기능 (신규, 🟡 Edge Function 미배포)
+## 13. AI 보조기능 (🟡 코드는 완성, 배포/시크릿 등록만 남음)
 - 🟡 **엑셀 양식 변경 자동대응(KB손보부천)**: 엑셀 자동추출이 "일자별 데이터를 찾지 못했습니다"로 실패하면 "🤖 AI로 양식 분석하기" 버튼이 뜬다. 클릭하면 헤더 텍스트(시트별 최대 12행)와 기존 필드정의(기대 키워드)를 AI에 보내 새 헤더 키워드 매핑을 제안받고, 검토 후 "이 매핑 저장하고 다시 추출"을 누르면 센터별로 저장(`center_xlsx_field_override`)되어 **다음부터는 AI 호출 없이 자동 적용**됨(`getEffectiveXlsxFields()`가 기본 정의 위에 override를 병합). 데이터입력 화면 진입 시 저장된 override를 자동으로 불러옴(`loadXlsxFieldOverride`).
 - 🟡 **이슈 히스토리 AI 요약**: 섹션12 참고.
-- **Provider 정책 (2026-07-13 수정)**: 서강MOT API **단일** Provider만 사용, 모델은 GPT5.5로 고정(선택 기능 없음). 다른 Provider로의 자동 failover는 없음 — 서강MOT API가 실패하면(크레딧 소진 등) `renderAiUnavailableNotice()`가 "AI 기능을 지금 사용할 수 없습니다" 배너를 띄우고, 기존 수동 붙여넣기·자동추출·저장 흐름은 AI와 완전히 무관하게 그대로 동작한다는 점을 명시적으로 안내한다.
-- **미완료 항목(다음 세션에서 이어서 진행)**:
+- **Provider 정책**: 서강MOT API **단일** Provider만 사용, 모델은 GPT5.5로 고정(선택 기능 없음). 다른 Provider로의 자동 failover는 없음 — 서강MOT API가 실패하면(크레딧 소진 등) `renderAiUnavailableNotice()`가 "AI 기능을 지금 사용할 수 없습니다" 배너를 띄우고, 기존 수동 붙여넣기·자동추출·저장 흐름은 AI와 완전히 무관하게 그대로 동작한다는 점을 명시적으로 안내한다.
+- ✅ (2026-07-13) 사용자가 실제 `index.ts`를 제공해줘서 **AI 액션 3개(`ai-suggest-xlsx-mapping`/`save·get-xlsx-field-override`/`ai-summarize-issues`) 전부 실제 index.ts에 병합 완료**. 더 이상 "병합용 스니펫" 상태가 아니라 바로 배포 가능한 완전한 파일 상태.
+- **남은 것은 배포뿐**:
   1. `schema_addendum_9_ai_provider.sql` 실행 (신규 테이블 2개: `center_xlsx_field_override`, `ai_call_log`)
-  2. `edge-function-addendum-ai-provider.ts`의 코드를 실제 `index.ts`에 병합 — 특히 `checkAuth(...)` 부분을 기존 인증 헬퍼로 교체
-  3. 서강MOT Gateway의 실제 엔드포인트/요청·응답 스펙 확인 후 `callSogangMOT()` 조정 (현재는 OpenAI 호환 형식 + GPT5.5 모델명 가정 — 실제 Gateway가 쓰는 모델 식별자 표기 확인 필요)
-  4. Function Secrets 등록: `SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY`
-  5. `center-report-upload` 재배포 후 두 기능 실제 동작 검증(정상 케이스 + 크레딧 소진 등 실패 케이스 모두)
+  2. Function Secrets 등록: `SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY`
+  3. 서강MOT Gateway의 실제 엔드포인트/요청·응답 스펙이 OpenAI 호환(chat/completions)과 다르면 `callSogangMOT()`만 조정
+  4. `supabase functions deploy center-report-upload`로 재배포 후 두 기능 실제 동작 검증(정상 케이스 + 크레딧 소진 등 실패 케이스 모두)
+
+## 14. 초기 로딩 속도 개선 (2026-07-13)
+- ✅ Chart.js/XLSX 라이브러리 `<script>` 태그에 `defer` 추가 — 두 라이브러리 다운로드가 끝날 때까지 HTML 파싱/첫 렌더가 막히지 않도록 함. 두 라이브러리 사용은 전부 함수 내부(파일선택/차트렌더 시점)에서만 일어나 안전함(모듈 최상단에서 즉시 호출하는 코드 없음을 확인).
+- ✅ 자주 안 바뀌는 조회성 API(스키마/설정값 등 6종)에 짧은 캐시(`jsonCached`, `private, max-age=20`) 적용 — 센터 전환·탭 이동을 반복할 때 매번 새로 왕복하지 않고 재사용. 실적/근태처럼 실시간성이 중요한 데이터는 기존처럼 항상 최신(`no-store`) 유지.
+- ✅ (기존부터 있던 최적화, 참고) `init()`에서 설정데이터/최근업로드/실적조회를 `Promise.all`로 병렬 요청 — 이미 순차 호출은 아니었음.
+- 검증: 재배포 후 개발자도구 Network 탭에서 초기 진입 시 라이브러리 다운로드가 렌더링을 막지 않는지, 센터 반복 전환 시 캐시된 조회 API가 체감상 더 빠르게 응답하는지 확인.
 
 ## 다음 세션에서 우선 확인할 것
 1. SendGrid 실제 발송 테스트 (섹션 8)
