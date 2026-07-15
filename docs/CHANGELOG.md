@@ -2,6 +2,14 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-15 — 🔴 장애: 사이트 전체 먹통(센터 목록 빈 화면) 원인 및 수정
+- **증상**: `report.깡비서.kr`/`kkangbi-report.vercel.app` 둘 다 사이드바 센터 목록이 완전히 빈 화면으로 나옴. Supabase Table Editor에서 `center_config`/`center_daily_performance` 데이터는 그대로 있음을 확인 — **DB 데이터 유실이 아니라 Edge Function이 요청을 처리하지 못하는 상태**였음.
+- **증거**: 브라우저 콘솔에 `Access to fetch ... has been blocked by CORS policy` 에러. 정상이라면 이 함수는 OPTIONS 프리플라이트에도 항상 CORS 헤더를 반환하도록 짜여 있어서, 이 에러는 **함수가 요청 처리 시작 전(모듈 로드 단계)에 죽고 있다는 신호**였음. Edge Function 로그의 "booted → 수 초 내 shutdown 반복"도 같은 크래시 루프 정황.
+- **원인**: `index.ts` 최상단의 `import mammoth from 'https://esm.sh/mammoth@1.6.0';`(AI 기능 추가 이전부터 있던 기존 코드, 제가 건드리지 않은 줄)에서 `deno check`가 `TS1192: has no default export` 에러를 냄. esm.sh가 서빙하는 mammoth 타입 선언이 최근에 바뀌면서, 원래 잘 동작하던 코드가 배포 시점의 타입체크를 통과하지 못하게 된 것으로 추정.
+- **수정**: `import mammoth from '...'` (default import) → `import * as mammothNs from '...'; const mammoth: any = (mammothNs as any).default ?? mammothNs;`로 변경. 런타임 동작은 동일, 타입체크만 회피.
+- **검증**: 로컬에 Deno를 설치해 실제로 `deno check index.ts`를 돌려 수정 전 에러 재현 → 수정 후 에러 0건(exit code 0) 확인. `esbuild`로 순수 구문 오류도 별도 확인(이상 없음).
+- **후속 조치 필요**: 재배포 후 (1) 사이드바 센터 목록 복구 확인 (2) 이번 기회에 AI 보조기능/즉시발송도 함께 재검증 (3) 혹시 백업해둔 이전 index.ts로 이미 롤백하셨다면, 이번 수정본으로 다시 교체 배포.
+
 ## 2026-07-13 (9차)
 - **시크릿 통일**: AI 보조기능이 새로 만든 `SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY` 대신, 다른 kkangbi 프로젝트에서 이미 쓰던 `MOT_GATEWAY_URL`/`MOT_GATEWAY_KEY`를 사용하도록 변경(값은 동일하다고 확인됨). 새로 등록하셨던 `SOGANG_MOT_API_URL`/`SOGANG_MOT_API_KEY`는 이제 안 쓰이니, 정리하려면 Supabase Secrets에서 삭제하셔도 됩니다(안 지워도 무해함).
 - **SendGrid 관련 확인**: 시크릿 목록 확인 결과 `SENDGRID_API_KEY`는 이미 등록되어 있음. 지난 "0건 발송" 원인이 키 누락이 아니라 **`SENDGRID_FROM_EMAIL` 미등록으로 인한 발신자 미인증(SendGrid 403)일 가능성**으로 정정 — 재배포 후 즉시발송 실패 사유 컬럼에서 실제 원인 확인 필요.
