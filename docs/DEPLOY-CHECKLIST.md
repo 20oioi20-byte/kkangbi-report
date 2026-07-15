@@ -18,6 +18,8 @@
 ## 1-1. Edge Function 배포 (2026-07-13, index.ts 전체 병합 완료)
 - 이전엔 index.ts 원본이 없어 병합용 스니펫으로만 드렸지만, 이제 사용자가 제공한 실제 `index.ts`에 AI 보조기능 3개 액션 + "즉시 발송" 액션 + 캐싱 헬퍼가 전부 반영된 **완전한 파일**을 드립니다. 그대로 `supabase functions deploy center-report-upload`만 하면 됩니다(코드 수정 불필요).
 - `callSogangMOT()`는 OpenAI 호환(chat/completions) 형식을 가정해 작성했습니다. 서강MOT Gateway의 실제 스펙과 다르면 이 함수만 수정하면 됩니다.
+- **(2026-07-15 장애 이후 필수 절차) `index.ts`를 배포하기 전에 반드시 로컬에서 `deno check index.ts`로 타입체크 통과를 확인할 것.** 2026-07-15에 `mammoth` 라이브러리의 esm.sh 타입선언이 예고 없이 바뀌면서 배포가 통째로 막히고 사이트 전체(센터 목록 포함)가 멈춘 적이 있음 — 코드를 안 건드려도 외부 CDN 타입선언 변경만으로 배포가 실패할 수 있으므로, 매 배포 전 `deno check`를 습관화할 것. Deno가 없으면 `curl -fsSL https://deno.land/install.sh | sh`로 설치.
+- 장애 시 진단 순서: (1) Supabase Table Editor로 DB 데이터 실제 존재 여부 확인(데이터 유실이 아닌지 우선 구분) → (2) 브라우저 콘솔에 CORS 에러가 뜨면 Edge Function이 요청 처리 전에 죽고 있다는 뜻 → (3) 로컬에서 `deno check index.ts`로 재현 → (4) 안전하면 이전 정상 배포본으로 즉시 롤백해 서비스부터 복구.
 
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |
