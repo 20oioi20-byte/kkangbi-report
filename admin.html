@@ -353,6 +353,17 @@ const CENTER_KPI_DEFS = {
     { label: '생산성(IN)', type: 'number', perfKey: '생산성_IN' },
     { label: '통화시간(IN+OUT)', type: 'duration', perfKey: '통화시간_INOUT_초' },
   ],
+  'lge_total': [
+    { label: 'TO(합계)', type: 'people', attKey: 'TO_합계' },
+    { label: '총재직인원(합계)', type: 'people', attKey: '총재직인원_합계' },
+    { label: '관리자재직인원(합계)', type: 'people', attKey: '관리자재직인원_합계' },
+    { label: '상담사재직인원(합계)', type: 'people', attKey: '상담사재직인원_합계' },
+    { label: '상담사투입인원(합계)', type: 'people', attKey: '상담사투입인원_합계' },
+    { label: 'T-NPS', type: 'number', perfKey: 'TNPS' },
+    { label: '생산성(IN+OUT)', type: 'number', perfKey: '생산성_INOUT' },
+    { label: '생산성(IN)', type: 'number', perfKey: '생산성_IN' },
+    { label: '통화시간(IN+OUT)', type: 'duration', perfKey: '통화시간_INOUT_초' },
+  ],
 };
 
 // 저장된 원본 항목만으로는 부족한 "처리율/준수율" 등은 센터별 계산식으로 산출
@@ -4302,6 +4313,27 @@ async function extractLgeExcelAndFill() {
 // ============================================
 const DAY_REPORT_CENTERS = { 'pyeongtaek': true };
 
+// LG전자통합: 기존 LG전자AS/LG전자성수기와 완전히 독립된 별도 센터. 파일첨부가 아니라
+// "항목을 만들고 숫자만 입력"하는 전용 폼으로 데이터를 넣는다 (renderIntegratedFormEntry 참고).
+const INTEGRATED_FORM_CENTERS = { 'lge_total': true };
+
+// TO/재직인원/투입인원 5개 항목은 AS·성수기를 각각 입력하면 합계가 자동 계산된다.
+// 저장 키 규칙: {key}_AS, {key}_성수기, {key}_합계 (전부 attendance 그룹)
+const LGE_TOTAL_ATT_METRICS = [
+  { key: 'TO', label: 'TO' },
+  { key: '총재직인원', label: '총 재직인원' },
+  { key: '관리자재직인원', label: '관리자 재직인원' },
+  { key: '상담사재직인원', label: '상담사 재직인원' },
+  { key: '상담사투입인원', label: '상담사 투입인원' }
+];
+// 실적 4개 항목은 AS/성수기 구분 없이 통합된 값 하나만 입력 (매일 새로 입력, 이월 없음). performance 그룹.
+const LGE_TOTAL_PERF_METRICS = [
+  { key: 'TNPS', label: 'T-NPS' },
+  { key: '생산성_INOUT', label: '생산성(IN+OUT)' },
+  { key: '생산성_IN', label: '생산성(IN)' },
+  { key: '통화시간_INOUT_초', label: '통화시간', duration: true }
+];
+
 function dayrptElemsByLocal(root, name) { return Array.from(root.getElementsByTagName('*')).filter(function(el) { return el.localName === name; }); }
 function dayrptTextOf(el) { return dayrptElemsByLocal(el, 't').map(function(n) { return n.textContent || ''; }).join('').replace(/\u00a0/g, ' ').replace(/[ \t]+/g, ' ').trim(); }
 function dayrptNormalize(s) { return String(s || '').replace(/\s+/g, '').replace(/\u00a0/g, '').trim(); }
@@ -5142,11 +5174,174 @@ function promptGoToAttendance(rangeStart, rangeEnd) {
   }
 }
 
+// ============================================
+// LG전자통합: 파일첨부 없이 항목별 숫자 입력 전용 폼
+// ============================================
+let lgeTotalDates = []; // 현재 화면에 생성된 날짜 목록(YYYY-MM-DD, 오름차순)
+
+function renderIntegratedFormEntry() {
+  const today = new Date().toISOString().slice(0, 10);
+  return '<div class="entry-wrap panel">'
+    + '<h3>LG전자통합 일자별 입력</h3>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">TO·재직인원·투입인원의 AS/성수기 값은 직전 저장된 날짜의 값을 기본으로 채워줍니다(인원변동이 있을 때만 수정하면 됩니다). 각 항목의 합계는 AS+성수기로 자동 계산됩니다. T-NPS·생산성·통화시간은 매일 새로 입력합니다.</p>'
+    + '<div class="entry-row"><label>시작일</label><input type="date" id="lgeTotalStart" value="' + today + '"></div>'
+    + '<div class="entry-row"><label>종료일</label><input type="date" id="lgeTotalEnd" value="' + today + '"></div>'
+    + '<button class="btn-secondary" onclick="generateLgeTotalRows()">기간 적용</button>'
+    + '<button class="btn-primary" id="lgeTotalSaveBtn" style="display:none;" onclick="saveLgeTotalRows()">전체 저장</button>'
+    + '<div class="status-msg" id="lgeTotalStatus"></div>'
+    + '<div id="lgeTotalTemplateArea" style="margin-top:16px;"></div>'
+    + '</div>';
+}
+
+function lgeTotalDateRange(start, end) {
+  const dates = [];
+  let d = new Date(start + 'T00:00:00');
+  const endD = new Date(end + 'T00:00:00');
+  while (d <= endD) {
+    dates.push(d.toISOString().slice(0, 10));
+    d.setDate(d.getDate() + 1);
+  }
+  return dates;
+}
+
+// 지정한 날짜 이전(같거나 이전)의 가장 최근 저장 데이터를 찾아 AS/성수기 이월 시작값으로 사용
+async function lgeTotalFetchSeed(beforeDate) {
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=history&token=' + encodeURIComponent(centerTokenMap['lge_total']) + '&_ts=' + Date.now(), {
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store'
+    });
+    const data = await res.json();
+    if (!data.success) return null;
+    const prior = (data.rows || []).filter(function(r) { return r.report_date < beforeDate; })
+      .sort(function(a, b) { return a.report_date < b.report_date ? 1 : -1; });
+    return prior.length ? prior[0] : null;
+  } catch (e) { return null; }
+}
+
+async function generateLgeTotalRows() {
+  const statusEl = document.getElementById('lgeTotalStatus');
+  const start = document.getElementById('lgeTotalStart').value;
+  const end = document.getElementById('lgeTotalEnd').value;
+  if (!start || !end) { statusEl.className = 'status-msg err'; statusEl.textContent = '시작일과 종료일을 입력해 주세요.'; return; }
+  if (start > end) { statusEl.className = 'status-msg err'; statusEl.textContent = '시작일이 종료일보다 늦을 수 없습니다.'; return; }
+
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '직전 저장 데이터를 확인하는 중...';
+
+  lgeTotalDates = lgeTotalDateRange(start, end);
+  const seed = await lgeTotalFetchSeed(start);
+  let carry = {};
+  LGE_TOTAL_ATT_METRICS.forEach(function(m) {
+    const att = (seed && seed.attendance_data) || {};
+    carry[m.key] = { AS: att[m.key + '_AS'] !== undefined ? att[m.key + '_AS'] : '', 성수기: att[m.key + '_성수기'] !== undefined ? att[m.key + '_성수기'] : '' };
+  });
+
+  const area = document.getElementById('lgeTotalTemplateArea');
+  const attHeaderCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
+    return '<th colspan="3" style="text-align:center;background:rgba(90,200,250,.12);">' + m.label + '</th>';
+  }).join('');
+  const attSubHeaderCells = LGE_TOTAL_ATT_METRICS.map(function() {
+    return '<th style="font-size:11px;">AS</th><th style="font-size:11px;">성수기</th><th style="font-size:11px;background:#111113;">합계</th>';
+  }).join('');
+  const perfHeaderCells = LGE_TOTAL_PERF_METRICS.map(function(m) { return '<th rowspan="2">' + m.label + '</th>'; }).join('');
+
+  const bodyRows = lgeTotalDates.map(function(date, ri) {
+    const attCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
+      const asVal = carry[m.key].AS;
+      const suVal = carry[m.key].성수기;
+      const totalVal = (asVal !== '' && suVal !== '') ? (Number(asVal) + Number(suVal)) : '';
+      return '<td><input type="number" class="lge-total-input" data-row="' + ri + '" data-metric="' + m.key + '" data-part="AS" value="' + asVal + '" oninput="lgeTotalRecalc(' + ri + ',\'' + m.key + '\')" style="width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
+        + '<td><input type="number" class="lge-total-input" data-row="' + ri + '" data-metric="' + m.key + '" data-part="성수기" value="' + suVal + '" oninput="lgeTotalRecalc(' + ri + ',\'' + m.key + '\')" style="width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
+        + '<td><input type="text" class="lge-total-total" data-row="' + ri + '" data-metric="' + m.key + '" value="' + totalVal + '" readonly style="width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;background:#111113;color:#86868b;"></td>';
+    }).join('');
+    const perfCells = LGE_TOTAL_PERF_METRICS.map(function(m) {
+      return '<td><input type="text" class="lge-total-perf" data-row="' + ri + '" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '') + '" style="width:64px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>';
+    }).join('');
+    return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + date + '</td>' + attCells + perfCells + '</tr>';
+  }).join('');
+
+  area.innerHTML = '<div class="table-scroll"><table><thead>'
+    + '<tr><th rowspan="2" style="position:sticky;left:0;background:#111113;">날짜</th>' + attHeaderCells + perfHeaderCells + '</tr>'
+    + '<tr>' + attSubHeaderCells + '</tr>'
+    + '</thead><tbody>' + bodyRows + '</tbody></table></div>'
+    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + lgeTotalDates.length + '개 날짜 · AS/성수기 값을 입력하면 합계가 자동 계산됩니다</p>';
+
+  document.getElementById('lgeTotalSaveBtn').style.display = 'inline-block';
+  statusEl.className = 'status-msg ok';
+  statusEl.textContent = seed ? (seed.report_date + ' 저장값을 기본으로 채웠습니다. 필요한 곳만 수정해 주세요.') : '직전 저장 데이터가 없어 빈 값으로 시작합니다.';
+}
+
+// AS/성수기 입력이 바뀔 때마다 해당 행의 합계를 즉시 재계산
+function lgeTotalRecalc(rowIdx, metricKey) {
+  const asInput = document.querySelector('.lge-total-input[data-row="' + rowIdx + '"][data-metric="' + metricKey + '"][data-part="AS"]');
+  const suInput = document.querySelector('.lge-total-input[data-row="' + rowIdx + '"][data-metric="' + metricKey + '"][data-part="성수기"]');
+  const totalInput = document.querySelector('.lge-total-total[data-row="' + rowIdx + '"][data-metric="' + metricKey + '"]');
+  const asVal = asInput.value, suVal = suInput.value;
+  totalInput.value = (asVal !== '' && suVal !== '') ? (Number(asVal) + Number(suVal)) : '';
+}
+
+async function saveLgeTotalRows() {
+  const statusEl = document.getElementById('lgeTotalStatus');
+  const token = centerTokenMap['lge_total'];
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '저장 중... (' + lgeTotalDates.length + '건)';
+
+  const invalidDur = [];
+  const entries = lgeTotalDates.map(function(date, ri) {
+    const values = {};
+    LGE_TOTAL_ATT_METRICS.forEach(function(m) {
+      ['AS', '성수기'].forEach(function(part) {
+        const inp = document.querySelector('.lge-total-input[data-row="' + ri + '"][data-metric="' + m.key + '"][data-part="' + part + '"]');
+        if (inp && inp.value !== '') values[m.key + '_' + part] = { value: inp.value, group: 'attendance' };
+      });
+      const totalInp = document.querySelector('.lge-total-total[data-row="' + ri + '"][data-metric="' + m.key + '"]');
+      if (totalInp && totalInp.value !== '') values[m.key + '_합계'] = { value: totalInp.value, group: 'attendance' };
+    });
+    LGE_TOTAL_PERF_METRICS.forEach(function(m) {
+      const inp = document.querySelector('.lge-total-perf[data-row="' + ri + '"][data-metric="' + m.key + '"]');
+      if (!inp || inp.value === '') return;
+      if (m.duration) {
+        const sec = parseHMSToSeconds(inp.value);
+        if (sec === null) { invalidDur.push(date + ' ' + m.label); return; }
+        values[m.key] = { value: sec, group: 'performance' };
+      } else {
+        values[m.key] = { value: inp.value, group: 'performance' };
+      }
+    });
+    return { report_date: date, values: values };
+  });
+
+  if (invalidDur.length) { statusEl.className = 'status-msg err'; statusEl.textContent = '통화시간 형식을 확인해 주세요(예: 4:00:00): ' + invalidDur.join(', '); return; }
+
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=manual-entry-bulk', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ token: token, entries: entries })
+    });
+    const data = await res.json();
+    if (!data.success) throw new Error(data.error || '저장 실패');
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = (data.count || entries.length) + '건 저장 완료되었습니다.';
+    await loadOverviewForCurrent();
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '저장 실패: ' + e.message;
+  }
+}
+
 async function renderEntry() {
   const main = document.getElementById('main');
   if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
   const token = centerTokenMap[currentCenter];
   if (!token) { main.innerHTML = '<div class="empty">이 센터는 아직 데이터입력 토큰이 등록되지 않았습니다.</div>'; return; }
+
+  // LG전자통합: 파일첨부/붙여넣기 없이 항목별 숫자 입력 폼만 사용 (기존 LG전자AS/성수기와 완전히 별개)
+  if (INTEGRATED_FORM_CENTERS[currentCenter]) {
+    main.innerHTML = renderIntegratedFormEntry() + '<div id="dataManageArea"></div>';
+    const dmArea = document.getElementById('dataManageArea');
+    if (dmArea) dmArea.innerHTML = renderDataManagePanel();
+    return;
+  }
 
   const thisYear = new Date().getFullYear();
   const lcBox = LONG_CONTRACT_CENTERS[currentCenter]
@@ -5376,7 +5571,9 @@ async function deleteSelectedDates() {
 
 function loadRowForEdit(idx) {
   const row = dmQueryResults[idx];
-  if (!row || !rowSchema || rowSchema.length === 0) return;
+  if (!row) return;
+  if (currentCenter === 'lge_total') { loadLgeTotalRowForEdit(row); return; }
+  if (!rowSchema || rowSchema.length === 0) return;
   const values = rowSchema.map(function(col) {
     const src = col.group === 'attendance' ? row.attendance_data : row.performance_data;
     return (src && src[col.key] !== undefined) ? src[col.key] : '';
@@ -5386,6 +5583,49 @@ function loadRowForEdit(idx) {
   document.getElementById('pasteBox').value = dateLabel + '\t' + values.join('\t');
   document.getElementById('pasteBox').scrollIntoView({ behavior: 'smooth', block: 'center' });
   alert(row.report_date + ' 데이터를 위쪽 붙여넣기 칸에 불러왔습니다. 값을 수정한 뒤 "양식에 반영" → "전체 저장"을 눌러주세요.');
+}
+
+// LG전자통합의 "수정하기": 해당 날짜 하나만 대상으로 폼을 생성하고, 이월값 대신 그 날짜에 실제 저장된 값을 채운다.
+async function loadLgeTotalRowForEdit(row) {
+  document.getElementById('lgeTotalStart').value = row.report_date;
+  document.getElementById('lgeTotalEnd').value = row.report_date;
+  lgeTotalDates = [row.report_date];
+
+  const area = document.getElementById('lgeTotalTemplateArea');
+  const statusEl = document.getElementById('lgeTotalStatus');
+  const att = row.attendance_data || {};
+  const perf = row.performance_data || {};
+
+  const attHeaderCells = LGE_TOTAL_ATT_METRICS.map(function(m) { return '<th colspan="3" style="text-align:center;background:rgba(90,200,250,.12);">' + m.label + '</th>'; }).join('');
+  const attSubHeaderCells = LGE_TOTAL_ATT_METRICS.map(function() {
+    return '<th style="font-size:11px;">AS</th><th style="font-size:11px;">성수기</th><th style="font-size:11px;background:#111113;">합계</th>';
+  }).join('');
+  const perfHeaderCells = LGE_TOTAL_PERF_METRICS.map(function(m) { return '<th rowspan="2">' + m.label + '</th>'; }).join('');
+
+  const attCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
+    const asVal = att[m.key + '_AS'] !== undefined ? att[m.key + '_AS'] : '';
+    const suVal = att[m.key + '_성수기'] !== undefined ? att[m.key + '_성수기'] : '';
+    const totalVal = att[m.key + '_합계'] !== undefined ? att[m.key + '_합계'] : ((asVal !== '' && suVal !== '') ? (Number(asVal) + Number(suVal)) : '');
+    return '<td><input type="number" class="lge-total-input" data-row="0" data-metric="' + m.key + '" data-part="AS" value="' + asVal + '" oninput="lgeTotalRecalc(0,\'' + m.key + '\')" style="width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="number" class="lge-total-input" data-row="0" data-metric="' + m.key + '" data-part="성수기" value="' + suVal + '" oninput="lgeTotalRecalc(0,\'' + m.key + '\')" style="width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + '<td><input type="text" class="lge-total-total" data-row="0" data-metric="' + m.key + '" value="' + totalVal + '" readonly style="width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;background:#111113;color:#86868b;"></td>';
+  }).join('');
+  const perfCells = LGE_TOTAL_PERF_METRICS.map(function(m) {
+    const raw = perf[m.key];
+    const display = (raw === undefined || raw === null) ? '' : (m.duration ? formatSecondsHMS(raw) : raw);
+    return '<td><input type="text" class="lge-total-perf" data-row="0" data-metric="' + m.key + '" value="' + display + '" style="width:64px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>';
+  }).join('');
+
+  area.innerHTML = '<div class="table-scroll"><table><thead>'
+    + '<tr><th rowspan="2" style="position:sticky;left:0;background:#111113;">날짜</th>' + attHeaderCells + perfHeaderCells + '</tr>'
+    + '<tr>' + attSubHeaderCells + '</tr>'
+    + '</thead><tbody><tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + row.report_date + '</td>' + attCells + perfCells + '</tr></tbody></table></div>'
+    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">기존 저장값을 불러왔습니다 · 수정 후 "전체 저장"을 눌러주세요</p>';
+
+  document.getElementById('lgeTotalSaveBtn').style.display = 'inline-block';
+  statusEl.className = 'status-msg ok';
+  statusEl.textContent = row.report_date + ' 데이터를 불러왔습니다.';
+  area.scrollIntoView({ behavior: 'smooth', block: 'center' });
 }
 
 let attRangeRows = [];
