@@ -650,7 +650,12 @@ async function init() {
 // (같은 내용을 또 그리는 불필요한 재렌더링을 피하기 위함).
 async function loadOverviewForCurrent() {
   try {
-    const centerParam = workspaceUnlocked ? '' : ('&center=' + encodeURIComponent(currentCenter));
+    // 이 함수는 "특정 센터 화면"(대시보드/데이터입력 등)에서만 호출된다 — 워크스페이스 전체현황은
+    // 별도로 loadAllCentersOverview()가 전체 센터 데이터를 불러온다. 그런데 예전엔 관리자(workspaceUnlocked)일
+    // 때 여기서도 센터 필터 없이 "전체 센터 통틀어 최근 300건"을 요청했었다. 센터가 여러 개면 다른 센터들의
+    // 최근 데이터만으로 300건이 채워져서, 지금 보는 센터의 오래된 데이터는 실제로 저장돼 있어도
+    // 대시보드/조회 어디에도 안 나오는 버그가 있었다 — 항상 이 센터로 한정해서 요청하도록 수정.
+    const centerParam = '&center=' + encodeURIComponent(currentCenter);
     const needsSchema = categorySchemaCache[currentCenter] === undefined;
     const token = centerTokenMap[currentCenter];
     const targetCenter = currentCenter; // 응답이 오는 동안 센터를 또 바꿨을 경우를 대비해 고정
