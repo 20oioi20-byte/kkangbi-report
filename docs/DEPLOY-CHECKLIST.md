@@ -14,6 +14,7 @@
 9. `schema_addendum_8_gdrive.sql` — Google Drive 완전자동 (**pg_cron 필요**)
 10. `schema_addendum_9_ai_provider.sql` — AI 보조기능(엑셀 매핑 override + 호출 로그) 테이블 신규
 11. `schema_addendum_10_notification_manual.sql` — 알림 로그에 즉시발송 여부(`is_manual`) 컬럼 추가
+12. `schema_addendum_11_lge_total_center.sql` — LG전자통합(`lge_total`) 신규 센터 등록 (실행 후 기본 비밀번호 000000 → 변경 필요)
 
 ## 1-1. Edge Function 배포 (2026-07-13, index.ts 전체 병합 완료)
 - 이전엔 index.ts 원본이 없어 병합용 스니펫으로만 드렸지만, 이제 사용자가 제공한 실제 `index.ts`에 AI 보조기능 3개 액션 + "즉시 발송" 액션 + 캐싱 헬퍼가 전부 반영된 **완전한 파일**을 드립니다. 그대로 `supabase functions deploy center-report-upload`만 하면 됩니다(코드 수정 불필요).
@@ -38,10 +39,13 @@ supabase functions deploy center-report-upload
 ```
 배포 후 아무 액션이나 GET으로 호출해 500 에러가 안 나는지 확인 (예: `?action=list-last-upload`).
 
-## 4. admin.html 배포 (★ 반드시 두 곳 모두)
-- [ ] `kkangbi-report.vercel.app` 재배포
-- [ ] `report.xn--2l0b841ao7b.kr` 재배포
+## 4. admin.html + style.css + app.js 배포 (★ 반드시 두 곳 모두, ★★ 2026-07-17부터 파일 3개 세트)
+- **(2026-07-17 변경)** `admin.html`이 HTML/CSS/JS 3개 파일로 분리되었습니다: `admin.html`(뼈대) + `style.css`(전체 스타일) + `app.js`(전체 로직). 화면·기능·동작은 이전과 100% 동일하고, 브라우저가 세 파일을 나눠서 불러올 뿐입니다.
+- **세 파일을 반드시 같은 폴더(예: 프로젝트 루트)에 함께 올려야 합니다.** `admin.html`만 올리고 `style.css`/`app.js`를 빠뜨리면 스타일 없는 흰 화면이나 완전히 빈 화면이 뜹니다.
+- [ ] `kkangbi-report.vercel.app`에 `admin.html` + `style.css` + `app.js` 3개 모두 재배포
+- [ ] `report.xn--2l0b841ao7b.kr`에 `admin.html` + `style.css` + `app.js` 3개 모두 재배포
 - 한쪽만 하면 안 됨 — 과거 이 문제로 "고친 게 반영이 안 된다"는 혼선이 실제 발생했음 (`CHANGELOG.md` 2026-07-07~09 구간 참고)
+- 배포 후 브라우저 개발자도구 Network 탭에서 `style.css`/`app.js`가 200으로 로드되는지 확인 (404면 파일이 같은 경로에 안 올라간 것)
 
 ## 5. 배포 후 스모크 테스트
 - [ ] 브라우저 강력 새로고침(Ctrl+Shift+R / Cmd+Shift+R)으로 캐시 우회 후 접속
