@@ -5022,28 +5022,33 @@ async function generateLgeTotalRows() {
     const perfCells = LGE_TOTAL_PERF_METRICS.map(function(m) {
       return '<td><input type="text" class="lge-total-perf" data-row="' + ri + '" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '') + '" style="width:64px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>';
     }).join('');
-    return '<tr><td style="position:sticky;left:0;background:#1d1d1f;"><input type="checkbox" class="lge-total-check" data-row="' + ri + '"></td><td style="position:sticky;left:28px;background:#1d1d1f;font-weight:600;">' + date + '</td>' + attCells + perfCells + '</tr>';
+    return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + date + '</td>' + attCells + perfCells + '</tr>';
   }).join('');
 
-  // 일괄 적용 대상 필드 목록: AS/성수기 세부값 10개 + 실적 4개 (합계는 자동계산이라 직접 대상에서 제외)
-  const bulkFieldOptions = []
-    .concat(LGE_TOTAL_ATT_METRICS.map(function(m) { return { value: 'att:' + m.key + ':AS', label: m.label + ' - AS' }; }))
-    .concat(LGE_TOTAL_ATT_METRICS.map(function(m) { return { value: 'att:' + m.key + ':성수기', label: m.label + ' - 성수기' }; }))
-    .concat(LGE_TOTAL_PERF_METRICS.map(function(m) { return { value: 'perf:' + m.key, label: m.label }; }));
-  const bulkFieldOptionsHtml = bulkFieldOptions.map(function(o) { return '<option value="' + o.value + '">' + o.label + '</option>'; }).join('');
+  // 표 맨 위 "일괄입력" 행: 항목별로 값을 입력하고 항목별/전체 "전체반영" 버튼으로 모든 날짜에 한 번에 채운다.
+  const attBulkCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
+    return '<td><input type="number" class="lge-total-bulk-input" data-metric="' + m.key + '" data-part="AS" placeholder="값" style="width:52px;padding:3px;border:1px solid #2c2c2e;border-radius:4px;font-size:11px;text-align:center;background:#111113;color:#f5f5f7;">'
+      + '<button class="btn-outline" style="display:block;width:100%;margin-top:3px;padding:2px 0;font-size:9px;" onclick="applyLgeTotalColumn(\'att\',\'' + m.key + '\',\'AS\')">전체반영</button></td>'
+      + '<td><input type="number" class="lge-total-bulk-input" data-metric="' + m.key + '" data-part="성수기" placeholder="값" style="width:52px;padding:3px;border:1px solid #2c2c2e;border-radius:4px;font-size:11px;text-align:center;background:#111113;color:#f5f5f7;">'
+      + '<button class="btn-outline" style="display:block;width:100%;margin-top:3px;padding:2px 0;font-size:9px;" onclick="applyLgeTotalColumn(\'att\',\'' + m.key + '\',\'성수기\')">전체반영</button></td>'
+      + '<td style="background:#111113;color:#5b6472;font-size:11px;text-align:center;">자동</td>';
+  }).join('');
+  const perfBulkCells = LGE_TOTAL_PERF_METRICS.map(function(m) {
+    return '<td><input type="text" class="lge-total-bulk-perf" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '값') + '" style="width:60px;padding:3px;border:1px solid #2c2c2e;border-radius:4px;font-size:11px;text-align:center;background:#111113;color:#f5f5f7;">'
+      + '<button class="btn-outline" style="display:block;width:100%;margin-top:3px;padding:2px 0;font-size:9px;" onclick="applyLgeTotalColumn(\'perf\',\'' + m.key + '\')">전체반영</button></td>';
+  }).join('');
+  const bulkRow = '<tr class="lge-total-bulk-row" style="background:rgba(90,200,250,.08);">'
+    + '<td style="position:sticky;left:0;background:#17313f;font-weight:600;font-size:11px;color:#5ac8fa;">일괄입력</td>'
+    + attBulkCells + perfBulkCells + '</tr>';
 
   area.innerHTML = '<div class="table-scroll"><table><thead>'
-    + '<tr><th rowspan="2" style="position:sticky;left:0;background:#111113;"></th><th rowspan="2" style="position:sticky;left:28px;background:#111113;">날짜</th>' + attHeaderCells + perfHeaderCells + '</tr>'
+    + '<tr><th rowspan="2" style="position:sticky;left:0;background:#111113;">날짜</th>' + attHeaderCells + perfHeaderCells + '</tr>'
     + '<tr>' + attSubHeaderCells + '</tr>'
-    + '</thead><tbody>' + bodyRows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + lgeTotalDates.length + '개 날짜 · AS/성수기 값을 입력하면 합계가 자동 계산됩니다</p>'
+    + '</thead><tbody>' + bulkRow + bodyRows + '</tbody></table></div>'
+    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + lgeTotalDates.length + '개 날짜 · AS/성수기 값을 입력하면 합계가 자동 계산됩니다 · 맨 위 "일괄입력" 행에 값을 넣고 항목별 전체반영 버튼(또는 아래 전체 항목 전체반영)을 누르면 모든 날짜에 채워집니다</p>'
     + '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
-    + '<button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="lgeTotalToggleAll(true)">전체 선택</button>'
-    + '<button class="btn-outline" style="padding:5px 10px;font-size:11px;" onclick="lgeTotalToggleAll(false)">전체 해제</button>'
-    + '<span style="font-size:12px;color:#5b6472;margin-left:8px;">선택한 날짜에 일괄 적용:</span>'
-    + '<select id="lgeTotalBulkField" style="font-size:12px;padding:4px 6px;border:1px solid #2c2c2e;border-radius:4px;background:#111113;color:#f5f5f7;">' + bulkFieldOptionsHtml + '</select>'
-    + '<input type="text" id="lgeTotalBulkValue" placeholder="값" style="width:90px;padding:4px 6px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;background:#111113;color:#f5f5f7;">'
-    + '<button class="btn-secondary" style="padding:5px 12px;font-size:12px;" onclick="applyLgeTotalBulk()">선택 날짜에 일괄 적용</button>'
+    + '<button class="btn-primary" style="padding:6px 14px;font-size:12px;" onclick="applyLgeTotalAllColumns()">⚡ 전체 항목 전체반영</button>'
+    + '<span style="font-size:12px;color:#5b6472;">일괄입력 행에 입력된 항목을 전부 모든 날짜에 한 번에 반영합니다.</span>'
     + '</div>';
 
   document.getElementById('lgeTotalSaveBtn').style.display = 'inline-block';
@@ -5060,32 +5065,48 @@ function lgeTotalRecalc(rowIdx, metricKey) {
   totalInput.value = (asVal !== '' && suVal !== '') ? (Number(asVal) + Number(suVal)) : '';
 }
 
-function lgeTotalToggleAll(checked) {
-  document.querySelectorAll('.lge-total-check').forEach(function(cb) { cb.checked = checked; });
-}
-
-// 체크한 날짜들에 선택한 필드 값을 한 번에 채워넣는다. AS/성수기 필드면 합계도 함께 재계산된다.
-function applyLgeTotalBulk() {
+// 일괄입력 행의 특정 항목(칸) 값을 표의 모든 날짜 행에 채운다. att면 AS/성수기 지정, perf면 metricKey만.
+function applyLgeTotalColumn(type, metricKey, part) {
   const statusEl = document.getElementById('lgeTotalStatus');
-  const fieldSel = document.getElementById('lgeTotalBulkField').value; // 'att:TO:AS' 또는 'perf:TNPS' 형식
-  const value = document.getElementById('lgeTotalBulkValue').value;
-  const checkedRows = Array.from(document.querySelectorAll('.lge-total-check:checked')).map(function(cb) { return cb.dataset.row; });
-  if (checkedRows.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '일괄 적용할 날짜를 먼저 선택해 주세요.'; return; }
-  if (value === '') { statusEl.className = 'status-msg err'; statusEl.textContent = '적용할 값을 입력해 주세요.'; return; }
+  const bulkInp = type === 'att'
+    ? document.querySelector('.lge-total-bulk-input[data-metric="' + metricKey + '"][data-part="' + part + '"]')
+    : document.querySelector('.lge-total-bulk-perf[data-metric="' + metricKey + '"]');
+  const value = bulkInp ? bulkInp.value : '';
+  if (value === '') { statusEl.className = 'status-msg err'; statusEl.textContent = '일괄입력 행에 적용할 값을 먼저 입력해 주세요.'; return 0; }
 
-  const parts = fieldSel.split(':');
-  checkedRows.forEach(function(ri) {
-    if (parts[0] === 'att') {
-      const metricKey = parts[1], part = parts[2];
+  for (let ri = 0; ri < lgeTotalDates.length; ri++) {
+    if (type === 'att') {
       const inp = document.querySelector('.lge-total-input[data-row="' + ri + '"][data-metric="' + metricKey + '"][data-part="' + part + '"]');
-      if (inp) { inp.value = value; lgeTotalRecalc(Number(ri), metricKey); }
+      if (inp) { inp.value = value; lgeTotalRecalc(ri, metricKey); }
     } else {
-      const inp = document.querySelector('.lge-total-perf[data-row="' + ri + '"][data-metric="' + parts[1] + '"]');
+      const inp = document.querySelector('.lge-total-perf[data-row="' + ri + '"][data-metric="' + metricKey + '"]');
       if (inp) inp.value = value;
     }
-  });
+  }
   statusEl.className = 'status-msg ok';
-  statusEl.textContent = checkedRows.length + '개 날짜에 값을 적용했습니다. 저장 전에 다시 한 번 확인해 주세요.';
+  statusEl.textContent = lgeTotalDates.length + '개 날짜에 값을 적용했습니다. 저장 전에 다시 한 번 확인해 주세요.';
+  return lgeTotalDates.length;
+}
+
+// 일괄입력 행에서 값이 채워진 항목을 전부(AS/성수기 10개 + 실적 4개) 모든 날짜에 한 번에 반영한다.
+function applyLgeTotalAllColumns() {
+  const statusEl = document.getElementById('lgeTotalStatus');
+  let fieldCount = 0;
+
+  LGE_TOTAL_ATT_METRICS.forEach(function(m) {
+    ['AS', '성수기'].forEach(function(part) {
+      const inp = document.querySelector('.lge-total-bulk-input[data-metric="' + m.key + '"][data-part="' + part + '"]');
+      if (inp && inp.value !== '') { applyLgeTotalColumn('att', m.key, part); fieldCount++; }
+    });
+  });
+  LGE_TOTAL_PERF_METRICS.forEach(function(m) {
+    const inp = document.querySelector('.lge-total-bulk-perf[data-metric="' + m.key + '"]');
+    if (inp && inp.value !== '') { applyLgeTotalColumn('perf', m.key); fieldCount++; }
+  });
+
+  if (fieldCount === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '일괄입력 행에 적용할 값을 하나 이상 입력해 주세요.'; return; }
+  statusEl.className = 'status-msg ok';
+  statusEl.textContent = fieldCount + '개 항목을 ' + lgeTotalDates.length + '개 날짜 전체에 반영했습니다. 저장 전에 다시 한 번 확인해 주세요.';
 }
 
 async function saveLgeTotalRows() {
