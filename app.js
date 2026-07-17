@@ -5512,14 +5512,33 @@ function renderDataManagePanel() {
     + '</div>';
 }
 
-function queryDataManage() {
+// 이전엔 이미 화면에 로드된 전역 allRows를 그대로 필터링했는데, 관리자(workspaceUnlocked)로 접속하면
+// loadOverviewForCurrent()가 "이 센터"가 아니라 "전체 센터 통틀어 최근 300건"을 allRows에 채운다
+// (센터 전환 시 다시 불러오지 않기 위한 캐시 재사용 최적화). 그래서 다른 센터들의 최근 데이터가
+// 300건을 다 채우면, 지금 보고 있는 센터의 예전 데이터(예: 반년 전 날짜)는 애초에 allRows에 없어서
+// 실제로는 저장이 잘 됐는데도 "조회"에서 0건으로 나오는 문제가 있었다. 이제 "조회"를 누르면
+// 전역 캐시를 쓰지 않고 이 센터로만 한정해서(action=admin-overview&center=...) 서버에 새로 요청한다.
+async function queryDataManage() {
   const start = document.getElementById('dmStart').value;
   const end = document.getElementById('dmEnd').value;
   const statusEl = document.getElementById('dmStatus');
   if (!start || !end) { statusEl.className = 'status-msg err'; statusEl.textContent = '시작일과 종료일을 모두 선택해 주세요.'; return; }
   if (start > end) { statusEl.className = 'status-msg err'; statusEl.textContent = '시작일이 종료일보다 늦을 수 없습니다.'; return; }
 
-  dmQueryResults = allRows.filter(function(r) { return r.report_date >= start && r.report_date <= end; })
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '조회 중...';
+  let rows;
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview&center=' + encodeURIComponent(currentCenter) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const data = await res.json();
+    rows = data.success ? (data.rows || []) : [];
+  } catch (e) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '조회 실패: ' + e.message;
+    return;
+  }
+
+  dmQueryResults = rows.filter(function(r) { return r.report_date >= start && r.report_date <= end; })
     .sort(function(a, b) { return a.report_date.localeCompare(b.report_date); });
 
   statusEl.className = 'status-msg';
