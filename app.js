@@ -1698,7 +1698,7 @@ function renderToGrid(centerCode, year) {
   return '<div class="table-scroll"><table>'
     + '<thead><tr><th style="position:sticky;left:0;background:#111113;"></th>' + headerCells.join('') + '</tr></thead>'
     + '<tbody>'
-    + '<tr><td style="position:sticky;left:0;background:#111113;font-size:11px;color:#86868b;">선택</td>' + checkCells.join('') + '</tr>'
+    + '<tr><td style="position:sticky;left:0;background:#111113;font-size:11px;color:#86868b;"><label style="cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;" title="전체 월 선택/해제"><input type="checkbox" onchange="toGridToggleAll(this.checked)"> 전체</label></td>' + checkCells.join('') + '</tr>'
     + '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">관리자</td>' + managerCells.join('') + '</tr>'
     + '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">상담사</td>' + counselorCells.join('') + '</tr>'
     + '</tbody></table></div>'
@@ -1708,6 +1708,10 @@ function renderToGrid(centerCode, year) {
     + '<label style="font-size:12px;">상담사 <input type="number" id="toBulkCounselor" style="width:60px;margin-left:4px;"></label>'
     + '<button class="btn-secondary" style="padding:4px 10px;font-size:12px;" onclick="applyToGridBulk()">일괄 반영</button>'
     + '</div>';
+}
+
+function toGridToggleAll(checked) {
+  document.querySelectorAll('.to-grid-check').forEach(function(cb) { cb.checked = checked; });
 }
 
 function applyToGridBulk() {
@@ -4574,6 +4578,9 @@ async function extractLongContractAndFill() {
       for (let r = headerRow + 1; r <= target.maxRow; r++) {
         const obligation = String(xlsxGet(target.grid, r, colObligation) || '').trim();
         const process = String(xlsxGet(target.grid, r, colProcess) || '').trim();
+        // 여러 조회결과를 이어붙인 원본 파일은 중간에 헤더 행이 그대로 다시 끼어있는 경우가 있다(실제 파일에서 확인됨).
+        // 이 행을 데이터로 취급하면 "요청일"이라는 글자가 그대로 날짜 값으로 들어가 정렬 시 맨 뒤로 밀리며 깨진 항목이 생긴다.
+        if (lcCleanHeader(obligation) === '의무위반사항' && lcCleanHeader(process) === '처리구분') continue;
         const requestDate = lcToDateKey(xlsxGet(target.grid, r, colRequest));
         const completeDate = lcToDateKey(xlsxGet(target.grid, r, colComplete));
         const dueDate = lcToDateKey(xlsxGet(target.grid, r, colDue));
