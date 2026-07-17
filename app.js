@@ -4953,20 +4953,33 @@ function promptGoToAttendance(rangeStart, rangeEnd) {
 // LG전자통합: 파일첨부 없이 항목별 숫자 입력 전용 폼
 // ============================================
 let lgeTotalDates = []; // 현재 화면에 생성된 날짜 목록(YYYY-MM-DD, 오름차순)
-let lgeTotalMonthlyAvgDate = ''; // 월평균 입력값이 저장될 날짜(시작일이 속한 달의 1일)
+
+// 통화시간처럼 duration:true인 실적 입력칸: 숫자만 입력하고 포커스를 벗어나면(blur) 오른쪽부터 초/분/시로 나눠
+// H:MM:SS로 자동 변환한다. 예: 40000 -> 4:00:00, 400 -> 0:04:00. 이미 콜론이 들어간 값은 건드리지 않는다.
+function formatDurationOnBlur(el) {
+  const raw = el.value.trim();
+  if (!raw || raw.indexOf(':') !== -1) return;
+  const digits = raw.replace(/\D/g, '');
+  if (!digits) return;
+  const ss = digits.slice(-2).padStart(2, '0');
+  const mm = digits.slice(-4, -2).padStart(2, '0');
+  const hh = digits.slice(0, -4);
+  el.value = (hh === '' ? '0' : String(Number(hh))) + ':' + mm + ':' + ss;
+}
 
 function renderIntegratedFormEntry() {
   const today = new Date().toISOString().slice(0, 10);
   const monthlyAvgFields = LGE_TOTAL_PERF_METRICS.map(function(m) {
     return '<div><label style="font-size:11px;color:#a1a1a6;display:block;margin-bottom:3px;">' + m.label + '</label>'
-      + '<input type="text" class="lge-total-monthly-avg" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '') + '" style="width:80px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;background:#111113;color:#f5f5f7;">'
+      + '<input type="text" class="lge-total-monthly-avg" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '') + '"' + (m.duration ? ' onblur="formatDurationOnBlur(this)"' : '') + ' style="width:80px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;background:#111113;color:#f5f5f7;">'
       + '</div>';
   }).join('');
   return '<div class="entry-wrap panel">'
     + '<h3>LG전자통합 일자별 입력</h3>'
-    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">TO·AS재직인원·성수기재직인원·상담사투입인원은 직전 저장된 날짜의 값을 기본으로 채워줍니다(인원변동이 있을 때만 수정하면 됩니다). 총재직인원은 AS재직인원+성수기재직인원의 합계로 자동 채워집니다(직접 입력 불가). T-NPS·생산성·통화시간은 매일 새로 입력합니다. 날짜별 체크박스를 체크하면 저장할 때 그 날짜만 제외됩니다.</p>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">TO·AS재직인원·성수기재직인원·상담사투입인원은 직전 저장된 날짜의 값을 기본으로 채워줍니다(인원변동이 있을 때만 수정하면 됩니다). 총재직인원·각 항목의 합계는 화면에 따로 표시하지 않고 저장할 때 자동으로 계산되어 반영됩니다. T-NPS·생산성·통화시간은 매일 새로 입력합니다. 날짜별 체크박스를 체크하면 저장할 때 그 날짜만 제외됩니다.</p>'
     + '<div style="max-width:640px;margin-bottom:14px;padding:12px;border:1px solid #2c2c2e;border-radius:10px;background:rgba(90,200,250,.05);">'
-    + '<div style="font-size:12px;font-weight:600;color:#5ac8fa;margin-bottom:8px;">이번 달 월평균 실적 입력 (선택 — 값을 넣으면 시작일이 속한 달의 1일 데이터에 별도 항목으로 저장됩니다)</div>'
+    + '<div style="font-size:12px;font-weight:600;color:#5ac8fa;margin-bottom:8px;">이번 달 월평균 실적 입력 (선택 — 값을 넣으면 선택한 달의 1일 데이터에 별도 항목으로 저장됩니다)</div>'
+    + '<div class="entry-row"><label>대상 월</label><input type="month" id="lgeTotalAvgMonth" value="' + today.slice(0, 7) + '" onchange="refreshLgeTotalMonthlyAvgInputs()"></div>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;">' + monthlyAvgFields + '</div>'
     + '</div>'
     + '<div class="entry-row"><label>시작일</label><input type="date" id="lgeTotalStart" value="' + today + '"></div>'
@@ -4976,6 +4989,27 @@ function renderIntegratedFormEntry() {
     + '<div class="status-msg" id="lgeTotalStatus"></div>'
     + '<div id="lgeTotalTemplateArea" style="margin-top:16px;"></div>'
     + '</div>';
+}
+
+// 월평균 입력칸의 "대상 월"이 참조하는 report_date(그 달 1일)
+function lgeTotalAvgMonthDate() {
+  const v = document.getElementById('lgeTotalAvgMonth') ? document.getElementById('lgeTotalAvgMonth').value : '';
+  return v ? v + '-01' : '';
+}
+
+// "대상 월"을 고르거나 화면이 처음 열릴 때, 그 달 1일에 이미 저장된 월평균 값이 있으면 불러와서 채운다.
+async function refreshLgeTotalMonthlyAvgInputs() {
+  const monthDate = lgeTotalAvgMonthDate();
+  if (!monthDate) return;
+  const rows = await lgeTotalFetchHistory();
+  const row = rows.find(function(r) { return r.report_date === monthDate; }) || null;
+  const perf = (row && row.performance_data) || {};
+  LGE_TOTAL_PERF_METRICS.forEach(function(m) {
+    const inp = document.querySelector('.lge-total-monthly-avg[data-metric="' + m.key + '"]');
+    if (!inp) return;
+    const raw = perf[m.key + '_월평균'];
+    inp.value = (raw === undefined || raw === null) ? '' : (m.duration ? formatSecondsHMS(raw) : raw);
+  });
 }
 
 function lgeTotalDateRange(start, end) {
@@ -5000,6 +5034,9 @@ async function lgeTotalFetchHistory() {
   } catch (e) { return []; }
 }
 
+// 총재직인원처럼 다른 항목의 합계를 그대로 가져오는 파생 항목은 표에 표시하지 않는다(저장 시에만 자동 계산).
+const LGE_TOTAL_VISIBLE_ATT_METRICS = LGE_TOTAL_ATT_METRICS.filter(function(m) { return !m.derivedFrom; });
+
 async function generateLgeTotalRows() {
   const statusEl = document.getElementById('lgeTotalStatus');
   const start = document.getElementById('lgeTotalStart').value;
@@ -5015,81 +5052,49 @@ async function generateLgeTotalRows() {
   const seed = historyRows.filter(function(r) { return r.report_date < start; })
     .sort(function(a, b) { return a.report_date < b.report_date ? 1 : -1; })[0] || null;
 
-  // 월평균 입력칸: 시작일이 속한 달의 1일에 기존 저장값이 있으면 불러와서 채워준다(없으면 빈 값).
-  lgeTotalMonthlyAvgDate = start.slice(0, 7) + '-01';
-  const monthlyAvgRow = historyRows.find(function(r) { return r.report_date === lgeTotalMonthlyAvgDate; }) || null;
-  const monthlyAvgPerf = (monthlyAvgRow && monthlyAvgRow.performance_data) || {};
-  LGE_TOTAL_PERF_METRICS.forEach(function(m) {
-    const inp = document.querySelector('.lge-total-monthly-avg[data-metric="' + m.key + '"]');
-    if (!inp) return;
-    const raw = monthlyAvgPerf[m.key + '_월평균'];
-    inp.value = (raw === undefined || raw === null) ? '' : (m.duration ? formatSecondsHMS(raw) : raw);
-  });
-
-  // 이월 시작값(carry) 계산: 직접입력 항목(TO/AS재직인원/성수기재직인원/상담사투입인원) 먼저 채우고,
-  // 그 다음 파생 항목(총재직인원)을 참조 항목들의 합계로 채운다.
+  // 이월 시작값(carry): 화면에 보이는 직접입력 항목(TO/AS재직인원/성수기재직인원/상담사투입인원)만 채운다.
   const att = (seed && seed.attendance_data) || {};
   let carry = {};
-  LGE_TOTAL_ATT_METRICS.forEach(function(m) {
-    if (m.derivedFrom) return;
+  LGE_TOTAL_VISIBLE_ATT_METRICS.forEach(function(m) {
     carry[m.key] = {};
     m.parts.forEach(function(p) { carry[m.key][p] = att[m.key + '_' + p] !== undefined ? att[m.key + '_' + p] : ''; });
-    const v0 = carry[m.key][m.parts[0]], v1 = carry[m.key][m.parts[1]];
-    carry[m.key].합계 = (v0 !== '' && v1 !== '') ? (Number(v0) + Number(v1)) : '';
-  });
-  LGE_TOTAL_ATT_METRICS.forEach(function(m) {
-    if (!m.derivedFrom) return;
-    carry[m.key] = {};
-    m.parts.forEach(function(p) {
-      const src = carry[m.derivedFrom[p]];
-      carry[m.key][p] = (src && src.합계 !== '') ? src.합계 : '';
-    });
-    const v0 = carry[m.key][m.parts[0]], v1 = carry[m.key][m.parts[1]];
-    carry[m.key].합계 = (v0 !== '' && v1 !== '') ? (Number(v0) + Number(v1)) : '';
   });
 
   const area = document.getElementById('lgeTotalTemplateArea');
-  const attHeaderCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
-    return '<th colspan="3" style="text-align:center;background:rgba(90,200,250,.12);">' + m.label + (m.derivedFrom ? ' <span style="font-weight:400;color:#5b6472;">(자동)</span>' : '') + '</th>';
+  const attHeaderCells = LGE_TOTAL_VISIBLE_ATT_METRICS.map(function(m) {
+    return '<th colspan="2" style="text-align:center;background:rgba(90,200,250,.12);">' + m.label + '</th>';
   }).join('');
-  const attSubHeaderCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
-    return '<th style="font-size:11px;">' + m.parts[0] + '</th><th style="font-size:11px;">' + m.parts[1] + '</th><th style="font-size:11px;background:#111113;">합계</th>';
+  const attSubHeaderCells = LGE_TOTAL_VISIBLE_ATT_METRICS.map(function(m) {
+    return '<th style="font-size:11px;">' + m.parts[0] + '</th><th style="font-size:11px;">' + m.parts[1] + '</th>';
   }).join('');
   const perfHeaderCells = LGE_TOTAL_PERF_METRICS.map(function(m) { return '<th rowspan="2">' + m.label + '</th>'; }).join('');
 
   const bodyRows = lgeTotalDates.map(function(date, ri) {
-    const attCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
+    const attCells = LGE_TOTAL_VISIBLE_ATT_METRICS.map(function(m) {
       const v0 = carry[m.key][m.parts[0]];
       const v1 = carry[m.key][m.parts[1]];
-      const totalVal = carry[m.key].합계;
-      const readonly = !!m.derivedFrom;
-      const baseStyle = 'width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;';
-      const partStyle = baseStyle + (readonly ? 'background:#111113;color:#86868b;' : '');
-      const attr = readonly ? ' readonly' : ' oninput="lgeTotalRecalc(' + ri + ',\'' + m.key + '\')"';
-      return '<td><input type="number" class="lge-total-input" data-row="' + ri + '" data-metric="' + m.key + '" data-part="' + m.parts[0] + '" value="' + v0 + '" style="' + partStyle + '"' + attr + '></td>'
-        + '<td><input type="number" class="lge-total-input" data-row="' + ri + '" data-metric="' + m.key + '" data-part="' + m.parts[1] + '" value="' + v1 + '" style="' + partStyle + '"' + attr + '></td>'
-        + '<td><input type="text" class="lge-total-total" data-row="' + ri + '" data-metric="' + m.key + '" value="' + totalVal + '" readonly style="' + baseStyle + 'background:#111113;color:#86868b;"></td>';
+      const style = 'width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;';
+      return '<td><input type="number" class="lge-total-input" data-row="' + ri + '" data-metric="' + m.key + '" data-part="' + m.parts[0] + '" value="' + v0 + '" style="' + style + '"></td>'
+        + '<td><input type="number" class="lge-total-input" data-row="' + ri + '" data-metric="' + m.key + '" data-part="' + m.parts[1] + '" value="' + v1 + '" style="' + style + '"></td>';
     }).join('');
     const perfCells = LGE_TOTAL_PERF_METRICS.map(function(m) {
-      return '<td><input type="text" class="lge-total-perf" data-row="' + ri + '" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '') + '" style="width:64px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>';
+      return '<td><input type="text" class="lge-total-perf" data-row="' + ri + '" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '') + '"' + (m.duration ? ' onblur="formatDurationOnBlur(this)"' : '') + ' style="width:64px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>';
     }).join('');
     return '<tr><td style="position:sticky;left:0;background:#1d1d1f;text-align:center;"><input type="checkbox" class="lge-total-exclude" data-row="' + ri + '" title="체크하면 저장 시 이 날짜를 제외합니다" onchange="lgeTotalToggleRowExclude(this)"></td>'
       + '<td style="position:sticky;left:30px;background:#1d1d1f;font-weight:600;">' + date + '</td>' + attCells + perfCells + '</tr>';
   }).join('');
 
-  // 표 맨 위 "일괄입력" 행: 항목별로 값을 입력하고 항목별/전체 "전체반영" 버튼으로 모든 날짜에 한 번에 채운다. 자동계산 항목(총재직인원)은 대상에서 제외.
-  const attBulkCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
-    if (m.derivedFrom) return '<td colspan="3" style="background:#111113;color:#5b6472;font-size:11px;text-align:center;">자동계산</td>';
+  // 표 맨 위 "일괄입력" 행: 항목별로 값을 입력하고 항목별/전체 "전체반영" 버튼으로 모든 날짜에 한 번에 채운다.
+  const attBulkCells = LGE_TOTAL_VISIBLE_ATT_METRICS.map(function(m) {
     const inpStyle = 'width:52px;padding:3px;border:1px solid #2c2c2e;border-radius:4px;font-size:11px;text-align:center;background:#111113;color:#f5f5f7;';
     const btnStyle = 'display:block;width:100%;margin-top:3px;padding:2px 0;font-size:9px;';
     return '<td><input type="number" class="lge-total-bulk-input" data-metric="' + m.key + '" data-part="' + m.parts[0] + '" placeholder="값" style="' + inpStyle + '">'
       + '<button class="btn-outline" style="' + btnStyle + '" onclick="applyLgeTotalColumn(\'att\',\'' + m.key + '\',\'' + m.parts[0] + '\')">전체반영</button></td>'
       + '<td><input type="number" class="lge-total-bulk-input" data-metric="' + m.key + '" data-part="' + m.parts[1] + '" placeholder="값" style="' + inpStyle + '">'
-      + '<button class="btn-outline" style="' + btnStyle + '" onclick="applyLgeTotalColumn(\'att\',\'' + m.key + '\',\'' + m.parts[1] + '\')">전체반영</button></td>'
-      + '<td style="background:#111113;color:#5b6472;font-size:11px;text-align:center;">자동</td>';
+      + '<button class="btn-outline" style="' + btnStyle + '" onclick="applyLgeTotalColumn(\'att\',\'' + m.key + '\',\'' + m.parts[1] + '\')">전체반영</button></td>';
   }).join('');
   const perfBulkCells = LGE_TOTAL_PERF_METRICS.map(function(m) {
-    return '<td><input type="text" class="lge-total-bulk-perf" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '값') + '" style="width:60px;padding:3px;border:1px solid #2c2c2e;border-radius:4px;font-size:11px;text-align:center;background:#111113;color:#f5f5f7;">'
+    return '<td><input type="text" class="lge-total-bulk-perf" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '값') + '"' + (m.duration ? ' onblur="formatDurationOnBlur(this)"' : '') + ' style="width:60px;padding:3px;border:1px solid #2c2c2e;border-radius:4px;font-size:11px;text-align:center;background:#111113;color:#f5f5f7;">'
       + '<button class="btn-outline" style="display:block;width:100%;margin-top:3px;padding:2px 0;font-size:9px;" onclick="applyLgeTotalColumn(\'perf\',\'' + m.key + '\')">전체반영</button></td>';
   }).join('');
   const bulkRow = '<tr class="lge-total-bulk-row" style="background:rgba(90,200,250,.08);">'
@@ -5101,7 +5106,7 @@ async function generateLgeTotalRows() {
     + '<tr><th rowspan="2" style="position:sticky;left:0;background:#111113;font-size:11px;">제외</th><th rowspan="2" style="position:sticky;left:30px;background:#111113;">날짜</th>' + attHeaderCells + perfHeaderCells + '</tr>'
     + '<tr>' + attSubHeaderCells + '</tr>'
     + '</thead><tbody>' + bulkRow + bodyRows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + lgeTotalDates.length + '개 날짜 · 맨 위 "일괄입력" 행에 값을 넣고 항목별 전체반영 버튼(또는 아래 전체 항목 전체반영)을 누르면 모든 날짜에 채워집니다 · "제외" 열을 체크하면 그 날짜는 저장에서 빠집니다</p>'
+    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + lgeTotalDates.length + '개 날짜 · 총재직인원과 각 항목의 합계는 화면에 표시되지 않고 저장 시 자동 계산됩니다 · 맨 위 "일괄입력" 행에 값을 넣고 항목별 전체반영 버튼(또는 아래 전체 항목 전체반영)을 누르면 모든 날짜에 채워집니다 · "제외" 열을 체크하면 그 날짜는 저장에서 빠집니다</p>'
     + '<div style="margin-top:10px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
     + '<button class="btn-primary" style="padding:6px 14px;font-size:12px;" onclick="applyLgeTotalAllColumns()">⚡ 전체 항목 전체반영</button>'
     + '<span style="font-size:12px;color:#5b6472;">일괄입력 행에 입력된 항목을 전부 모든 날짜에 한 번에 반영합니다.</span>'
@@ -5110,31 +5115,6 @@ async function generateLgeTotalRows() {
   document.getElementById('lgeTotalSaveBtn').style.display = 'inline-block';
   statusEl.className = 'status-msg ok';
   statusEl.textContent = seed ? (seed.report_date + ' 저장값을 기본으로 채웠습니다. 필요한 곳만 수정해 주세요.') : '직전 저장 데이터가 없어 빈 값으로 시작합니다.';
-}
-
-// 항목의 두 세부값(parts) 입력이 바뀔 때마다 해당 행의 합계를 즉시 재계산하고,
-// 이 항목의 합계를 참조하는 파생 항목(예: AS재직인원/성수기재직인원 → 총재직인원)이 있으면 함께 갱신한다.
-function lgeTotalRecalc(rowIdx, metricKey) {
-  const m = LGE_TOTAL_ATT_METRICS.find(function(x) { return x.key === metricKey; });
-  if (!m) return;
-  const in0 = document.querySelector('.lge-total-input[data-row="' + rowIdx + '"][data-metric="' + metricKey + '"][data-part="' + m.parts[0] + '"]');
-  const in1 = document.querySelector('.lge-total-input[data-row="' + rowIdx + '"][data-metric="' + metricKey + '"][data-part="' + m.parts[1] + '"]');
-  const totalInput = document.querySelector('.lge-total-total[data-row="' + rowIdx + '"][data-metric="' + metricKey + '"]');
-  const v0 = in0 ? in0.value : '', v1 = in1 ? in1.value : '';
-  const total = (v0 !== '' && v1 !== '') ? (Number(v0) + Number(v1)) : '';
-  if (totalInput) totalInput.value = total;
-
-  LGE_TOTAL_ATT_METRICS.forEach(function(dm) {
-    if (!dm.derivedFrom) return;
-    let matched = false;
-    Object.keys(dm.derivedFrom).forEach(function(part) {
-      if (dm.derivedFrom[part] !== metricKey) return;
-      matched = true;
-      const target = document.querySelector('.lge-total-input[data-row="' + rowIdx + '"][data-metric="' + dm.key + '"][data-part="' + part + '"]');
-      if (target) target.value = total;
-    });
-    if (matched) lgeTotalRecalc(rowIdx, dm.key); // 실제로 이 항목을 참조하는 파생 항목일 때만 재귀 (아니면 무한루프)
-  });
 }
 
 // "제외" 체크박스를 토글하면 해당 날짜 행을 시각적으로 흐리게 표시(실제 제외 여부는 저장 시 checkbox.checked로 판단)
@@ -5157,7 +5137,7 @@ function applyLgeTotalColumn(type, metricKey, part) {
   for (let ri = 0; ri < lgeTotalDates.length; ri++) {
     if (type === 'att') {
       const inp = document.querySelector('.lge-total-input[data-row="' + ri + '"][data-metric="' + metricKey + '"][data-part="' + part + '"]');
-      if (inp) { inp.value = value; lgeTotalRecalc(ri, metricKey); }
+      if (inp) inp.value = value;
     } else {
       const inp = document.querySelector('.lge-total-perf[data-row="' + ri + '"][data-metric="' + metricKey + '"]');
       if (inp) inp.value = value;
@@ -5173,8 +5153,7 @@ function applyLgeTotalAllColumns() {
   const statusEl = document.getElementById('lgeTotalStatus');
   let fieldCount = 0;
 
-  LGE_TOTAL_ATT_METRICS.forEach(function(m) {
-    if (m.derivedFrom) return; // 자동계산 항목은 일괄입력 대상에서 제외
+  LGE_TOTAL_VISIBLE_ATT_METRICS.forEach(function(m) {
     m.parts.forEach(function(part) {
       const inp = document.querySelector('.lge-total-bulk-input[data-metric="' + m.key + '"][data-part="' + part + '"]');
       if (inp && inp.value !== '') { applyLgeTotalColumn('att', m.key, part); fieldCount++; }
@@ -5201,13 +5180,23 @@ async function saveLgeTotalRows() {
     if (excludeCb && excludeCb.checked) return; // "제외" 체크된 날짜는 이번 저장에서 뺀다
 
     const values = {};
+    // 화면에 보이는 항목(TO/AS재직인원/성수기재직인원/상담사투입인원): 입력값 + 그 합계를 계산해서 함께 저장
+    LGE_TOTAL_VISIBLE_ATT_METRICS.forEach(function(m) {
+      const v0 = document.querySelector('.lge-total-input[data-row="' + ri + '"][data-metric="' + m.key + '"][data-part="' + m.parts[0] + '"]').value;
+      const v1 = document.querySelector('.lge-total-input[data-row="' + ri + '"][data-metric="' + m.key + '"][data-part="' + m.parts[1] + '"]').value;
+      if (v0 !== '') values[m.key + '_' + m.parts[0]] = { value: v0, group: 'attendance' };
+      if (v1 !== '') values[m.key + '_' + m.parts[1]] = { value: v1, group: 'attendance' };
+      if (v0 !== '' && v1 !== '') values[m.key + '_합계'] = { value: String(Number(v0) + Number(v1)), group: 'attendance' };
+    });
+    // 화면에 없는 파생 항목(총재직인원): 참조 항목의 합계를 그대로 가져와 계산해서 저장
     LGE_TOTAL_ATT_METRICS.forEach(function(m) {
-      m.parts.forEach(function(part) {
-        const inp = document.querySelector('.lge-total-input[data-row="' + ri + '"][data-metric="' + m.key + '"][data-part="' + part + '"]');
-        if (inp && inp.value !== '') values[m.key + '_' + part] = { value: inp.value, group: 'attendance' };
-      });
-      const totalInp = document.querySelector('.lge-total-total[data-row="' + ri + '"][data-metric="' + m.key + '"]');
-      if (totalInp && totalInp.value !== '') values[m.key + '_합계'] = { value: totalInp.value, group: 'attendance' };
+      if (!m.derivedFrom) return;
+      const p0 = m.parts[0], p1 = m.parts[1];
+      const src0 = values[m.derivedFrom[p0] + '_합계'];
+      const src1 = values[m.derivedFrom[p1] + '_합계'];
+      if (src0) values[m.key + '_' + p0] = { value: src0.value, group: 'attendance' };
+      if (src1) values[m.key + '_' + p1] = { value: src1.value, group: 'attendance' };
+      if (src0 && src1) values[m.key + '_합계'] = { value: String(Number(src0.value) + Number(src1.value)), group: 'attendance' };
     });
     LGE_TOTAL_PERF_METRICS.forEach(function(m) {
       const inp = document.querySelector('.lge-total-perf[data-row="' + ri + '"][data-metric="' + m.key + '"]');
@@ -5223,7 +5212,7 @@ async function saveLgeTotalRows() {
     entries.push({ report_date: date, values: values });
   });
 
-  // 월평균(선택 입력) — 날짜별 데이터와 별개로 시작일이 속한 달의 1일 데이터에 "_월평균" 키로 붙여서 저장
+  // 월평균(선택 입력) — 날짜별 데이터와 별개로 "대상 월"로 고른 달의 1일 데이터에 "_월평균" 키로 붙여서 저장
   const monthlyAvgValues = {};
   let hasMonthlyAvg = false;
   LGE_TOTAL_PERF_METRICS.forEach(function(m) {
@@ -5241,10 +5230,11 @@ async function saveLgeTotalRows() {
 
   if (invalidDur.length) { statusEl.className = 'status-msg err'; statusEl.textContent = '통화시간 형식을 확인해 주세요(예: 4:00:00): ' + invalidDur.join(', '); return; }
 
-  if (hasMonthlyAvg && lgeTotalMonthlyAvgDate) {
-    const existing = entries.find(function(e) { return e.report_date === lgeTotalMonthlyAvgDate; });
+  const monthlyAvgDate = lgeTotalAvgMonthDate();
+  if (hasMonthlyAvg && monthlyAvgDate) {
+    const existing = entries.find(function(e) { return e.report_date === monthlyAvgDate; });
     if (existing) { Object.assign(existing.values, monthlyAvgValues); }
-    else { entries.push({ report_date: lgeTotalMonthlyAvgDate, values: monthlyAvgValues }); }
+    else { entries.push({ report_date: monthlyAvgDate, values: monthlyAvgValues }); }
   }
 
   if (entries.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '저장할 데이터가 없습니다(모든 날짜가 제외되어 있는지 확인해 주세요).'; return; }
@@ -5279,6 +5269,7 @@ async function renderEntry() {
     main.innerHTML = renderIntegratedFormEntry() + '<div id="dataManageArea"></div>';
     const dmArea = document.getElementById('dataManageArea');
     if (dmArea) dmArea.innerHTML = renderDataManagePanel();
+    refreshLgeTotalMonthlyAvgInputs();
     return;
   }
 
@@ -5530,42 +5521,39 @@ async function loadLgeTotalRowForEdit(row) {
   document.getElementById('lgeTotalStart').value = row.report_date;
   document.getElementById('lgeTotalEnd').value = row.report_date;
   lgeTotalDates = [row.report_date];
-  lgeTotalMonthlyAvgDate = row.report_date.slice(0, 7) + '-01'; // 월평균 입력칸에 값이 있으면 이 날짜에 붙는다(기존 표시값은 그대로 유지)
+  // 월평균 "대상 월"도 이 날짜가 속한 달로 맞춰주고, 그 달 저장값을 다시 불러온다.
+  const avgMonthEl = document.getElementById('lgeTotalAvgMonth');
+  if (avgMonthEl) { avgMonthEl.value = row.report_date.slice(0, 7); refreshLgeTotalMonthlyAvgInputs(); }
 
   const area = document.getElementById('lgeTotalTemplateArea');
   const statusEl = document.getElementById('lgeTotalStatus');
   const att = row.attendance_data || {};
   const perf = row.performance_data || {};
 
-  const attHeaderCells = LGE_TOTAL_ATT_METRICS.map(function(m) { return '<th colspan="3" style="text-align:center;background:rgba(90,200,250,.12);">' + m.label + (m.derivedFrom ? ' <span style="font-weight:400;color:#5b6472;">(자동)</span>' : '') + '</th>'; }).join('');
-  const attSubHeaderCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
-    return '<th style="font-size:11px;">' + m.parts[0] + '</th><th style="font-size:11px;">' + m.parts[1] + '</th><th style="font-size:11px;background:#111113;">합계</th>';
+  const attHeaderCells = LGE_TOTAL_VISIBLE_ATT_METRICS.map(function(m) { return '<th colspan="2" style="text-align:center;background:rgba(90,200,250,.12);">' + m.label + '</th>'; }).join('');
+  const attSubHeaderCells = LGE_TOTAL_VISIBLE_ATT_METRICS.map(function(m) {
+    return '<th style="font-size:11px;">' + m.parts[0] + '</th><th style="font-size:11px;">' + m.parts[1] + '</th>';
   }).join('');
   const perfHeaderCells = LGE_TOTAL_PERF_METRICS.map(function(m) { return '<th rowspan="2">' + m.label + '</th>'; }).join('');
 
-  const attCells = LGE_TOTAL_ATT_METRICS.map(function(m) {
+  const attCells = LGE_TOTAL_VISIBLE_ATT_METRICS.map(function(m) {
     const v0 = att[m.key + '_' + m.parts[0]] !== undefined ? att[m.key + '_' + m.parts[0]] : '';
     const v1 = att[m.key + '_' + m.parts[1]] !== undefined ? att[m.key + '_' + m.parts[1]] : '';
-    const totalVal = att[m.key + '_합계'] !== undefined ? att[m.key + '_합계'] : ((v0 !== '' && v1 !== '') ? (Number(v0) + Number(v1)) : '');
-    const readonly = !!m.derivedFrom;
-    const baseStyle = 'width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;';
-    const partStyle = baseStyle + (readonly ? 'background:#111113;color:#86868b;' : '');
-    const attr = readonly ? ' readonly' : ' oninput="lgeTotalRecalc(0,\'' + m.key + '\')"';
-    return '<td><input type="number" class="lge-total-input" data-row="0" data-metric="' + m.key + '" data-part="' + m.parts[0] + '" value="' + v0 + '" style="' + partStyle + '"' + attr + '></td>'
-      + '<td><input type="number" class="lge-total-input" data-row="0" data-metric="' + m.key + '" data-part="' + m.parts[1] + '" value="' + v1 + '" style="' + partStyle + '"' + attr + '></td>'
-      + '<td><input type="text" class="lge-total-total" data-row="0" data-metric="' + m.key + '" value="' + totalVal + '" readonly style="' + baseStyle + 'background:#111113;color:#86868b;"></td>';
+    const style = 'width:56px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;';
+    return '<td><input type="number" class="lge-total-input" data-row="0" data-metric="' + m.key + '" data-part="' + m.parts[0] + '" value="' + v0 + '" style="' + style + '"></td>'
+      + '<td><input type="number" class="lge-total-input" data-row="0" data-metric="' + m.key + '" data-part="' + m.parts[1] + '" value="' + v1 + '" style="' + style + '"></td>';
   }).join('');
   const perfCells = LGE_TOTAL_PERF_METRICS.map(function(m) {
     const raw = perf[m.key];
     const display = (raw === undefined || raw === null) ? '' : (m.duration ? formatSecondsHMS(raw) : raw);
-    return '<td><input type="text" class="lge-total-perf" data-row="0" data-metric="' + m.key + '" value="' + display + '" style="width:64px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>';
+    return '<td><input type="text" class="lge-total-perf" data-row="0" data-metric="' + m.key + '" value="' + display + '"' + (m.duration ? ' onblur="formatDurationOnBlur(this)"' : '') + ' style="width:64px;padding:4px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>';
   }).join('');
 
   area.innerHTML = '<div class="table-scroll"><table><thead>'
     + '<tr><th rowspan="2" style="position:sticky;left:0;background:#111113;">날짜</th>' + attHeaderCells + perfHeaderCells + '</tr>'
     + '<tr>' + attSubHeaderCells + '</tr>'
     + '</thead><tbody><tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + row.report_date + '</td>' + attCells + perfCells + '</tr></tbody></table></div>'
-    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">기존 저장값을 불러왔습니다 · 수정 후 "전체 저장"을 눌러주세요</p>';
+    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">기존 저장값을 불러왔습니다(총재직인원·합계는 표시하지 않고 저장 시 자동 계산) · 수정 후 "전체 저장"을 눌러주세요</p>';
 
   document.getElementById('lgeTotalSaveBtn').style.display = 'inline-block';
   statusEl.className = 'status-msg ok';
