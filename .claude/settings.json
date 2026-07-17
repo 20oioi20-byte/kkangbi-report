@@ -1,0 +1,12 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(node --check *)",
+      "mcp__Claude_Browser__get_page_text",
+      "mcp__Claude_Browser__read_console_messages",
+      "Bash(git add *)",
+      "Bash(git commit -m *)",
+      "Bash(git push *)"
+    ]
+  }
+}
