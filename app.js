@@ -6191,24 +6191,32 @@ function renderAttRangeTemplate() {
   if (attRangeRows.length === 0) { area.innerHTML = '<p class="empty">지정된 영업일이 없습니다.</p>'; if (bulkBar) bulkBar.style.display = 'none'; return; }
   if (bulkBar) bulkBar.style.display = 'block';
 
+  // KB손보정비에 한해 날짜별 "제외" 체크박스 제공: 체크하면 그 날짜는 저장(근태만 저장)에서 빠진다.
+  // (LG전자AS/성수기는 동일한 표를 공유하지만 이 기능은 KB손보정비 전용으로 한정 — 사용자 확인 완료)
+  const showExcludeCol = currentCenter === 'kbjeongbi';
   const rows = attRangeRows.map(function(date, idx) {
     const ext = attExtractedByDate[date]; // 근태파일에서 추출된 실제 값이 있으면 기본값 대신 이 값을 사용
     const staffVal = ext ? ext.전체 : cfg.defaultStaff;
     const manualVal = ext ? ext.상담사 : cfg.defaultManual;
     const extMark = ext ? ' style="background:rgba(52,199,89,.16);font-weight:600;"' : '';
+    const excludeCell = showExcludeCol
+      ? '<td style="text-align:center;"><input type="checkbox" class="att-exclude" data-row="' + idx + '" title="체크하면 저장 시 이 날짜를 제외합니다" onchange="lgeTotalToggleRowExclude(this)"></td>'
+      : '';
     return '<tr>'
       + '<td style="position:sticky;left:0;background:#1d1d1f;"><input type="checkbox" class="att-check" data-row="' + idx + '" onchange="updateAttCheckedCount()"></td>'
       + '<td style="font-weight:600;">' + date + (ext ? ' <span style="color:#34c759;font-size:11px;font-weight:400;">(추출됨)</span>' : '') + '</td>'
       + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="to" value="' + cfg.defaultTO + '" style="width:70px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
       + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="staff" value="' + staffVal + '"' + extMark + ' style="width:70px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
       + '<td><input type="number" class="att-input" data-row="' + idx + '" data-field="manual" value="' + manualVal + '"' + extMark + ' style="width:70px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;text-align:center;"></td>'
+      + excludeCell
       + '</tr>';
   }).join('');
 
+  const excludeHeader = showExcludeCol ? '<th style="font-size:11px;">제외</th>' : '';
   area.innerHTML = '<div class="table-scroll"><table>'
-    + '<thead><tr><th style="position:sticky;left:0;background:#111113;"><input type="checkbox" id="attCheckAll" onchange="toggleAttCheckAll(this)"></th><th>날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th></tr></thead>'
+    + '<thead><tr><th style="position:sticky;left:0;background:#111113;"><input type="checkbox" id="attCheckAll" onchange="toggleAttCheckAll(this)"></th><th>날짜</th><th>TO</th><th>재직인원</th><th>' + cfg.manualLabel + '</th>' + excludeHeader + '</tr></thead>'
     + '<tbody>' + rows + '</tbody></table></div>'
-    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 초록색 배경은 근태파일에서 자동 추출된 값입니다. 값은 직접 클릭해 수정하거나, 체크박스로 여러 날짜를 선택해 일괄수정할 수 있습니다</p>';
+    + '<p style="font-size:12px;color:#86868b;margin-top:6px;">' + attRangeRows.length + '개 영업일 · 초록색 배경은 근태파일에서 자동 추출된 값입니다. 값은 직접 클릭해 수정하거나, 체크박스로 여러 날짜를 선택해 일괄수정할 수 있습니다' + (showExcludeCol ? ' · "제외" 열을 체크하면 그 날짜는 저장에서 빠집니다' : '') + '</p>';
   updateAttCheckedCount();
 }
 
@@ -6346,8 +6354,11 @@ async function saveAttRangeRows() {
   // LG전자AS/성수기·KB손보정비는 투입인원이 0명인 날짜(휴무·임시휴점 등)는 공휴일 여부와 무관하게 저장 대상에서 제외한다.
   const skipZeroManual = (currentCenter === 'lge' || currentCenter === 'lge_seongsu' || currentCenter === 'kbjeongbi');
   const skippedDates = [];
+  const excludedDates = [];
   const saveIdx = [];
   attRangeRows.forEach(function(date, idx) {
+    const excludeCb = document.querySelector('.att-exclude[data-row="' + idx + '"]');
+    if (excludeCb && excludeCb.checked) { excludedDates.push(date); return; }
     const manualInput = document.querySelector('.att-input[data-row="' + idx + '"][data-field="manual"]');
     const manualVal = Number(manualInput ? manualInput.value : 0);
     if (skipZeroManual && manualVal === 0) { skippedDates.push(date); return; }
@@ -6389,6 +6400,7 @@ async function saveAttRangeRows() {
   if (pendingAttArchiveFile) { uploadFileToArchive(pendingAttArchiveFile, '근태파일'); pendingAttArchiveFile = null; }
 
   let msg = success + '건 모두 한번에 저장 완료되었습니다.';
+  if (excludedDates.length) msg += ' · "제외" 체크로 뺀 날짜 ' + excludedDates.length + '건: ' + excludedDates.join(', ');
   if (skippedDates.length) msg += ' · 투입인원 0명이라 제외된 날짜 ' + skippedDates.length + '건: ' + skippedDates.join(', ');
   statusEl.className = fail ? 'status-msg err' : 'status-msg ok';
   statusEl.textContent = msg;
