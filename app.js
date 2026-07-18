@@ -312,9 +312,10 @@ const CENTER_CHART_CONFIG = {
     lineColor: '#A50034',
     groups: [
       {
-        title: '생산성', stacked: true,
+        title: '생산성', stacked: true, barMax: 100,
         barKeys: ['생산성_IN', '생산성_OUT_only'], barLabels: ['생산성(IN)', '생산성(OUT)'],
-        lineKeys: ['TNPS'], lineLabels: ['T-NPS']
+        lineKeys: ['TNPS'], lineLabels: ['T-NPS'],
+        summaryExtraKeys: ['통화시간_INOUT_초'], summaryExtraLabels: ['통화시간(IN+OUT)']
       },
     ]
   },
@@ -1855,13 +1856,9 @@ function renderKpiGrid(centerCode, year) {
   return '<div class="table-scroll" style="margin-top:12px;"><table>'
     + '<thead><tr><th style="position:sticky;left:0;background:#111113;">지표</th>' + headerCells.join('') + '<th></th></tr></thead>'
     + '<tbody>'
-    + '<tr><td style="position:sticky;left:0;background:#111113;font-size:11px;color:#86868b;">선택</td>' + checkCells.join('') + '<td></td></tr>'
+    + '<tr><td style="position:sticky;left:0;background:#111113;font-size:11px;color:#86868b;"><label style="cursor:pointer;display:flex;align-items:center;gap:4px;white-space:nowrap;" title="전체 월 선택/해제"><input type="checkbox" onchange="kpiGridToggleAll(this.checked)"> 전체</label></td>' + checkCells.join('') + '<td></td></tr>'
     + bodyRows
     + '</tbody></table></div>'
-    + '<div style="margin-top:8px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;">'
-    + '<button class="btn-outline" style="padding:4px 10px;font-size:12px;" onclick="kpiGridToggleAll(true)">월 전체 선택</button>'
-    + '<button class="btn-outline" style="padding:4px 10px;font-size:12px;" onclick="kpiGridToggleAll(false)">월 전체 해제</button>'
-    + '</div>'
     + '<div style="margin-top:8px;display:flex;gap:10px;align-items:center;flex-wrap:wrap;">'
     + '<span style="font-size:12px;color:#a1a1a6;">선택한 월에 일괄 반영할 지표:</span>'
     + '<select id="kpiBulkKey" style="font-size:12px;padding:4px 6px;border:1px solid #2c2c2e;border-radius:4px;">' + bulkKeyOptions + '</select>'
@@ -2731,6 +2728,15 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
     // "미달일수"는 threshold가 걸린 실제 지표명을 따라가야 한다 (항상 두번째 지표가 아닐 수 있음)
     const thresholdIdx = group.threshold ? group.lineKeys.indexOf(group.threshold.key) : -1;
     const thresholdLabel = thresholdIdx >= 0 ? group.lineLabels[thresholdIdx].replace('(%)', '') : secondLabel;
+
+    // 차트에는 그리지 않고 요약 카드에만 추가로 표시할 지표(예: LG전자통합의 월평균 통화시간)
+    const extraStats = (group.summaryExtraKeys || []).map(function(key, ei) {
+      const avg = avgMetricValue(key, monthRows);
+      const isDur = METRIC_UNITS[key] === 'duration';
+      const display = avg === null ? '-' : (isDur ? formatSecondsHMS(avg) : Math.round(avg).toLocaleString());
+      return '<div class="sc-stat"><div class="l">' + group.summaryExtraLabels[ei] + '</div><div class="v">' + display + '</div></div>';
+    }).join('');
+
     return '<div class="summary-card2" id="' + cardId + '">'
       + '<div class="sc-head"><span class="sc-title">' + GROUP_ICONS[gi % GROUP_ICONS.length] + ' ' + group.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" title="' + group.title + ' 복사" onclick="copySummaryCard(\'' + cardId + '\')">' + COPY_ICON_SVG + '</button></div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
@@ -2742,6 +2748,7 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
         + '<div class="sc-stat"><div class="l">' + secondLabel + '</div><div class="v">' + (secondAvg !== null ? secondAvg.toFixed(1) : '-') + '</div></div>'
         + '<div class="sc-stat"><div class="l">' + thresholdLabel + ' 미달일수</div><div class="v warn">' + missText + '</div></div>'
         + '</div>' : '')
+      + (extraStats ? '<div class="sc-row" style="grid-template-columns:repeat(' + (group.summaryExtraKeys.length) + ',1fr);margin-bottom:0;">' + extraStats + '</div>' : '')
       + '</div>';
   }).join('');
 
@@ -3017,7 +3024,7 @@ function drawMiniCharts(records) {
       if (!isThresholdLine) {
         datasets.push({
           type: 'line', label: label, data: data, borderColor: lineColor, backgroundColor: 'transparent',
-          yAxisID: 'yRate', tension: 0.25, pointRadius: 2, order: 1
+          yAxisID: 'yRate', tension: 0.25, pointRadius: 2, order: 1, spanGaps: true
         });
         return;
       }
@@ -3025,7 +3032,7 @@ function drawMiniCharts(records) {
       const thVal = group.threshold.value;
       datasets.push({
         type: 'line', label: label, data: data, borderColor: lineColor, backgroundColor: 'transparent',
-        yAxisID: 'yRate', tension: 0.25, pointRadius: 3, order: 0, borderWidth: 2,
+        yAxisID: 'yRate', tension: 0.25, pointRadius: 3, order: 0, borderWidth: 2, spanGaps: true,
         segment: {
           borderColor: function(ctx) {
             const y0 = ctx.p0.parsed.y, y1 = ctx.p1.parsed.y;
@@ -3053,14 +3060,15 @@ function drawMiniCharts(records) {
           tooltip: group.stacked ? {
             callbacks: {
               footer: function(tooltipItems) {
-                const sum = tooltipItems.reduce(function(s, ti) { return s + (ti.parsed.y || 0); }, 0);
+                const sum = tooltipItems.filter(function(ti) { return ti.dataset.type === 'bar'; })
+                  .reduce(function(s, ti) { return s + (ti.parsed.y || 0); }, 0);
                 return '총합계: ' + sum.toLocaleString() + '건';
               }
             }
           } : {}
         },
         scales: {
-          yCount: { position: 'left', beginAtZero: true, stacked: !!group.stacked, ticks: { font: { size: 9 } } },
+          yCount: { position: 'left', beginAtZero: true, max: group.barMax || undefined, stacked: !!group.stacked, ticks: { font: { size: 9 } } },
           yRate: { position: 'right', min: 0, max: 110, grid: { drawOnChartArea: false }, ticks: { font: { size: 9 } } },
           x: { stacked: !!group.stacked, ticks: { font: { size: 9 }, maxRotation: 0, autoSkip: true } }
         }
@@ -3158,12 +3166,15 @@ function renderAggTable(records, view) {
     const rows = buckets[label];
     const cells = allKeys.map(function(k) {
       const isRate = /응답율|CPD|S\.?L/i.test(k);
+      const isDuration = DURATION_TABLE_KEYS.includes(k);
       const field = attKeys.includes(k) ? 'attendance_data' : 'performance_data';
       const nums = rows.map(function(r) { return extractNum(r, field, k); }).filter(function(n) { return n !== null && !isNaN(n); });
       const avg = avgExcludingHolidays(rows, function(r) { return extractNum(r, field, k); });
       if (isRate) return '<td>' + (avg !== null ? avg.toFixed(1) + '%' : '-') + '</td>';
-      const sum = nums.length ? nums.reduce(function(a, b) { return a + b; }, 0).toLocaleString() : '-';
-      return '<td>' + sum + '</td><td>' + (avg !== null ? Math.round(avg).toLocaleString() : '-') + '</td>';
+      const sumNum = nums.length ? nums.reduce(function(a, b) { return a + b; }, 0) : null;
+      const sum = sumNum === null ? '-' : (isDuration ? formatSecondsHMS(sumNum) : sumNum.toLocaleString());
+      const avgDisp = avg === null ? '-' : (isDuration ? formatSecondsHMS(avg) : Math.round(avg).toLocaleString());
+      return '<td>' + sum + '</td><td>' + avgDisp + '</td>';
     }).join('');
     return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + label + '</td><td>' + rows.length + '</td>' + cells + '</tr>';
   }).join('');
@@ -3198,11 +3209,15 @@ function groupByBucket(records, view) {
 
 const ZERO_WARN_KEYS = ['총원', '제휴CS_소계', '장기사고_소계', '장기손사_SL', '제휴상담_SL', '장기손사_CPD', '제휴상담_CPD', '장기손사_인입호', '제휴상담_인입호'];
 
+const DURATION_TABLE_KEYS = ['통화시간_INOUT_초'];
+
 function zeroWarnCell(value, key) {
   const n = parseFloat(String(value === undefined || value === null ? '' : value).replace(/[%,]/g, ''));
   const isZero = ZERO_WARN_KEYS.includes(key) && n === 0;
   const style = isZero ? ' style="background:rgba(255,107,112,.14);color:#FF6B70;font-weight:700;" title="주의: 값이 0입니다"' : '';
-  return '<td' + style + '>' + fmt(value) + (isZero ? ' ⚠' : '') + '</td>';
+  const isDuration = DURATION_TABLE_KEYS.includes(key) && !isNaN(n) && value !== undefined && value !== null && value !== '';
+  const display = isDuration ? formatSecondsHMS(n) : fmt(value);
+  return '<td' + style + '>' + display + (isZero ? ' ⚠' : '') + '</td>';
 }
 
 function buildMatrix(records) {
@@ -3226,10 +3241,21 @@ function buildMatrix(records) {
   return '<div class="table-scroll"><table><thead><tr>' + headHtml + '</tr></thead><tbody>' + bodyHtml + '</tbody></table></div>';
 }
 
+// 데이터 표에서 항상 숨길 항목: 월평균 수동입력값(_월평균 접미사, 일별 원자료가 아니라 별도 요약값)과
+// 자동계산으로 인해 다른 항목과 값이 항상 동일한 중복 항목(근태·AS재직인원_합계=근태·총재직인원_AS, 근태·성수기재직인원_합계=근태·총재직인원_성수기)
+const HIDDEN_DUPLICATE_ATT_KEYS = ['AS재직인원_합계', '성수기재직인원_합계'];
+function filterVisibleTableKeys(keysAll, field) {
+  return keysAll.filter(function(k) {
+    if (field === 'performance_data' && /_월평균$/.test(k)) return false;
+    if (field === 'attendance_data' && HIDDEN_DUPLICATE_ATT_KEYS.includes(k)) return false;
+    return true;
+  });
+}
+
 function collectKeys(records, field) {
   const keys = new Set();
   records.forEach(function(r) { const obj = r[field]; if (obj && typeof obj === 'object') Object.keys(obj).forEach(function(k) { keys.add(k); }); });
-  return Array.from(keys);
+  return filterVisibleTableKeys(Array.from(keys), field);
 }
 function fmt(v) { return (v === undefined || v === null || v === '') ? '-' : v; }
 function statusLabel(s) { return { success: '완료', pending: '분석중', needs_review: '확인필요' }[s] || s; }
