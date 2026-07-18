@@ -18,7 +18,10 @@ const CENTER_TO_INFO = {
   'kbjeongbi': { total: 15, counselor: 14, staffAttKey: '재직인원', note: '관리자 1명 포함' },
   'lge': { total: 19, counselor: 15, staffAttKey: '재직인원', note: 'TO 19명(관리자4+상담사15) 기준, 근태 재직인원(전체)으로 집계' },
   // 성수기: 공식 TO는 상담사 35명(관리자 0명)이지만, 실제 운영기준은 관리자 6명 + 상담사 35명 = 41명
-  'lge_seongsu': { total: 41, counselor: 35, staffAttKey: '재직인원', fullNote: '전체 정원 41명(관리자6+상담사35) 대비, 재직인원(전체)으로 집계 · 공식 TO는 상담사 35명' }
+  'lge_seongsu': { total: 41, counselor: 35, staffAttKey: '재직인원', fullNote: '전체 정원 41명(관리자6+상담사35) 대비, 재직인원(전체)으로 집계 · 공식 TO는 상담사 35명' },
+  // LG전자통합은 TO 자체가 고정값이 아니라 매일 데이터입력 화면에서 직접 입력하는 값이라,
+  // 다른 센터처럼 고정 TO_TARGET과 비교하지 않고 그 기간에 입력된 TO_합계의 평균을 기준으로 삼는다(dynamicTargetAttKey).
+  'lge_total': { total: null, counselor: null, staffAttKey: '총재직인원_합계', dynamicTargetAttKey: 'TO_합계', fullNote: 'TO는 매일 입력되는 값이라, 해당 기간에 입력된 TO 평균 대비로 계산됩니다.' }
 };
 
 const KR_HOLIDAYS_2026 = [
@@ -153,13 +156,55 @@ const CENTER_COMPUTED_METRICS = {
       return (total !== null && inOnly !== null) ? Math.max(0, total - inOnly) : null;
     },
   },
+  // LG전자통합은 통화시간_INOUT_초를 이미 초 단위 숫자로 그대로 저장하므로(데이터입력 화면에서 H:MM:SS를
+  // 입력받아 변환 후 저장) 별도 변환 함수가 필요 없다 — 생산성(OUT)만 IN+OUT/IN 두 값으로부터 파생 계산한다.
+  'lge_total': {
+    '생산성_OUT_only': function(r) {
+      const total = extractNum(r, 'performance_data', '생산성_INOUT');
+      const inOnly = extractNum(r, 'performance_data', '생산성_IN');
+      return (total !== null && inOnly !== null) ? Math.max(0, total - inOnly) : null;
+    },
+  },
 };
+
+// LG전자통합의 T-NPS/생산성(IN+OUT)/생산성(IN)/통화시간, 이 4개 실적지표는 일별 실측값의 평균이 아니라
+// 데이터입력 화면(월평균 실적 입력, "대상 월" 선택)에서 관리자가 그 달 1일 데이터에 직접 입력해둔
+// "{key}_월평균" 값을 그대로 사용한다(여러 달이 걸친 기간이면 그 달들의 월평균값을 평균).
+const LGE_TOTAL_MONTHLY_AVG_PERF_KEYS = ['TNPS', '생산성_INOUT', '생산성_IN', '통화시간_INOUT_초'];
+
+function getLgeTotalMonthlyAvgValue(perfKey, rows) {
+  const months = {};
+  rows.forEach(function(r) { months[r.report_date.slice(0, 7)] = true; });
+  const vals = Object.keys(months).map(function(ym) {
+    const monthStartRow = rows.find(function(r) { return r.report_date === ym + '-01'; });
+    const raw = monthStartRow && monthStartRow.performance_data ? monthStartRow.performance_data[perfKey + '_월평균'] : undefined;
+    return (raw === undefined || raw === null || raw === '') ? null : Number(raw);
+  }).filter(function(v) { return v !== null && !isNaN(v); });
+  return vals.length ? (vals.reduce(function(a, b) { return a + b; }, 0) / vals.length) : null;
+}
+
+// 지표 하나의 평균값을 구하는 공용 함수. LG전자통합의 위 4개 지표만 예외적으로 "월평균" 수동입력값을 쓰고,
+// 그 외 모든 센터/지표는 기존과 동일하게 주말·공휴일 제외 일별 실측값 평균을 사용한다.
+function avgMetricValue(key, rows) {
+  if (currentCenter === 'lge_total') {
+    if (LGE_TOTAL_MONTHLY_AVG_PERF_KEYS.indexOf(key) !== -1) return getLgeTotalMonthlyAvgValue(key, rows);
+    // 생산성(OUT)은 파생값(INOUT-IN)이라, 일별 실측이 아니라 월평균 기준의 INOUT/IN으로 같은 방식으로 계산해야
+    // 카드에 표시되는 IN+OUT 숫자가 서로 어긋나지 않는다.
+    if (key === '생산성_OUT_only') {
+      const inout = getLgeTotalMonthlyAvgValue('생산성_INOUT', rows);
+      const inOnly = getLgeTotalMonthlyAvgValue('생산성_IN', rows);
+      return (inout !== null && inOnly !== null) ? Math.max(0, inout - inOnly) : null;
+    }
+  }
+  return avgExcludingHolidays(rows, function(r) { return resolveMetric(r, key); });
+}
 
 // TO및목표값설정 화면에서 "목표값"을 시:분:초(예: 4:00:00)로 입력받아야 하는 지표.
 // 저장은 항상 초 단위 숫자(target_value)로 되며, 화면 표시만 H:MM:SS로 변환한다.
 const DURATION_METRIC_KEYS = {
   'lge': ['통화시간_INOUT_초'],
-  'lge_seongsu': ['통화시간_INOUT_초']
+  'lge_seongsu': ['통화시간_INOUT_초'],
+  'lge_total': ['통화시간_INOUT_초']
 };
 function isDurationMetricKey(centerCode, key) {
   return (DURATION_METRIC_KEYS[centerCode] || []).indexOf(key) !== -1;
@@ -251,6 +296,18 @@ const CENTER_CHART_CONFIG = {
     ]
   },
   'lge_seongsu': {
+    barColors: ['#2E7D32', '#6b6b6b', '#B7C4D6'],
+    lineColor: '#A50034',
+    groups: [
+      {
+        title: '생산성', stacked: true,
+        barKeys: ['생산성_IN', '생산성_OUT_only'], barLabels: ['생산성(IN)', '생산성(OUT)'],
+        lineKeys: ['TNPS'], lineLabels: ['T-NPS']
+      },
+    ]
+  },
+  // LG전자성수기와 동일한 형태로 구성(요청사항) — 생산성 IN/OUT 누적막대 + T-NPS 선.
+  'lge_total': {
     barColors: ['#2E7D32', '#6b6b6b', '#B7C4D6'],
     lineColor: '#A50034',
     groups: [
@@ -1237,7 +1294,8 @@ const DEFAULT_HEADLINE_METRICS = {
   'kbjeongbi': [{ label: '고지위반 처리율', key: '고지의무_처리율' }, { label: '통지위반 처리율', key: '통지의무_처리율' }, { label: '목적물소멸 처리율', key: '목적물소멸_처리율' }],
   'pyeongtaek': [{ label: '응대율', key: '응대율' }],
   'lge': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }, { label: '통화시간(IN+OUT)', key: '통화시간_INOUT_초', unit: 'duration' }],
-  'lge_seongsu': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }, { label: '통화시간(IN+OUT)', key: '통화시간_INOUT_초', unit: 'duration' }]
+  'lge_seongsu': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }, { label: '통화시간(IN+OUT)', key: '통화시간_INOUT_초', unit: 'duration' }],
+  'lge_total': [{ label: 'T-NPS', key: 'TNPS' }, { label: '생산성(IN+OUT)', key: '생산성_INOUT', unit: '건' }, { label: '통화시간(IN+OUT)', key: '통화시간_INOUT_초', unit: 'duration' }]
 };
 
 // 특정 지표 키에 대해 CENTER_CHART_CONFIG에 등록된 기준선(threshold)이 있으면 반환
@@ -1295,8 +1353,8 @@ function computeCenterHeadline(code, rows) {
     const hasConfig = defs.length > 0;
 
     const metrics = defs.map(function(d) {
-      const val = avgExcludingHolidays(cumRows, function(r) { return resolveMetric(r, d.key); });
-      const monthVal = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, d.key); });
+      const val = avgMetricValue(d.key, cumRows);
+      const monthVal = avgMetricValue(d.key, monthRows);
       // 지표별 월별 목표치가 등록되어 있으면 최우선 사용 (연도+해당월 기준), 없으면 기존 방식(등록된 단일 목표값 → 차트 기준선)
       let target = getMonthlyKpiTarget(code, d.key, ym);
       if (target === null) target = (d.target !== null && d.target !== undefined) ? d.target : null;
@@ -2183,9 +2241,9 @@ function getAvgForDef(def, rows) {
   if (def.type === 'staff') return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
   if (def.type === 'count' || def.type === 'people') {
     if (def.attKey) return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'attendance_data', def.attKey); });
-    return avgExcludingHolidays(rows, function(r) { return resolveMetric(r, def.perfKey); });
+    return avgMetricValue(def.perfKey, rows);
   }
-  return avgExcludingHolidays(rows, function(r) { return resolveMetric(r, def.perfKey); });
+  return avgMetricValue(def.perfKey, rows);
 }
 
 function formatKpiValue(def, avg) {
@@ -2625,14 +2683,22 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
   const chartConfig = CENTER_CHART_CONFIG[currentCenter];
   if (!toInfo || !chartConfig) return '';
 
-  const to = TO_TARGET[currentCenter] || toInfo.counselor;
+  // LG전자통합처럼 TO가 고정값이 아니라 매일 입력되는 값인 센터는(dynamicTargetAttKey), 각 기간(이번달/전월/누적)에
+  // 입력된 TO의 평균을 그 기간의 목표치로 사용한다. 그 외 센터는 기존처럼 고정 TO_TARGET/정원을 그대로 쓴다.
+  const targetFor = function(rows) {
+    if (toInfo.dynamicTargetAttKey) return avgExcludingHolidays(rows, function(r) { return extractNum(r, 'attendance_data', toInfo.dynamicTargetAttKey); });
+    return TO_TARGET[currentCenter] || toInfo.counselor;
+  };
+  const toMonth = targetFor(monthRows);
+  const toCum = targetFor(cumulativeRows);
+  const toPrevMonth = prevMonthRows && prevMonthRows.length ? targetFor(prevMonthRows) : null;
   const staffAvgMonth = avgExcludingHolidays(monthRows, function(r) { return extractNum(r, 'attendance_data', toInfo.staffAttKey); });
   const staffAvgCum = avgExcludingHolidays(cumulativeRows, function(r) { return extractNum(r, 'attendance_data', toInfo.staffAttKey); });
   const staffAvgPrevMonth = prevMonthRows && prevMonthRows.length ? avgExcludingHolidays(prevMonthRows, function(r) { return extractNum(r, 'attendance_data', toInfo.staffAttKey); }) : null;
 
-  const curPct = staffAvgMonth !== null && to ? (staffAvgMonth / to * 100) : null;
-  const prevPct = staffAvgPrevMonth !== null && to ? (staffAvgPrevMonth / to * 100) : null;
-  const cumPct = staffAvgCum !== null && to ? (staffAvgCum / to * 100) : null;
+  const curPct = staffAvgMonth !== null && toMonth ? (staffAvgMonth / toMonth * 100) : null;
+  const prevPct = staffAvgPrevMonth !== null && toPrevMonth ? (staffAvgPrevMonth / toPrevMonth * 100) : null;
+  const cumPct = staffAvgCum !== null && toCum ? (staffAvgCum / toCum * 100) : null;
   const pctDiff = (curPct !== null && prevPct !== null) ? (curPct - prevPct) : null;
 
   const overviewCard = '<div class="summary-card2" id="sumCardOverview">'
@@ -2646,10 +2712,10 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
     + '</div>';
 
   const groupCards = chartConfig.groups.map(function(group, gi) {
-    const inboundAvg = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, group.barKeys[0]); });
-    const answeredAvg = group.barKeys[1] ? avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, group.barKeys[1]); }) : null;
-    const rateAvg = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, group.lineKeys[0]); });
-    const secondAvg = group.lineKeys[1] ? avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, group.lineKeys[1]); }) : null;
+    const inboundAvg = avgMetricValue(group.barKeys[0], monthRows);
+    const answeredAvg = group.barKeys[1] ? avgMetricValue(group.barKeys[1], monthRows) : null;
+    const rateAvg = avgMetricValue(group.lineKeys[0], monthRows);
+    const secondAvg = group.lineKeys[1] ? avgMetricValue(group.lineKeys[1], monthRows) : null;
 
     let missText = '-';
     if (group.threshold) {
