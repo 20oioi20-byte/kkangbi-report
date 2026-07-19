@@ -2369,14 +2369,14 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
     const momText = compareSegment(prevMonthAvg, '전월比');
     const yoyText = compareSegment(prevYearAvg, '전년동월比');
     const parts = [dailyDisplayLabeled, '<span class="cum-avg">누적평균 ' + cumDisplay + '</span>'];
-    // 전년동월비까지 함께 보여줄 때(둘 다 있을 때)는 한 줄에 다 넣지 않고, 전월비 아래에
-    // 전년동월비를 별도 줄로 내려서 "전월비 / 전년동월비" 두 줄로 보여준다. 전년동월비가 없으면(대개
-    // 전년도 같은 달 데이터가 아직 없는 경우) 기존처럼 전월비만 한 줄에 이어서 표시.
+    // 전년동월비까지 함께 보여줄 때(둘 다 있을 때)는 한 줄에 다 넣지 않고, 테두리로 구분된 별도 박스를
+    // 행 오른쪽에 두고 그 안에서 전월비 위·전년동월비 아래로 두 줄로 보여준다(사용자가 첨부한 이미지 기준).
+    // 전년동월비가 없으면(대개 전년도 같은 달 데이터가 아직 없는 경우) 기존처럼 전월비만 왼쪽 텍스트에 이어서 표시.
     let compareStackHtml = '';
     if (momText && yoyText) {
-      compareStackHtml = '<div class="compare-stack" style="margin-top:2px;">'
+      compareStackHtml = '<div class="compare-stack">'
         + '<div><span class="compare-badge">' + momText + '</span></div>'
-        + '<div><span class="compare-yoy">' + yoyText + '</span></div>'
+        + '<div style="margin-top:3px;"><span class="compare-yoy">' + yoyText + '</span></div>'
         + '</div>';
     } else if (momText) {
       parts.push('<span class="compare-badge">' + momText + '</span>');
@@ -2391,9 +2391,11 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
 
     const labelText = (def.section ? def.section + ' ' : '') + def.label;
 
-    return '<div class="trend-row" style="display:block;padding:8px 4px;">'
-      + '<span class="label" style="font-weight:600;">' + labelText + '</span>'
-      + '&nbsp; ' + parts.join(' &nbsp;/&nbsp; ')
+    return '<div class="trend-row" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 4px;">'
+      + '<div style="flex:1;min-width:0;">'
+        + '<span class="label" style="font-weight:600;">' + labelText + '</span>'
+        + '&nbsp; ' + parts.join(' &nbsp;/&nbsp; ')
+      + '</div>'
       + compareStackHtml
       + '</div>';
   }).join('');
