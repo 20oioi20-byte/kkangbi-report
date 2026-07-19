@@ -195,6 +195,24 @@ function avgMetricValue(key, rows) {
   return avgExcludingHolidays(rows, function(r) { return resolveMetric(r, key); });
 }
 
+// LG전자통합의 TO_합계/총재직인원_합계/상담사투입인원_합계는 원래 저장 시점에 AS·성수기 두 값을 더해서 저장하지만,
+// 과거에 한쪽만 입력된 날짜(또는 다른 저장 경로로 합계가 누락된 날짜)까지 항상 정확히 보이도록,
+// 저장된 값을 그대로 믿지 않고 AS·성수기 두 항목을 조회할 때마다 실시간으로 더해서 보여준다(extractNum에서 가로챔).
+// 두 항목 다 값이 없는 날짜는 여전히 빈칸(null)으로 남긴다 — 억지로 0을 만들어내지 않기 위함.
+const LGE_TOTAL_LIVE_SUM_KEYS = {
+  'TO_합계': ['TO_AS', 'TO_성수기'],
+  '총재직인원_합계': ['총재직인원_AS', '총재직인원_성수기'],
+  '상담사투입인원_합계': ['상담사투입인원_AS', '상담사투입인원_성수기']
+};
+function lgeTotalLiveAttSum(row, key) {
+  const parts = LGE_TOTAL_LIVE_SUM_KEYS[key];
+  const att = row.attendance_data || {};
+  const toNum = function(raw) { return (raw === undefined || raw === null || raw === '') ? null : parseFloat(String(raw).replace(/[%,]/g, '')); };
+  const n0 = toNum(att[parts[0]]), n1 = toNum(att[parts[1]]);
+  if (n0 === null && n1 === null) return null;
+  return (n0 || 0) + (n1 || 0);
+}
+
 // TO및목표값설정 화면에서 "목표값"을 시:분:초(예: 4:00:00)로 입력받아야 하는 지표.
 // 저장은 항상 초 단위 숫자(target_value)로 되며, 화면 표시만 H:MM:SS로 변환한다.
 const DURATION_METRIC_KEYS = {
@@ -2225,6 +2243,9 @@ function avgExcludingHolidays(rows, getVal) {
 }
 
 function extractNum(row, field, key) {
+  if (currentCenter === 'lge_total' && field === 'attendance_data' && LGE_TOTAL_LIVE_SUM_KEYS[key]) {
+    return lgeTotalLiveAttSum(row, key);
+  }
   const obj = row[field];
   if (!obj || obj[key] === undefined || obj[key] === null || obj[key] === '') return null;
   return parseFloat(String(obj[key]).replace(/[%,]/g, ''));
@@ -3240,7 +3261,11 @@ function buildMatrix(records) {
 
   const bodyHtml = records.slice().reverse().map(function(r) {
     return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + r.report_date + (isWeekendOrHoliday(r.report_date) ? ' 🔸' : '') + '</td>'
-      + attKeys.map(function(k) { return zeroWarnCell(r.attendance_data ? r.attendance_data[k] : undefined, k); }).join('')
+      + attKeys.map(function(k) {
+          const live = (currentCenter === 'lge_total' && LGE_TOTAL_LIVE_SUM_KEYS[k]) ? lgeTotalLiveAttSum(r, k) : undefined;
+          const val = live !== undefined ? live : (r.attendance_data ? r.attendance_data[k] : undefined);
+          return zeroWarnCell(val, k);
+        }).join('')
       + perfKeys.map(function(k) { return zeroWarnCell(r.performance_data ? r.performance_data[k] : undefined, k); }).join('')
       + '</tr>';
   }).join('');
