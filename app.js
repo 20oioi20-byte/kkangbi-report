@@ -38,13 +38,9 @@ const CENTER_KPI_DEFS = {
     { label: '전체재직인원(TO대비)', type: 'staff', attKey: '총원' },
     { section: '제휴상담', label: '근태', type: 'people', attKey: '제휴CS_소계' },
     { label: '실적·인입호', type: 'count', perfKey: '제휴상담_인입호' },
-    { label: '실적·응대호', type: 'count', perfKey: '제휴상담_응답호' },
-    { label: '응답율', type: 'rate', perfKey: '제휴상담_응답율' },
     { label: 'SL', type: 'rate', perfKey: '제휴상담_SL' },
     { section: '장기손사', label: '근태', type: 'people', attKey: '장기사고_소계' },
     { label: '실적·인입호', type: 'count', perfKey: '장기손사_인입호' },
-    { label: '실적·응대호', type: 'count', perfKey: '장기손사_응답호' },
-    { label: '응답율', type: 'rate', perfKey: '장기손사_응답율' },
     { label: 'SL', type: 'rate', perfKey: '장기손사_SL' },
   ],
   'pyeongtaek': [
@@ -2998,6 +2994,17 @@ function drawMiniCharts(records) {
     });
   }
   function avgSeries(key) {
+    // 일별(daily) 뷰는 버킷마다 그 날짜 1건뿐이라 "휴일/주말 제외 평균"을 적용하면
+    // 주말·공휴일에 실제로 입력된 값까지 통째로 null 처리되어 그래프에서 사라지는 문제가 있었다
+    // (예: 제헌절(7/17)처럼 KR_HOLIDAYS_2026에 등록된 날짜, 또는 LG전자AS처럼 주말에도 실제로 운영하는 센터).
+    // 1건짜리 버킷은 그냥 그 값을 그대로 보여주고(값이 없으면 null), 여러 날을 묶는 주/월별 등 집계 뷰에서만
+    // 기존처럼 근무일 기준 평균을 적용한다.
+    if (aggView === 'daily') {
+      return bucketKeys.map(function(bk) {
+        const n = resolveMetric(buckets[bk][0], key);
+        return (n !== null && !isNaN(n)) ? n : null;
+      });
+    }
     return bucketKeys.map(function(bk) { return avgExcludingHolidays(buckets[bk], function(r) { return resolveMetric(r, key); }); });
   }
   // 일별은 막대가 하루 실측치이므로 합계=평균과 동일하나, 주/요일/월별 집계 막대는 평균값으로 표기
@@ -5373,7 +5380,9 @@ async function saveLgeTotalRows() {
       const v1 = document.querySelector('.lge-total-input[data-row="' + ri + '"][data-metric="' + m.key + '"][data-part="' + m.parts[1] + '"]').value;
       if (v0 !== '') values[m.key + '_' + m.parts[0]] = { value: v0, group: 'attendance' };
       if (v1 !== '') values[m.key + '_' + m.parts[1]] = { value: v1, group: 'attendance' };
-      if (v0 !== '' && v1 !== '') values[m.key + '_합계'] = { value: String(Number(v0) + Number(v1)), group: 'attendance' };
+      // 두 부분(AS/성수기 등) 중 한쪽만 입력돼도 합계는 저장한다(입력 안 된 쪽은 0으로 취급) —
+      // 예전엔 둘 다 입력해야만 합계가 계산돼서, 한쪽만 입력된 날은 합계 칸이 통째로 비어 보였음.
+      if (v0 !== '' || v1 !== '') values[m.key + '_합계'] = { value: String((v0 !== '' ? Number(v0) : 0) + (v1 !== '' ? Number(v1) : 0)), group: 'attendance' };
     });
     // 화면에 없는 파생 항목(총재직인원): 참조 항목의 합계를 그대로 가져와 계산해서 저장
     LGE_TOTAL_ATT_METRICS.forEach(function(m) {
@@ -5383,7 +5392,7 @@ async function saveLgeTotalRows() {
       const src1 = values[m.derivedFrom[p1] + '_합계'];
       if (src0) values[m.key + '_' + p0] = { value: src0.value, group: 'attendance' };
       if (src1) values[m.key + '_' + p1] = { value: src1.value, group: 'attendance' };
-      if (src0 && src1) values[m.key + '_합계'] = { value: String(Number(src0.value) + Number(src1.value)), group: 'attendance' };
+      if (src0 || src1) values[m.key + '_합계'] = { value: String((src0 ? Number(src0.value) : 0) + (src1 ? Number(src1.value) : 0)), group: 'attendance' };
     });
     LGE_TOTAL_PERF_METRICS.forEach(function(m) {
       const inp = document.querySelector('.lge-total-perf[data-row="' + ri + '"][data-metric="' + m.key + '"]');
