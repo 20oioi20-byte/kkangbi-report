@@ -329,6 +329,15 @@ const CENTER_CHART_CONFIG = {
         title: '생산성', stacked: true, barMax: 100,
         barKeys: ['생산성_IN', '생산성_OUT_only'], barLabels: ['생산성(IN)', '생산성(OUT)'],
         lineKeys: ['TNPS'], lineLabels: ['T-NPS'],
+        // 요약카드 첫 줄을 기존 막대/선 구성(생산성 IN·OUT·T-NPS 3칸)이 아니라
+        // "T-NPS, 생산성(IN+OUT), 생산성(IN), 생산성(OUT)" 순서로 한 줄에 보여달라는 요청 —
+        // summaryStats가 있으면 renderSummaryCards()가 이 목록으로 첫 줄을 대체(차트 자체 구성은 그대로 유지).
+        summaryStats: [
+          { key: 'TNPS', label: 'T-NPS' },
+          { key: '생산성_INOUT', label: '생산성(IN+OUT)' },
+          { key: '생산성_IN', label: '생산성(IN)' },
+          { key: '생산성_OUT_only', label: '생산성(OUT)' }
+        ],
         summaryExtraKeys: ['통화시간_INOUT_초'], summaryExtraLabels: ['통화시간(IN+OUT)']
       },
     ]
@@ -2767,14 +2776,27 @@ function renderSummaryCards(monthRows, cumulativeRows, prevMonthRows) {
       return '<div class="sc-stat"><div class="l">' + group.summaryExtraLabels[ei] + '</div><div class="v">' + display + '</div></div>';
     }).join('');
 
+    // summaryStats가 지정돼 있으면(예: LG전자통합) 막대/선 구성 그대로가 아니라
+    // 지정된 순서·항목으로 첫 줄을 한 줄에 재구성한다(차트 자체 구성은 영향 없음).
+    const primaryRowHtml = group.summaryStats
+      ? '<div class="sc-row" style="grid-template-columns:repeat(' + group.summaryStats.length + ',1fr);">'
+        + group.summaryStats.map(function(s) {
+            const avg = avgMetricValue(s.key, monthRows);
+            const isDur = METRIC_UNITS[s.key] === 'duration';
+            const display = avg === null ? '-' : (isDur ? formatSecondsHMS(avg) : avg.toFixed(1));
+            return '<div class="sc-stat"><div class="l">' + s.label + '</div><div class="v">' + display + '</div></div>';
+          }).join('')
+        + '</div>'
+      : '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
+        + '<div class="sc-stat"><div class="l">' + group.barLabels[0] + '</div><div class="v">' + (inboundAvg !== null ? Math.round(inboundAvg).toLocaleString() : '-') + '건</div></div>'
+        + (group.barKeys[1] ? '<div class="sc-stat"><div class="l">' + group.barLabels[1] + '</div><div class="v">' + (answeredAvg !== null ? Math.round(answeredAvg).toLocaleString() : '-') + '건</div></div>' : '')
+        + '<div class="sc-stat"><div class="l">' + group.lineLabels[0].replace('(%)', '') + '</div><div class="v">' + (rateAvg !== null ? rateAvg.toFixed(1) + '%' : '-') + '</div></div>'
+        + '</div>';
+
     return '<div class="summary-card2" id="' + cardId + '">'
       + '<div class="sc-head"><span class="sc-title">' + GROUP_ICONS[gi % GROUP_ICONS.length] + ' ' + group.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" title="' + group.title + ' 복사" onclick="copySummaryCard(\'' + cardId + '\')">' + COPY_ICON_SVG + '</button></div>'
-      + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
-      + '<div class="sc-stat"><div class="l">' + group.barLabels[0] + '</div><div class="v">' + (inboundAvg !== null ? Math.round(inboundAvg).toLocaleString() : '-') + '건</div></div>'
-      + (group.barKeys[1] ? '<div class="sc-stat"><div class="l">' + group.barLabels[1] + '</div><div class="v">' + (answeredAvg !== null ? Math.round(answeredAvg).toLocaleString() : '-') + '건</div></div>' : '')
-      + '<div class="sc-stat"><div class="l">' + group.lineLabels[0].replace('(%)', '') + '</div><div class="v">' + (rateAvg !== null ? rateAvg.toFixed(1) + '%' : '-') + '</div></div>'
-      + '</div>'
-      + (group.lineKeys[1] ? '<div class="sc-row" style="grid-template-columns:repeat(2,1fr);margin-bottom:0;">'
+      + primaryRowHtml
+      + (!group.summaryStats && group.lineKeys[1] ? '<div class="sc-row" style="grid-template-columns:repeat(2,1fr);margin-bottom:0;">'
         + '<div class="sc-stat"><div class="l">' + secondLabel + '</div><div class="v">' + (secondAvg !== null ? secondAvg.toFixed(1) : '-') + '</div></div>'
         + '<div class="sc-stat"><div class="l">' + thresholdLabel + ' 미달일수</div><div class="v warn">' + missText + '</div></div>'
         + '</div>' : '')
