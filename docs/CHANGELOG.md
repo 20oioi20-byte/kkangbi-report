@@ -2,6 +2,12 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-19 (9차) — LG전자통합 요약카드 "생산성" 카드 줄 구성 재조정 (T-NPS·통화시간·생산성(IN+OUT) / 생산성(IN)·생산성(OUT))
+- **요청 배경**: 8차에서 만든 두 줄 구성(1줄: T-NPS·통화시간 / 2줄: 생산성 3종)을, 생산성(IN+OUT)을 1줄로 옮겨 "1줄: T-NPS·통화시간(IN+OUT)·생산성(IN+OUT) / 2줄: 생산성(IN)·생산성(OUT)"으로 재조정해달라는 요청.
+- **구현**: 8차에서 만든 `summaryRows`(줄 단위 2차원 배열) 메커니즘은 그대로 재사용하고, `CENTER_CHART_CONFIG.lge_total.groups[0].summaryRows`의 줄 구성만 변경(생산성(IN+OUT)을 1번째 줄로, 2번째 줄은 생산성(IN)·생산성(OUT) 2항목만). 렌더링 로직(`renderSummaryCards()`)은 줄 개수·줄당 항목 수 모두 가변으로 이미 일반화돼 있어 코드 변경 없이 설정값만 수정.
+- **검증**: `node --check` 통과. 로컬 정적 서버 + 가짜 데이터로 요약카드가 정확히 "T-NPS/통화시간(IN+OUT)/생산성(IN+OUT)" 1줄(3칸) + "생산성(IN)/생산성(OUT)" 2줄(2칸)로 나오고 값이 정확한지 브라우저에서 직접 확인함.
+- `docs/FEATURE.md` 15번 섹션 갱신함.
+
 ## 2026-07-19 (8차) — LG전자통합 요약카드 "생산성" 카드를 두 줄(T-NPS·통화시간 / 생산성 3종) 구성으로 변경
 - **요청 배경**: 6차에서 한 줄로 배치했던 "생산성" 요약카드를, 1줄엔 T-NPS·통화시간(IN+OUT), 2줄엔 생산성(IN+OUT)·생산성(IN)·생산성(OUT)이 오도록 두 줄로 재배치해달라는 요청.
 - **구현**: 6차의 `summaryStats`(한 줄짜리 4항목 목록)와 통화시간 전용이었던 `summaryExtraKeys`를 하나로 통합한 `summaryRows`(줄 단위 2차원 배열)로 교체. `CENTER_CHART_CONFIG.lge_total.groups[0].summaryRows`에 `[[T-NPS, 통화시간(IN+OUT)], [생산성(IN+OUT), 생산성(IN), 생산성(OUT)]]`을 지정하고, `renderSummaryCards()`가 `summaryRows`가 있으면 각 줄을 그대로 `.sc-row`로 렌더링하도록 일반화(줄 개수·줄당 항목 수 모두 가변 지원). 차트(`drawMiniCharts`)는 기존 `barKeys`(생산성 IN/OUT 누적막대)·`lineKeys`(T-NPS 선) 구성을 그대로 쓰므로 영향 없음, 요약카드 레이아웃만 변경.

@@ -330,15 +330,15 @@ const CENTER_CHART_CONFIG = {
         barKeys: ['생산성_IN', '생산성_OUT_only'], barLabels: ['생산성(IN)', '생산성(OUT)'],
         lineKeys: ['TNPS'], lineLabels: ['T-NPS'],
         // 요약카드를 기존 막대/선 구성(생산성 IN·OUT·T-NPS 3칸 한 줄)이 아니라
-        // 1줄: T-NPS·통화시간(IN+OUT), 2줄: 생산성(IN+OUT)·생산성(IN)·생산성(OUT) 형태로 보여달라는 요청 —
+        // 1줄: T-NPS·통화시간(IN+OUT)·생산성(IN+OUT), 2줄: 생산성(IN)·생산성(OUT) 형태로 보여달라는 요청 —
         // summaryRows가 있으면 renderSummaryCards()가 이 목록(줄 단위 배열)으로 카드 전체를 대체(차트 자체 구성은 그대로 유지).
         summaryRows: [
           [
             { key: 'TNPS', label: 'T-NPS' },
-            { key: '통화시간_INOUT_초', label: '통화시간(IN+OUT)' }
+            { key: '통화시간_INOUT_초', label: '통화시간(IN+OUT)' },
+            { key: '생산성_INOUT', label: '생산성(IN+OUT)' }
           ],
           [
-            { key: '생산성_INOUT', label: '생산성(IN+OUT)' },
             { key: '생산성_IN', label: '생산성(IN)' },
             { key: '생산성_OUT_only', label: '생산성(OUT)' }
           ]
