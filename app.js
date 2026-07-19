@@ -2360,8 +2360,20 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
     const momText = compareSegment(prevMonthAvg, '전월比');
     const yoyText = compareSegment(prevYearAvg, '전년동월比');
     const parts = [dailyDisplayLabeled, '<span class="cum-avg">누적평균 ' + cumDisplay + '</span>'];
-    if (momText) parts.push('<span class="compare-badge">' + momText + '</span>');
-    if (yoyText) parts.push('<span class="compare-yoy">' + yoyText + '</span>');
+    // 전년동월비까지 함께 보여줄 때(둘 다 있을 때)는 한 줄에 다 넣지 않고, 전월비 아래에
+    // 전년동월비를 별도 줄로 내려서 "전월비 / 전년동월비" 두 줄로 보여준다. 전년동월비가 없으면(대개
+    // 전년도 같은 달 데이터가 아직 없는 경우) 기존처럼 전월비만 한 줄에 이어서 표시.
+    let compareStackHtml = '';
+    if (momText && yoyText) {
+      compareStackHtml = '<div class="compare-stack" style="margin-top:2px;">'
+        + '<div><span class="compare-badge">' + momText + '</span></div>'
+        + '<div><span class="compare-yoy">' + yoyText + '</span></div>'
+        + '</div>';
+    } else if (momText) {
+      parts.push('<span class="compare-badge">' + momText + '</span>');
+    } else if (yoyText) {
+      parts.push('<span class="compare-yoy">' + yoyText + '</span>');
+    }
 
     lastTrendLines.push(def.label + '\t' + dailyDisplay
       + '\t' + (prevMonthAvg !== null ? formatKpiValue(def, prevMonthAvg) : '-')
@@ -2373,6 +2385,7 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
     return '<div class="trend-row" style="display:block;padding:8px 4px;">'
       + '<span class="label" style="font-weight:600;">' + labelText + '</span>'
       + '&nbsp; ' + parts.join(' &nbsp;/&nbsp; ')
+      + compareStackHtml
       + '</div>';
   }).join('');
 }
