@@ -35,13 +35,13 @@ const KR_HOLIDAYS_2026 = [
 // 센터별 주요지표(KPI) 구성 - 새 센터 추가 시 여기에 등록
 const CENTER_KPI_DEFS = {
   'kbsonhae': [
-    { label: '전체재직인원', type: 'staff', attKey: '총원' },
-    { section: '제휴상담', label: '근태', type: 'people', attKey: '제휴CS_소계' },
-    { label: '제휴 인입호', type: 'count', perfKey: '제휴상담_인입호' },
-    { label: 'SL', type: 'rate', perfKey: '제휴상담_SL' },
-    { section: '장기손사', label: '근태', type: 'people', attKey: '장기사고_소계' },
-    { label: '손사 인입호', type: 'count', perfKey: '장기손사_인입호' },
-    { label: 'SL', type: 'rate', perfKey: '장기손사_SL' },
+    { label: '재직인원', type: 'staff', attKey: '총원' },
+    { label: '제휴인원', type: 'people', attKey: '제휴CS_소계' },
+    { label: '제휴인입호', type: 'count', perfKey: '제휴상담_인입호' },
+    { label: '제휴SL', type: 'rate', perfKey: '제휴상담_SL' },
+    { label: '손사인원', type: 'people', attKey: '장기사고_소계' },
+    { label: '손사인입호', type: 'count', perfKey: '장기손사_인입호' },
+    { label: '손사SL', type: 'rate', perfKey: '장기손사_SL' },
   ],
   'pyeongtaek': [
     { label: '상담재직인원', type: 'staff', attKey: '투입인원' },
@@ -52,8 +52,8 @@ const CENTER_KPI_DEFS = {
     { label: 'CPD', type: 'number', perfKey: 'CPD' },
   ],
   'kbjeongbi': [
-    { label: '전체재직인원', type: 'staff', attKey: '재직인원' },
-    { label: '상담사 투입현황', type: 'people', attKey: '상담사_투입인원' },
+    { label: '재직인원', type: 'staff', attKey: '재직인원' },
+    { label: '투입인원', type: 'people', attKey: '상담사_투입인원' },
     { section: '총', label: '접수건', type: 'count', perfKey: '통합_접수' },
     { section: '고지', label: '접수건', type: 'count', perfKey: '접수_고지의무' },
     { section: '통지', label: '접수건', type: 'count', perfKey: '접수_통지의무' },
@@ -74,15 +74,12 @@ const CENTER_KPI_DEFS = {
     { label: '통화시간(IN+OUT)', type: 'duration', perfKey: '통화시간_INOUT_초' },
   ],
   'lge_total': [
-    { label: 'TO', type: 'people', attKey: 'TO_합계' },
-    { label: '총재직인원', type: 'people', attKey: '총재직인원_합계' },
-    { label: 'AS재직인원', type: 'people', attKey: 'AS재직인원_합계' },
-    { label: '성수기재직인원', type: 'people', attKey: '성수기재직인원_합계' },
-    { label: '상담사투입인원', type: 'people', attKey: '상담사투입인원_합계' },
+    { label: '재직인원', type: 'people', attKey: '총재직인원_합계' },
+    { label: '투입인원', type: 'people', attKey: '상담사투입인원_합계' },
     { label: 'T-NPS', type: 'number', perfKey: 'TNPS' },
     { label: '생산성(IN+OUT)', type: 'number', perfKey: '생산성_INOUT' },
     { label: '생산성(IN)', type: 'number', perfKey: '생산성_IN' },
-    { label: '통화시간(IN+OUT)', type: 'duration', perfKey: '통화시간_INOUT_초' },
+    { label: '통화시간', type: 'duration', perfKey: '통화시간_INOUT_초' },
   ],
 };
 
@@ -2374,8 +2371,8 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
       return compareLabel + ' <span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</span>' + absStr + ', ' + pctStr;
     }
 
-    const momText = compareSegment(prevMonthAvg, '전월비');
-    const yoyText = compareSegment(prevYearAvg, '전년동월비');
+    const momText = compareSegment(prevMonthAvg, '전월比');
+    const yoyText = compareSegment(prevYearAvg, '전년동월比');
     const parts = [dailyDisplayLabeled, '<span class="cum-avg">평균 ' + cumDisplay + '</span>'];
     if (momText) parts.push('<span class="compare-badge">' + momText + '</span>');
     if (yoyText) parts.push('<span class="compare-yoy">' + yoyText + '</span>');
