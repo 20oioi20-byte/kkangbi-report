@@ -35,16 +35,16 @@ const KR_HOLIDAYS_2026 = [
 // 센터별 주요지표(KPI) 구성 - 새 센터 추가 시 여기에 등록
 const CENTER_KPI_DEFS = {
   'kbsonhae': [
-    { label: '전체재직인원(TO대비)', type: 'staff', attKey: '총원' },
+    { label: '전체재직인원', type: 'staff', attKey: '총원' },
     { section: '제휴상담', label: '근태', type: 'people', attKey: '제휴CS_소계' },
-    { label: '실적·인입호', type: 'count', perfKey: '제휴상담_인입호' },
+    { label: '제휴 인입호', type: 'count', perfKey: '제휴상담_인입호' },
     { label: 'SL', type: 'rate', perfKey: '제휴상담_SL' },
     { section: '장기손사', label: '근태', type: 'people', attKey: '장기사고_소계' },
-    { label: '실적·인입호', type: 'count', perfKey: '장기손사_인입호' },
+    { label: '손사 인입호', type: 'count', perfKey: '장기손사_인입호' },
     { label: 'SL', type: 'rate', perfKey: '장기손사_SL' },
   ],
   'pyeongtaek': [
-    { label: '투입인원(TO대비)', type: 'staff', attKey: '투입인원' },
+    { label: '상담재직인원', type: 'staff', attKey: '투입인원' },
     { label: '요청호', type: 'count', perfKey: '요청호' },
     { label: '응답호', type: 'count', perfKey: '응답호' },
     { label: '응대율', type: 'rate', perfKey: '응대율' },
@@ -52,12 +52,12 @@ const CENTER_KPI_DEFS = {
     { label: 'CPD', type: 'number', perfKey: 'CPD' },
   ],
   'kbjeongbi': [
-    { label: '전체재직인원(TO대비)', type: 'staff', attKey: '재직인원' },
+    { label: '전체재직인원', type: 'staff', attKey: '재직인원' },
     { label: '상담사 투입현황', type: 'people', attKey: '상담사_투입인원' },
-    { section: '총합계', label: '접수건', type: 'count', perfKey: '통합_접수' },
-    { section: '고지의무', label: '접수건', type: 'count', perfKey: '접수_고지의무' },
-    { section: '통지의무', label: '접수건', type: 'count', perfKey: '접수_통지의무' },
-    { section: '목적물소멸', label: '접수건', type: 'count', perfKey: '접수_목적물소멸' },
+    { section: '총', label: '접수건', type: 'count', perfKey: '통합_접수' },
+    { section: '고지', label: '접수건', type: 'count', perfKey: '접수_고지의무' },
+    { section: '통지', label: '접수건', type: 'count', perfKey: '접수_통지의무' },
+    { section: '목적물', label: '접수건', type: 'count', perfKey: '접수_목적물소멸' },
   ],
   'lge': [
     { label: '전체재직인원(TO대비)', type: 'staff', attKey: '재직인원' },
@@ -74,11 +74,11 @@ const CENTER_KPI_DEFS = {
     { label: '통화시간(IN+OUT)', type: 'duration', perfKey: '통화시간_INOUT_초' },
   ],
   'lge_total': [
-    { label: 'TO(합계)', type: 'people', attKey: 'TO_합계' },
-    { label: '총재직인원(합계)', type: 'people', attKey: '총재직인원_합계' },
-    { label: 'AS재직인원(합계)', type: 'people', attKey: 'AS재직인원_합계' },
-    { label: '성수기재직인원(합계)', type: 'people', attKey: '성수기재직인원_합계' },
-    { label: '상담사투입인원(합계)', type: 'people', attKey: '상담사투입인원_합계' },
+    { label: 'TO', type: 'people', attKey: 'TO_합계' },
+    { label: '총재직인원', type: 'people', attKey: '총재직인원_합계' },
+    { label: 'AS재직인원', type: 'people', attKey: 'AS재직인원_합계' },
+    { label: '성수기재직인원', type: 'people', attKey: '성수기재직인원_합계' },
+    { label: '상담사투입인원', type: 'people', attKey: '상담사투입인원_합계' },
     { label: 'T-NPS', type: 'number', perfKey: 'TNPS' },
     { label: '생산성(IN+OUT)', type: 'number', perfKey: '생산성_INOUT' },
     { label: '생산성(IN)', type: 'number', perfKey: '생산성_IN' },
@@ -2372,7 +2372,7 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
 
     const momText = compareSegment(prevMonthAvg, '전월比');
     const yoyText = compareSegment(prevYearAvg, '전년동월比');
-    const parts = [dailyDisplayLabeled, '<span class="cum-avg">누적평균 ' + cumDisplay + '</span>'];
+    const parts = [dailyDisplayLabeled, '<span class="cum-avg">평균 ' + cumDisplay + '</span>'];
     // 전년동월비까지 함께 보여줄 때(둘 다 있을 때)는 한 줄에 다 넣지 않고, 테두리로 구분된 별도 박스를
     // 행 오른쪽에 두고 그 안에서 전월비 위·전년동월비 아래로 두 줄로 보여준다(사용자가 첨부한 이미지 기준).
     // 전년동월비가 없으면(대개 전년도 같은 달 데이터가 아직 없는 경우) 기존처럼 전월비만 왼쪽 텍스트에 이어서 표시.
@@ -2649,25 +2649,32 @@ const KBJ_CATEGORY_CARDS = [
 ];
 
 function renderKbjeongbiSummaryCards2(monthRows, cumulativeRows) {
+  // 상단 토글 기본값(단월)에서는 "월누적"(=이번 달 실적, 해당 월 지표)을 보여주고,
+  // 분기/반기/연초누적 토글 시에는 그 기간 전체(periodCumLabel/cumulativeRows)로 자동 전환된다.
+  const cumSourceRows = viewMode === 'single' ? monthRows : cumulativeRows;
+  const cumLabel = viewMode === 'single' ? '월누적' : periodCumLabel();
   const cards = KBJ_CATEGORY_CARDS.map(function(c, i) {
     const dailyAcc = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, c.accKey); });
     const dailyProc = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, c.procKey); });
-    const cumAcc = sumMetric(cumulativeRows, c.accKey);
-    const cumProc = sumMetric(cumulativeRows, c.procKey);
-    const cumRate = cumAcc ? (cumProc / cumAcc * 100) : null;
+    const dailyUnproc = avgExcludingHolidays(monthRows, function(r) {
+      const acc = resolveMetric(r, c.accKey), proc = resolveMetric(r, c.procKey);
+      return (acc !== null && proc !== null) ? (acc - proc) : null;
+    });
+    const cumAcc = sumMetric(cumSourceRows, c.accKey);
+    const cumProc = sumMetric(cumSourceRows, c.procKey);
     const cumUnproc = cumAcc - cumProc;
     const cardId = 'kbjSumCard' + i;
     return '<div class="summary-card2" id="' + cardId + '">'
       + '<div class="sc-head"><span class="sc-title">' + c.icon + ' ' + c.title + (periodAvgLabel() ? ' (' + periodAvgLabel().trim() + ')' : '') + '</span><button class="sc-copy" title="복사" onclick="copySummaryCard(\'' + cardId + '\')">' + COPY_ICON_SVG + '</button></div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);">'
       + '<div class="sc-stat"><div class="l">일평균 접수건</div><div class="v">' + (dailyAcc !== null ? dailyAcc.toFixed(1) : '-') + '건</div></div>'
-      + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 접수건</div><div class="v">' + cumAcc.toLocaleString() + '건</div></div>'
       + '<div class="sc-stat"><div class="l">일평균 처리건</div><div class="v">' + (dailyProc !== null ? dailyProc.toFixed(1) : '-') + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">일평균 미처리건</div><div class="v">' + (dailyUnproc !== null ? dailyUnproc.toFixed(1) : '-') + '건</div></div>'
       + '</div>'
       + '<div class="sc-row" style="grid-template-columns:repeat(3,1fr);margin-bottom:0;">'
-      + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 처리건</div><div class="v">' + cumProc.toLocaleString() + '건</div></div>'
-      + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 처리율</div><div class="v">' + (cumRate !== null ? cumRate.toFixed(1) + '%' : '-') + '</div></div>'
-      + '<div class="sc-stat"><div class="l">' + periodCumLabel() + ' 미처리건</div><div class="v warn">' + cumUnproc.toLocaleString() + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">' + cumLabel + ' 접수건</div><div class="v">' + cumAcc.toLocaleString() + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">' + cumLabel + ' 처리건</div><div class="v">' + cumProc.toLocaleString() + '건</div></div>'
+      + '<div class="sc-stat"><div class="l">' + cumLabel + ' 미처리건</div><div class="v warn">' + cumUnproc.toLocaleString() + '건</div></div>'
       + '</div>'
       + '</div>';
   }).join('');
@@ -3026,9 +3033,9 @@ function drawMiniCharts(records) {
   let buckets;
   if (aggView === 'daily') {
     buckets = {};
-    // KB손보정비 단월 일별 지표추이 그래프는 주말 일자를 그래프에서만 제외한다(데이터 자체는 그대로 유지·저장됨).
+    // KB손보정비 단월 일별 지표추이 그래프는 주말·공휴일 일자를 그래프에서만 제외한다(데이터 자체는 그대로 유지·저장됨).
     const dailyRecords = (currentCenter === 'kbjeongbi')
-      ? records.filter(function(r) { const dow = new Date(r.report_date + 'T00:00:00').getDay(); return dow !== 0 && dow !== 6; })
+      ? records.filter(function(r) { return !isWeekendOrHoliday(r.report_date); })
       : records;
     dailyRecords.forEach(function(r) { buckets[r.report_date] = [r]; });
   } else {
@@ -3289,8 +3296,8 @@ function buildMatrix(records) {
   const perfKeys = visible.filter(function(k) { return perfKeysAll.includes(k); });
 
   const headHtml = '<th style="position:sticky;left:0;background:#111113;">날짜</th>'
-    + attKeys.map(function(k) { return '<th>근태·' + k + '</th>'; }).join('')
-    + perfKeys.map(function(k) { return '<th>실적·' + k + '</th>'; }).join('');
+    + attKeys.map(function(k) { return '<th>' + k + '</th>'; }).join('')
+    + perfKeys.map(function(k) { return '<th>' + k + '</th>'; }).join('');
 
   const bodyHtml = records.slice().reverse().map(function(r) {
     return '<tr><td style="position:sticky;left:0;background:#1d1d1f;font-weight:600;">' + r.report_date + (isWeekendOrHoliday(r.report_date) ? ' 🔸' : '') + '</td>'
