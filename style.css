@@ -153,19 +153,17 @@
   .mini-chart-box .title { font-size: 12px; color: #a1a1a6; margin-bottom: 6px; font-weight: 600; }
   .mini-chart-box .canvas-wrap { position: relative; height: 220px; }
 
-  .trend-list { display: flex; flex-direction: column; gap: 2px; font-variant-numeric: tabular-nums; }
-  .trend-row { padding: 11px 4px; border-bottom: 1px solid #2c2c2e; font-size: 12.5px; }
-  .trend-row:last-child { border-bottom: none; }
-  .trend-row .label-line { display: flex; align-items: baseline; gap: 8px; margin-bottom: 7px; flex-wrap: wrap; }
-  .trend-row .label { font-weight: 700; font-size: 13px; color: #f5f5f7; }
-  .trend-row .primary-val { font-size: 13px; font-weight: 700; color: #f5f5f7; }
-  .trend-row .arrow.up { color: #FF6B70; }
-  .trend-row .arrow.down { color: #5ac8fa; }
-  .trend-row .chips { display: flex; flex-wrap: wrap; gap: 6px; }
-  .trend-row .chip { display: inline-flex; align-items: center; gap: 4px; font-size: 11px; padding: 4px 9px; border-radius: 999px; border: 1px solid #2c2c2e; background: #232326; color: #a1a1a6; white-space: nowrap; }
-  .trend-row .chip .chip-label { color: #86868b; }
-  .trend-row .chip.mom { background: rgba(255,107,112,.10); border-color: rgba(255,107,112,.28); color: #f5f5f7; }
-  .trend-row .chip.yoy { background: rgba(90,200,250,.10); border-color: rgba(90,200,250,.28); color: #f5f5f7; }
+  .trend-list { font-variant-numeric: tabular-nums; }
+  .tbl-scroll { overflow-x: auto; }
+  table.trend-tbl { border-collapse: collapse; width: 100%; min-width: 560px; font-size: 12.5px; }
+  table.trend-tbl thead th { text-align: right; font-weight: 600; color: #86868b; font-size: 10.5px; text-transform: uppercase; letter-spacing: .04em; padding: 0 6px 8px; border-bottom: 1px solid #2c2c2e; }
+  table.trend-tbl thead th:first-child { text-align: left; }
+  table.trend-tbl td { padding: 10px 6px; border-bottom: 1px solid #2c2c2e; text-align: right; white-space: nowrap; }
+  table.trend-tbl td:first-child { text-align: left; font-weight: 600; white-space: normal; }
+  table.trend-tbl tbody tr:last-child td { border-bottom: none; }
+  table.trend-tbl .arrow.up { color: #FF6B70; }
+  table.trend-tbl .arrow.down { color: #5ac8fa; }
+  table.trend-tbl .dash { color: #86868b; }
   .trend-row .chip.mom .chip-label, .trend-row .chip.yoy .chip-label { opacity: .68; }
 
   table { border-collapse: collapse; width: 100%; font-size: 12px; }

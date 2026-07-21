@@ -2348,25 +2348,24 @@ function periodCumLabel() {
   return '연초누적';
 }
 
-// 항목명 아래에 평균·전월비·전년동월비를 같은 모양의 칩(chip)으로 나란히 배치하는 방식.
-// 칩 개수가 달라져도 칩 하나의 높이는 항상 같아서, 예전처럼 "전년동월비가 있을 때만 테두리 박스가
-// 붙어 두 줄이 되고 없으면 한 줄에 그냥 이어붙는" 식으로 행마다 모양이 들쭉날쭉하던 문제가 없다
-// (2026-07-19, 사용자에게 3가지 레이아웃 시안을 제안 후 이 방식으로 확정).
+// 지표·일평균·평균·전월比·전년동월比를 고정된 열로 나눠 표로 정렬하는 방식.
+// 값이 없는 칸은 "–"로 채워서 항목마다 글자 길이·전월比/전년동월比 유무에 상관없이
+// 모든 행이 정확히 같은 높이가 된다(2026-07-19, 3가지 레이아웃 시안을 제안 후 이 방식으로 확정).
 function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonthRows) {
-  lastTrendLines = ['지표\t' + (periodAvgLabel() || '일평균') + '\t전월비\t전년동월비\t평균'];
+  const dailyHeaderLabel = periodAvgLabel() || '일평균';
+  lastTrendLines = ['지표\t' + dailyHeaderLabel + '\t전월비\t전년동월비\t평균'];
   const defs = CENTER_KPI_DEFS[currentCenter] || [];
-  const rowsHtml = defs.map(function(def) {
+  const bodyHtml = defs.map(function(def) {
     const dailyAvg = getAvgForDef(def, monthRows);
     const cumAvg = getAvgForDef(def, cumulativeRows);
     const prevMonthAvg = prevMonthRows && prevMonthRows.length ? getAvgForDef(def, prevMonthRows) : null;
     const prevYearAvg = prevYearMonthRows && prevYearMonthRows.length ? getAvgForDef(def, prevYearMonthRows) : null;
 
     const dailyDisplay = formatKpiValue(def, dailyAvg);
-    const dailyDisplayLabeled = periodAvgLabel() + dailyDisplay;
     const cumDisplay = formatKpiValue(def, cumAvg);
 
-    function compareValueHtml(base) {
-      if (dailyAvg === null || base === null) return '';
+    function compareCellHtml(base) {
+      if (dailyAvg === null || base === null) return '<span class="dash">–</span>';
       const diff = dailyAvg - base;
       const up = diff >= 0;
       const absStr = formatDiffAbs(def, diff);
@@ -2374,8 +2373,8 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
       return '<span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</span>' + absStr + ', ' + pctStr;
     }
 
-    const momValueHtml = compareValueHtml(prevMonthAvg);
-    const yoyValueHtml = compareValueHtml(prevYearAvg);
+    const momCellHtml = compareCellHtml(prevMonthAvg);
+    const yoyCellHtml = compareCellHtml(prevYearAvg);
 
     lastTrendLines.push(def.label + '\t' + dailyDisplay
       + '\t' + (prevMonthAvg !== null ? formatKpiValue(def, prevMonthAvg) : '-')
@@ -2384,16 +2383,13 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
 
     const labelText = (def.section ? def.section + ' ' : '') + def.label;
 
-    const chips = ['<span class="chip"><span class="chip-label">평균</span> ' + cumDisplay + '</span>'];
-    if (momValueHtml) chips.push('<span class="chip mom"><span class="chip-label">전월비</span> ' + momValueHtml + '</span>');
-    if (yoyValueHtml) chips.push('<span class="chip yoy"><span class="chip-label">전년동월비</span> ' + yoyValueHtml + '</span>');
-
-    return '<div class="trend-row">'
-      + '<div class="label-line"><span class="label">' + labelText + '</span><span class="primary-val">' + dailyDisplayLabeled + '</span></div>'
-      + '<div class="chips">' + chips.join('') + '</div>'
-      + '</div>';
+    return '<tr><td>' + labelText + '</td><td>' + dailyDisplay + '</td><td>' + cumDisplay + '</td><td>' + momCellHtml + '</td><td>' + yoyCellHtml + '</td></tr>';
   }).join('');
-  return rowsHtml;
+
+  return '<div class="tbl-scroll"><table class="trend-tbl">'
+    + '<thead><tr><th>지표</th><th>' + dailyHeaderLabel + '</th><th>평균</th><th>전월比</th><th>전년동월比</th></tr></thead>'
+    + '<tbody>' + bodyHtml + '</tbody>'
+    + '</table></div>';
 }
 
 function copyTrendList() {
