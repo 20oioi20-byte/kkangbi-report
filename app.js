@@ -1694,6 +1694,11 @@ function drawWorkspaceSparklines(centerStats) {
     function aggSeries(sr) {
       return months.map(function(ym) {
         const rows = byMonth[ym];
+        // LG전자통합만: 일별 실측 평균이 아니라 데이터입력 화면에서 수동으로 입력해둔 월평균값을
+        // 그대로 사용한다(avgMetricValue가 이미 lge_total의 이 지표들을 그렇게 처리함). 다른 센터는 영향 없음.
+        if (currentCenter === 'lge_total') {
+          return sr.derivedFrom ? avgMetricValue('생산성_OUT_only', rows) : avgMetricValue(sr.key, rows);
+        }
         // derivedFrom: "총계 - 부분계산" 형태의 파생 시리즈 (예: 생산성(OUT) = 생산성(IN+OUT) - 생산성(IN))
         // 두 지표를 단순히 더해서 쌓는 게 아니라, IN+OUT 안에 포함된 IN을 구분해서 보여주기 위함
         if (sr.derivedFrom) {
@@ -4377,7 +4382,7 @@ const LGE_TOTAL_PERF_METRICS = [
   { key: 'TNPS', label: 'T-NPS' },
   { key: '생산성_INOUT', label: '생산성(IN+OUT)' },
   { key: '생산성_IN', label: '생산성(IN)' },
-  { key: '통화시간_INOUT_초', label: '통화시간', duration: true }
+  { key: '통화시간_INOUT_초', label: '통화시간(IN+OUT)', duration: true }
 ];
 
 function dayrptElemsByLocal(root, name) { return Array.from(root.getElementsByTagName('*')).filter(function(el) { return el.localName === name; }); }
@@ -5258,7 +5263,8 @@ function formatDurationOnBlur(el) {
 function renderIntegratedFormEntry() {
   const today = localDateStr(new Date());
   const monthlyAvgFields = LGE_TOTAL_PERF_METRICS.map(function(m) {
-    return '<div><label style="font-size:11px;color:#a1a1a6;display:block;margin-bottom:3px;">' + m.label + '</label>'
+    const durationHint = m.duration ? ' <span style="color:#86868b;font-weight:400;">(0:00:00 형식, 기본 4:00:00)</span>' : '';
+    return '<div><label style="font-size:11px;color:#a1a1a6;display:block;margin-bottom:3px;">' + m.label + durationHint + '</label>'
       + '<input type="text" class="lge-total-monthly-avg" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '') + '"' + (m.duration ? ' onblur="formatDurationOnBlur(this)"' : '') + ' style="width:80px;padding:5px;border:1px solid #2c2c2e;border-radius:4px;font-size:12px;background:#111113;color:#f5f5f7;">'
       + '</div>';
   }).join('');
@@ -5266,7 +5272,7 @@ function renderIntegratedFormEntry() {
     + '<h3>LG전자통합 일자별 입력</h3>'
     + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">TO·AS재직인원·성수기재직인원·상담사투입인원은 직전 저장된 날짜의 값을 기본으로 채워줍니다(인원변동이 있을 때만 수정하면 됩니다). 총재직인원·각 항목의 합계는 화면에 따로 표시하지 않고 저장할 때 자동으로 계산되어 반영됩니다. T-NPS·생산성·통화시간은 매일 새로 입력합니다. 날짜별 체크박스를 체크하면 저장할 때 그 날짜만 제외됩니다.</p>'
     + '<div style="max-width:640px;margin-bottom:14px;padding:12px;border:1px solid #2c2c2e;border-radius:10px;background:rgba(90,200,250,.05);">'
-    + '<div style="font-size:12px;font-weight:600;color:#5ac8fa;margin-bottom:8px;">이번 달 월평균 실적 입력 (선택 — 값을 넣으면 선택한 달의 1일 데이터에 별도 항목으로 저장됩니다)</div>'
+    + '<div style="font-size:12px;font-weight:600;color:#5ac8fa;margin-bottom:8px;">이번 달 월평균 실적 입력</div>'
     + '<div class="entry-row"><label>대상 월</label><input type="month" id="lgeTotalAvgMonth" value="' + today.slice(0, 7) + '" onchange="refreshLgeTotalMonthlyAvgInputs()"></div>'
     + '<div style="display:flex;gap:10px;flex-wrap:wrap;">' + monthlyAvgFields + '</div>'
     + '</div>'
