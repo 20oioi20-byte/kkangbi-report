@@ -1523,7 +1523,7 @@ function renderWorkspaceOverview() {
   // 센터별 추이 카드: 작은 표 셀 안에 스파크라인을 우겨넣던 방식은 축·범례가 없어 가독성이 매우 떨어졌다.
   // 대신 표 아래에 센터별로 별도 카드를 두어, 각 카드마다 범례·축 눈금·데이터포인트를 모두 보여준다(Small multiples 방식).
   const trendCardsHtml = centerStats
-    .filter(function(s) { return CENTER_CARD_TREND[s.code]; })
+    .filter(function(s) { return getCardTrendConfig(s.code); })
     .map(function(s) {
       return '<div class="panel" style="padding:14px 16px;">'
         + '<div style="font-weight:700;font-size:13px;margin-bottom:8px;">' + s.name + '</div>'
@@ -1638,8 +1638,39 @@ const CENTER_CARD_TREND = {
       { label: 'T-NPS', key: 'TNPS', mode: 'avg' }
     ],
     lineAxis: { min: 0, max: 110 }
+  },
+  'lge_total': {
+    months: 6,
+    stacked: true,
+    barsOnSecondary: true,
+    barSeries: [
+      { label: '생산성(IN)', key: '생산성_IN', mode: 'avg' },
+      { label: '생산성(OUT)', key: '__생산성_OUT_derived__', mode: 'avg', derivedFrom: { totalKey: '생산성_INOUT', subKey: '생산성_IN' } }
+    ],
+    lineSeries: [
+      { label: 'T-NPS', key: 'TNPS', mode: 'avg' }
+    ],
+    lineAxis: { min: 0, max: 110 }
   }
 };
+
+// CENTER_CARD_TREND에 센터별 커스텀 항목이 없으면(라벨을 다르게 부르거나 파생값을 써야 하는 경우가 아니면),
+// 그 센터의 대시보드용 CENTER_CHART_CONFIG(첫 번째 그룹)에서 막대/선 구성을 그대로 가져와 전체현황 추이카드를
+// 자동으로 만든다. 새 센터를 추가할 때 대시보드가 동작하려면 CENTER_CHART_CONFIG 등록이 어차피 필수라서,
+// 전체현황 카드만을 위해 별도로 CENTER_CARD_TREND를 추가 등록하지 않아도 신규 센터가 자동으로 반영된다.
+function getCardTrendConfig(code) {
+  if (CENTER_CARD_TREND[code]) return CENTER_CARD_TREND[code];
+  const cc = CENTER_CHART_CONFIG[code];
+  const g = cc && cc.groups && cc.groups[0];
+  if (!g) return null;
+  return {
+    months: 6,
+    stacked: !!g.stacked,
+    barSeries: (g.barKeys || []).map(function(k, i) { return { label: g.barLabels[i], key: k, mode: 'avg' }; }),
+    lineSeries: (g.lineKeys || []).map(function(k, i) { return { label: g.lineLabels[i], key: k, mode: 'avg' }; }),
+    lineAxis: { min: 0, max: 110 }
+  };
+}
 // 회색계열 팔레트: 막대(물량)는 옅은 회색, 선(비율/점수)은 짙은 회색~검정으로 대비
 const WS_BAR_COLORS = ['rgba(180,190,202,0.55)', 'rgba(206,213,222,0.5)', 'rgba(232,236,242,0.55)'];
 const WS_LINE_COLORS = ['#8b93a3', '#c3c8d1', '#e5e7eb'];
@@ -1651,7 +1682,7 @@ function drawWorkspaceSparklines(centerStats) {
 
   const savedCenter = currentCenter;
   centerStats.forEach(function(s) {
-    const cfg = CENTER_CARD_TREND[s.code];
+    const cfg = getCardTrendConfig(s.code);
     const canvas = document.getElementById('wsTrend_' + s.code);
     if (!cfg || !canvas) return;
     currentCenter = s.code; // resolveMetric이 currentCenter를 참조

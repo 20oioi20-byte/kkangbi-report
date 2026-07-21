@@ -2,6 +2,14 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-21 (4차) — 전체현황 센터별 핵심지표 추이에 LG전자통합 추가 + 신규 센터 자동 반영
+- **요청 배경**: 전체현황 하단 "센터별 핵심지표 추이(최근 6개월, 월평균)" 그래프에 LG전자통합이 빠져 있어 추가해달라는 요청. 추가로, 앞으로 센터가 신규로 생겨서 데이터가 들어오면 이 그래프에 수동 등록 없이 자동으로 반영되게 해달라는 요청.
+- **원인**: 이 섹션은 `CENTER_CARD_TREND`라는 센터별 설정 객체에 등록된 센터만 카드가 나오도록 돼 있었는데, LG전자통합은 등록이 안 돼 있었음. 그리고 이 등록은 100% 수동이라, 새 센터를 추가해도 자동으로 반영되지 않고 매번 코드를 손봐야 했음.
+- **LG전자통합 추가**: `CENTER_CARD_TREND['lge_total']`을 lge/lge_seongsu와 동일한 패턴(생산성 IN/OUT 누적막대 + T-NPS 선)으로 추가.
+- **신규 센터 자동 반영**: `getCardTrendConfig(code)` 함수 신규 추가 — `CENTER_CARD_TREND`에 그 센터의 커스텀 등록이 있으면 그대로 쓰고, 없으면 그 센터의 대시보드용 `CENTER_CHART_CONFIG`(첫 번째 그룹의 막대·선 구성)를 그대로 가져와 전체현황 카드를 자동으로 만들어냄. 새 센터를 등록하면 어차피 자기 대시보드가 동작하려면 `CENTER_CHART_CONFIG` 등록이 필수인데, 그 정보를 재사용하는 것이라 전체현황 카드만을 위한 추가 등록 단계가 사라짐. 라벨을 다르게 부르거나(kbjeongbi의 "고지/통지/목적물" 등) 파생값을 써야 하는 센터(lge류의 생산성(OUT) 등)는 기존처럼 `CENTER_CARD_TREND`에 직접 등록해서 자동 생성 결과를 덮어쓸 수 있음.
+- **검증**: `node --check` 통과. 로컬 정적 서버 + 가짜 데이터(LG전자통합 6개월치)로 (1) LG전자통합 카드가 실제로 나오고 T-NPS/생산성 데이터가 정확한지 확인. (2) "신규 센터" 상황을 재현하기 위해 KB손보부천의 `CENTER_CARD_TREND` 등록을 런타임에 일시 제거한 뒤, `CENTER_CHART_CONFIG`만으로 카드가 자동 생성되는지(인입호/응대호/응답율/SL 4개 시리즈로 자동 구성됨) 확인 — 확인 후 원복.
+- `docs/FEATURE.md` 4번 섹션 갱신함.
+
 ## 2026-07-21 (3차) — ✅ 센터 "숨기기/다시 보이기" 완성 (기존 is_active 재사용, 배포 불필요)
 - **요청 배경**: 2차 항목에서 프론트엔드를 준비하며 새 `is_deleted` 컬럼 + `center-hide`/`center-unhide` 신규 백엔드 액션이 필요하다고 안내했었는데, 사용자가 실제 `index.ts` 전체를 공유해줌.
 - **핵심 발견**: index.ts를 확인해보니 `center_config`에 이미 `is_active` 컬럼이 있었고(`center-create` 시 `true`로 생성, `verify`/`upload`/`history`/`schema`/`manual-entry(-bulk)`/`archive-upload-file`/`runNotificationCheck`가 전부 이 값을 검사), `center-update` 액션이 이미 `is_active`를 받아 `UPDATE`해주고 있었음. 프론트엔드 어디에서도 `center_config.is_active`를 쓰고 있지 않았던 것도 확인(`center_contacts.is_active`와는 다른 필드) — 즉 **새 컬럼도, 새 액션도 필요 없이 기존 `action=center-update`를 `{center_code, is_active:false}`로 호출하는 것만으로 숨기기가 완성**됨.
