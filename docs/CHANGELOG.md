@@ -2,6 +2,14 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-21 — 🟡 센터 삭제 500 에러 원인 확인 (수정은 index.ts 필요해 대기)
+- **증상**: 사이드바에서 센터 삭제 시 500 에러. Supabase Edge Function 로그에서 실제 메시지 확인: `삭제 실패: update or delete on table "center_config" violates foreign key constraint "center_monthly_settings_center_code_fkey" on table "center_monthly_settings"`.
+- **원인**: `center-delete` 액션이 `center_config` 행을 물리 `DELETE`하는데, 그 센터를 참조하는 `center_monthly_settings` 데이터가 남아있어 외래키 제약 위반. 삭제 확인창 문구("등록된 실적 데이터는 DB에 남지만 목록에서는 사라집니다")를 보면 원래 소프트 삭제(목록에서만 숨김)로 설계된 것으로 보이는데, 실제 구현은 물리 삭제를 시도하고 있어 문구와 동작이 어긋나 있었음.
+- **판단**: 하위 테이블에 `ON DELETE CASCADE`를 걸어 물리 삭제가 되게 하는 방법도 있지만, 그러면 센터 삭제 시 실적/TO설정/이슈 등 데이터가 전부 함께 사라져 "데이터는 남는다"는 기존 안내와 정반대가 되고 되돌릴 수 없는 데이터 손실 위험이 있어, 임의로 그 방향으로 고치지 않음. 대신 확인창 문구 그대로 **소프트 삭제**로 가는 방향을 준비함.
+- **SQL 준비됨**: `schema_addendum_12_center_soft_delete.sql` — `center_config`에 `is_deleted boolean default false` 컬럼 추가(추가 전용, 기존 데이터 무변경).
+- **아직 미완료**: Edge Function(`center-report-upload`)의 `index.ts`가 이 저장소에 없어서, `center-delete` 액션을 물리 DELETE 대신 `is_deleted = true` UPDATE로 바꾸고 센터 목록 조회 쿼리에 `is_deleted = false` 필터를 추가하는 코드 수정은 아직 못함 — index.ts를 받으면 이어서 수정 예정.
+- `docs/DEPLOY-CHECKLIST.md`에 "1-2. 센터 삭제 500 에러" 섹션 추가, `docs/FEATURE.md` 1번 섹션 갱신함.
+
 ## 2026-07-19 (14차) — 주요지표 리스트 명칭 정리(2차) + LG전자통합 항목 3개 제거
 - **요청 배경**: 대시보드 주요지표 항목 명칭을 센터별로 더 짧고 간결하게 정리해달라는 요청. 전 센터 공통(전월비/전년동월비 표기), KB손보부천, KB손보정비, LG전자통합 각각에 명칭 변경·항목 삭제 지시.
 - **전 센터 공통**: "전월비"→"전월比", "전년동월비"→"전년동월比"(한자 比).
