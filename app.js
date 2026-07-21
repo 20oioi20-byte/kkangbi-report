@@ -2348,10 +2348,14 @@ function periodCumLabel() {
   return '연초누적';
 }
 
+// 항목명 아래에 평균·전월비·전년동월비를 같은 모양의 칩(chip)으로 나란히 배치하는 방식.
+// 칩 개수가 달라져도 칩 하나의 높이는 항상 같아서, 예전처럼 "전년동월비가 있을 때만 테두리 박스가
+// 붙어 두 줄이 되고 없으면 한 줄에 그냥 이어붙는" 식으로 행마다 모양이 들쭉날쭉하던 문제가 없다
+// (2026-07-19, 사용자에게 3가지 레이아웃 시안을 제안 후 이 방식으로 확정).
 function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonthRows) {
-  lastTrendLines = ['지표\t' + (periodAvgLabel() || '일평균') + '\t전월비\t전년동월비\t누적평균'];
+  lastTrendLines = ['지표\t' + (periodAvgLabel() || '일평균') + '\t전월비\t전년동월비\t평균'];
   const defs = CENTER_KPI_DEFS[currentCenter] || [];
-  return defs.map(function(def) {
+  const rowsHtml = defs.map(function(def) {
     const dailyAvg = getAvgForDef(def, monthRows);
     const cumAvg = getAvgForDef(def, cumulativeRows);
     const prevMonthAvg = prevMonthRows && prevMonthRows.length ? getAvgForDef(def, prevMonthRows) : null;
@@ -2361,32 +2365,17 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
     const dailyDisplayLabeled = periodAvgLabel() + dailyDisplay;
     const cumDisplay = formatKpiValue(def, cumAvg);
 
-    function compareSegment(base, compareLabel) {
+    function compareValueHtml(base) {
       if (dailyAvg === null || base === null) return '';
       const diff = dailyAvg - base;
       const up = diff >= 0;
       const absStr = formatDiffAbs(def, diff);
       const pctStr = base !== 0 ? Math.abs(diff / base * 100).toFixed(1) + '%' : '-';
-      return compareLabel + ' <span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</span>' + absStr + ', ' + pctStr;
+      return '<span class="arrow ' + (up ? 'up' : 'down') + '">' + (up ? '▲' : '▼') + '</span>' + absStr + ', ' + pctStr;
     }
 
-    const momText = compareSegment(prevMonthAvg, '전월比');
-    const yoyText = compareSegment(prevYearAvg, '전년동월比');
-    const parts = [dailyDisplayLabeled, '<span class="cum-avg">평균 ' + cumDisplay + '</span>'];
-    // 전년동월비까지 함께 보여줄 때(둘 다 있을 때)는 한 줄에 다 넣지 않고, 테두리로 구분된 별도 박스를
-    // 행 오른쪽에 두고 그 안에서 전월비 위·전년동월비 아래로 두 줄로 보여준다(사용자가 첨부한 이미지 기준).
-    // 전년동월비가 없으면(대개 전년도 같은 달 데이터가 아직 없는 경우) 기존처럼 전월비만 왼쪽 텍스트에 이어서 표시.
-    let compareStackHtml = '';
-    if (momText && yoyText) {
-      compareStackHtml = '<div class="compare-stack">'
-        + '<div><span class="compare-badge">' + momText + '</span></div>'
-        + '<div style="margin-top:3px;"><span class="compare-yoy">' + yoyText + '</span></div>'
-        + '</div>';
-    } else if (momText) {
-      parts.push('<span class="compare-badge">' + momText + '</span>');
-    } else if (yoyText) {
-      parts.push('<span class="compare-yoy">' + yoyText + '</span>');
-    }
+    const momValueHtml = compareValueHtml(prevMonthAvg);
+    const yoyValueHtml = compareValueHtml(prevYearAvg);
 
     lastTrendLines.push(def.label + '\t' + dailyDisplay
       + '\t' + (prevMonthAvg !== null ? formatKpiValue(def, prevMonthAvg) : '-')
@@ -2395,14 +2384,16 @@ function renderTrendList(monthRows, cumulativeRows, prevYearMonthRows, prevMonth
 
     const labelText = (def.section ? def.section + ' ' : '') + def.label;
 
-    return '<div class="trend-row" style="display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px 4px;">'
-      + '<div style="flex:1;min-width:0;">'
-        + '<span class="label" style="font-weight:600;">' + labelText + '</span>'
-        + '&nbsp; ' + parts.join(' &nbsp;/&nbsp; ')
-      + '</div>'
-      + compareStackHtml
+    const chips = ['<span class="chip"><span class="chip-label">평균</span> ' + cumDisplay + '</span>'];
+    if (momValueHtml) chips.push('<span class="chip mom"><span class="chip-label">전월비</span> ' + momValueHtml + '</span>');
+    if (yoyValueHtml) chips.push('<span class="chip yoy"><span class="chip-label">전년동월비</span> ' + yoyValueHtml + '</span>');
+
+    return '<div class="trend-row">'
+      + '<div class="label-line"><span class="label">' + labelText + '</span><span class="primary-val">' + dailyDisplayLabeled + '</span></div>'
+      + '<div class="chips">' + chips.join('') + '</div>'
       + '</div>';
   }).join('');
+  return rowsHtml;
 }
 
 function copyTrendList() {
