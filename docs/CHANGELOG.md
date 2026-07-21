@@ -2,6 +2,18 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-21 (2차) — 🟡 센터 "삭제"를 "숨기기/다시 보이기"로 전환 (프론트엔드 완료, 백엔드 액션 대기)
+- **요청 배경**: 직전 항목의 센터 삭제 500 에러를 계기로, 아예 "삭제" 기능 자체를 없애고 "숨기기(목록에서만 안 보임, 데이터는 보존)"와 "다시 보이기(복원)" 기능으로 바꿔달라는 요청. 숨긴 센터는 전체현황에서도 데이터가 안 보이고, 다시 보이게 하면 전체현황에도 다시 나와야 함.
+- **프론트엔드 구현**(`app.js`, `admin.html`):
+  - `deleteCenterPrompt()`를 `hideCenterPrompt()`로 교체 — `action=center-delete` 대신 `action=center-hide` 호출, 확인창 문구도 "숨기시겠습니까? 데이터는 그대로 남고 목록·전체현황에서만 안 보이게 됩니다"로 변경. 사이드바 케밥 메뉴의 "✕ 삭제" 버튼도 "🙈 숨기기"로 교체.
+  - `unhideCenter(code)` 신규 — `action=center-unhide` 호출.
+  - "⚙ 계정 ▾" 드롭다운에 "🙈 숨긴 센터 관리" 메뉴 추가 → 클릭 시 패널이 열리고(`toggleHiddenCentersPanel`), 숨긴 센터들을 알약(pill) 형태로 나열하며 각각에 "다시 보이기" 버튼 표시(`renderHiddenCentersPanel`). admin.html에 `#hiddenCentersPanel`/`#hiddenCentersList` 컨테이너 추가(기존 백업/복원 패널과 동일한 토글 패턴).
+  - `visibleCentersMeta()` 신규 헬퍼(`is_deleted`가 아닌 센터만 반환) — 사이드바 목록(`renderSidebar`), 전체현황 센터별 카드(`renderWorkspaceOverview`), 인증 변경 후 자동 센터 선택 로직(`refreshAfterAuthChange`, `init`)까지 전부 이 헬퍼를 거치도록 수정해서 숨긴 센터가 어디서도 노출되거나 자동 선택되지 않도록 함.
+  - `loadAllCentersOverview()`가 `admin-overview` 응답의 `rows`를 받은 뒤, 숨긴 센터의 `center_code`에 해당하는 행을 클라이언트에서 한 번 더 걸러내도록 수정 — 전체현황의 실적 데이터에서도 숨긴 센터가 완전히 빠짐. 다시 보이게 하면(`is_deleted=false`로 복원) 이 필터를 그대로 안 타서 다음 조회부터 자동으로 다시 나타남.
+- **백엔드(index.ts) 미완료**: `action=center-hide`/`action=center-unhide` 두 액션이 아직 Edge Function에 없음 — `center-delete`/`center-update`와 동일한 패턴(POST, `workspace_password`+`center_code`)으로 `UPDATE center_config SET is_deleted = true/false WHERE center_code = $1`만 실행하면 됨. `centers-manage-list`가 `SELECT *`라면 SQL 실행만으로 `is_deleted` 필드가 자동으로 응답에 포함될 가능성이 높음. 이 저장소에 index.ts 소스가 없어 직접 수정하지 못함 — 받으면 이어서 반영 예정.
+- **검증**: `node --check` 통과. 로컬 정적 서버 + 가짜 데이터(3개 센터 중 1개 `is_deleted:true`)로 (1) 숨긴 센터가 사이드바 목록에서 빠지는지 (2) 전체현황 실적 데이터(`allRows`)에서도 그 센터 행이 빠지는지 (3) "숨긴 센터 관리" 패널에 정확히 나오고 "다시 보이기" 클릭 시 사이드바에 재등장하는지 (4) 반대로 "숨기기" 실행 시 즉시 사이드바에서 빠지는지 브라우저에서 직접 확인함.
+- `docs/FEATURE.md` 1번 섹션, `docs/DEPLOY-CHECKLIST.md` "1-2" 섹션 갱신함.
+
 ## 2026-07-21 — 🟡 센터 삭제 500 에러 원인 확인 (수정은 index.ts 필요해 대기)
 - **증상**: 사이드바에서 센터 삭제 시 500 에러. Supabase Edge Function 로그에서 실제 메시지 확인: `삭제 실패: update or delete on table "center_config" violates foreign key constraint "center_monthly_settings_center_code_fkey" on table "center_monthly_settings"`.
 - **원인**: `center-delete` 액션이 `center_config` 행을 물리 `DELETE`하는데, 그 센터를 참조하는 `center_monthly_settings` 데이터가 남아있어 외래키 제약 위반. 삭제 확인창 문구("등록된 실적 데이터는 DB에 남지만 목록에서는 사라집니다")를 보면 원래 소프트 삭제(목록에서만 숨김)로 설계된 것으로 보이는데, 실제 구현은 물리 삭제를 시도하고 있어 문구와 동작이 어긋나 있었음.

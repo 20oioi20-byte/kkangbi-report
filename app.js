@@ -487,7 +487,7 @@ function promptCenterPassword(code) {
 
 async function refreshAfterAuthChange() {
   if (!workspaceUnlocked) { viewingWorkspaceOverview = false; viewingSettingsPage = false; }
-  const available = allCentersMeta.filter(function(c) { return workspaceUnlocked || unlockedCenters.has(c.center_code); });
+  const available = allCentersMeta.filter(function(c) { return !c.is_deleted && (workspaceUnlocked || unlockedCenters.has(c.center_code)); });
   if (!viewingWorkspaceOverview && !viewingSettingsPage && !available.find(function(c) { return c.center_code === currentCenter; })) {
     currentCenter = available.length ? available[0].center_code : null;
   }
@@ -511,6 +511,7 @@ function renderTopbarAuth() {
       + centerPwItem
       + '<button onclick="closeAccountMenu();showChangeWorkspacePw()">🔑 관리자화면 비번변경</button>'
       + '<button onclick="closeAccountMenu();toggleBackupPanel()">💾 백업/복원</button>'
+      + '<button onclick="closeAccountMenu();toggleHiddenCentersPanel()">🙈 숨긴 센터 관리</button>'
       + '<button onclick="closeAccountMenu();lockWorkspace()" class="danger">🔒 잠그기</button>'
       + '</div></div>';
   } else {
@@ -606,14 +607,16 @@ function renameCenterPrompt(code) {
   }).catch(function(e) { alert('오류: ' + e.message); });
 }
 
-function deleteCenterPrompt(code) {
+// 센터를 실제로 삭제(DELETE)하지 않고 숨김(is_deleted=true) 처리한다 — 실적/TO/KPI 등 데이터는 DB에
+// 그대로 남고, 사이드바·전체현황 등 화면에서만 안 보이게 된다. "숨긴 센터 관리"에서 언제든 다시 보이게 할 수 있음.
+function hideCenterPrompt(code) {
   const meta = allCentersMeta.find(function(c) { return c.center_code === code; });
-  if (!confirm((meta ? meta.center_name : code) + ' 센터를 삭제하시겠습니까?\n등록된 실적 데이터는 DB에 남지만 목록에서는 사라집니다.')) return;
-  fetch(SB_FUNCTION_URL + '?action=center-delete', {
+  if (!confirm((meta ? meta.center_name : code) + ' 센터를 숨기시겠습니까?\n등록된 실적 데이터는 DB에 그대로 남고, 목록·전체현황에서만 안 보이게 됩니다.\n"⚙ 계정 ▾ → 🙈 숨긴 센터 관리"에서 언제든 다시 보이게 할 수 있습니다.')) return;
+  fetch(SB_FUNCTION_URL + '?action=center-hide', {
     method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
     body: JSON.stringify({ workspace_password: workspacePasswordCache, center_code: code })
   }).then(function(r) { return r.json(); }).then(async function(data) {
-    if (!data.success) { alert('삭제 실패: ' + data.error); return; }
+    if (!data.success) { alert('숨기기 실패: ' + data.error); return; }
     delete centerTokenMap[code];
     unlockedCenters.delete(code);
     persistSession();
@@ -621,6 +624,37 @@ function deleteCenterPrompt(code) {
     if (currentCenter === code) currentCenter = null;
     await refreshAfterAuthChange();
   }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+function unhideCenter(code) {
+  fetch(SB_FUNCTION_URL + '?action=center-unhide', {
+    method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+    body: JSON.stringify({ workspace_password: workspacePasswordCache, center_code: code })
+  }).then(function(r) { return r.json(); }).then(async function(data) {
+    if (!data.success) { alert('복원 실패: ' + data.error); return; }
+    await loadCentersMeta();
+    renderHiddenCentersPanel();
+    await refreshAfterAuthChange();
+  }).catch(function(e) { alert('오류: ' + e.message); });
+}
+
+function toggleHiddenCentersPanel() {
+  const panel = document.getElementById('hiddenCentersPanel');
+  panel.classList.toggle('open');
+  if (panel.classList.contains('open')) renderHiddenCentersPanel();
+}
+
+function renderHiddenCentersPanel() {
+  const el = document.getElementById('hiddenCentersList');
+  if (!el) return;
+  const hidden = allCentersMeta.filter(function(c) { return c.is_deleted; });
+  if (hidden.length === 0) { el.innerHTML = '<span class="msg">숨긴 센터가 없습니다.</span>'; return; }
+  el.innerHTML = hidden.map(function(c) {
+    return '<span style="display:inline-flex;align-items:center;gap:8px;background:#232326;border:1px solid #2c2c2e;border-radius:999px;padding:6px 8px 6px 14px;margin:3px 6px 3px 0;font-size:13px;">'
+      + c.center_name
+      + '<button class="btn-outline" style="padding:4px 10px;font-size:12px;" onclick="unhideCenter(\'' + c.center_code + '\')">다시 보이기</button>'
+      + '</span>';
+  }).join('');
 }
 
 function moveCenterOrder(code, dir) {
@@ -700,7 +734,7 @@ async function init() {
   await loadCentersMeta();
   const autoUnlocked = await tryDomainAutoUnlock();
   if (!autoUnlocked && workspaceUnlocked) { await tryWorkspaceLogin(workspacePasswordCache, true); }
-  const available = allCentersMeta.filter(function(c) { return workspaceUnlocked || unlockedCenters.has(c.center_code); });
+  const available = allCentersMeta.filter(function(c) { return !c.is_deleted && (workspaceUnlocked || unlockedCenters.has(c.center_code)); });
   if (workspaceUnlocked) {
     viewingWorkspaceOverview = true;
   } else if (available.length > 0) {
@@ -853,10 +887,13 @@ function filterCenterList(query) {
   });
 }
 
+// 사이드바/전체현황 등 일반 화면에서는 숨긴 센터를 완전히 제외한다("숨기기 관리" 패널에서만 따로 보여줌).
+function visibleCentersMeta() { return allCentersMeta.filter(function(c) { return !c.is_deleted; }); }
+
 function renderSidebar() {
   renderSidebarCustom();
   const listLabel = document.getElementById('centerListLabel');
-  if (listLabel) listLabel.textContent = '센터 (' + allCentersMeta.length + ')';
+  if (listLabel) listLabel.textContent = '센터 (' + visibleCentersMeta().length + ')';
   const list = document.getElementById('centerList');
   const overviewHtml = workspaceUnlocked
     ? '<div class="center-item ' + (viewingWorkspaceOverview ? 'active' : '') + '" onclick="selectWorkspaceOverview()" style="font-weight:700;border-bottom:1px solid #2a2e38;margin-bottom:4px;">'
@@ -875,9 +912,10 @@ function renderSidebar() {
       + '</div>'
     : '';
 
-  if (allCentersMeta.length === 0) { list.innerHTML = overviewHtml + archiveHtml + notifyHtml + '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
+  const visible = visibleCentersMeta();
+  if (visible.length === 0) { list.innerHTML = overviewHtml + archiveHtml + notifyHtml + '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
 
-  const sorted = allCentersMeta.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+  const sorted = visible.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
 
   list.innerHTML = overviewHtml + archiveHtml + notifyHtml + sorted.map(function(c, idx) {
     const isUnlocked = workspaceUnlocked || unlockedCenters.has(c.center_code);
@@ -893,7 +931,7 @@ function renderSidebar() {
         + '<button class="mv" onclick="toggleCenterMenu(event, \'' + c.center_code + '\')" title="더보기">⋯</button>'
         + '<div class="kebab-menu" id="kebabMenu_' + c.center_code + '">'
         + '<button onclick="closeCenterMenus();renameCenterPrompt(\'' + c.center_code + '\')">✎ 이름변경</button>'
-        + '<button onclick="closeCenterMenus();deleteCenterPrompt(\'' + c.center_code + '\')" class="danger">✕ 삭제</button>'
+        + '<button onclick="closeCenterMenus();hideCenterPrompt(\'' + c.center_code + '\')" class="danger">🙈 숨기기</button>'
         + '</div>'
         + '</span>'
         + '</span>'
@@ -947,7 +985,12 @@ async function loadAllCentersOverview() {
   try {
     const res = await fetch(SB_FUNCTION_URL + '?action=admin-overview&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
     const data = await res.json();
-    if (data.success) { allRows = data.rows || []; }
+    if (data.success) {
+      // 숨긴 센터의 데이터는 전체현황에서 보이지 않아야 하므로 클라이언트에서 한 번 더 걸러낸다
+      // (센터 목록 자체는 loadCentersMeta()가 이미 is_deleted를 알고 있음).
+      const hiddenCodes = allCentersMeta.filter(function(c) { return c.is_deleted; }).map(function(c) { return c.center_code; });
+      allRows = (data.rows || []).filter(function(r) { return hiddenCodes.indexOf(r.center_code) === -1; });
+    }
   } catch (e) {
     document.getElementById('main').innerHTML = '<div class="empty">데이터 로드 실패: ' + e.message + '</div>';
   }
@@ -1414,7 +1457,7 @@ function formatHeadlineMetric(m) {
 
 function renderWorkspaceOverview() {
   const main = document.getElementById('main');
-  const sorted = allCentersMeta.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
+  const sorted = visibleCentersMeta().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
 
   const centerStats = sorted.map(function(c) {
     const rows = allRows.filter(function(r) { return r.center_code === c.center_code; });

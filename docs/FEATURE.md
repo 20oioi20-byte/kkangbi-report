@@ -4,7 +4,7 @@
 
 ## 1. 센터 관리
 - ✅ 센터 목록/추가/이름변경/순서변경 (사이드바)
-- 🟡 (2026-07-21) **센터 삭제 500 에러 — 원인 확인, 수정은 index.ts 필요해 대기 중**: `center-delete` 액션이 `center_config` 행을 물리 삭제하려다 하위 테이블(`center_monthly_settings` 등)의 외래키 제약에 걸려 실패. 삭제 확인창 문구("데이터는 남습니다")에 맞춰 소프트 삭제(`is_deleted` 플래그)로 고치는 방향으로 SQL(`schema_addendum_12_center_soft_delete.sql`)은 준비됨 — Edge Function 쪽 수정은 `docs/DEPLOY-CHECKLIST.md` "1-2. 센터 삭제 500 에러" 참고.
+- 🟡 (2026-07-21) **센터 "삭제"를 "숨기기/다시 보이기"로 전환 — 프론트엔드 완료, 백엔드 액션 2개 대기**: 기존 `center-delete`가 `center_config`를 물리 삭제하려다 하위 테이블 외래키 제약으로 500 에러가 나던 문제를 계기로, 삭제 대신 소프트 삭제(숨기기) 방식으로 전환. 사이드바 센터 메뉴의 "삭제"가 "🙈 숨기기"로 바뀌었고(`hideCenterPrompt`), "⚙ 계정 ▾ → 🙈 숨긴 센터 관리"에서 숨긴 센터 목록을 보고 "다시 보이기"로 복원 가능(`unhideCenter`, `toggleHiddenCentersPanel`/`renderHiddenCentersPanel`). 숨긴 센터는 사이드바·전체현황(요약 카드·실적 데이터 모두)에서 제외되고(`visibleCentersMeta()`, `loadAllCentersOverview()`의 클라이언트 필터), 실적 데이터 자체는 DB에 그대로 남아 다시 보이게 하면 즉시 복원됨. SQL(`schema_addendum_12_center_soft_delete.sql`, `center_config.is_deleted` 컬럼)은 준비됨 — Edge Function에 `action=center-hide`/`action=center-unhide` 액션을 추가해야 실제로 동작함(`docs/DEPLOY-CHECKLIST.md` "1-2" 참고, 이 저장소에 index.ts가 없어 미완료).
 - ✅ 5개 센터: KB손보부천(`kbsonhae`), KB손보정비(`kbjeongbi`), LG전자AS(`lge`), LG전자성수기(`lge_seongsu`), 평택시청(`pyeongtaek`)
 - ✅ (2026-07-12) 상단 고정 탭(대시보드/데이터입력/이슈및히스토리/TO및목표값설정) 제거 → 사이드바에서 현재 선택된 센터 바로 아래에 서브메뉴로 노출 (`MAIN_TABS`, `renderCenterSubmenu()`). 센터를 바꾸면 서브메뉴는 자동으로 해당 센터 것으로 교체됨.
 - ✅ (2026-07-12) 센터 전환(사이드바 클릭 또는 비밀번호 인증 성공) 시 화면상태 초기화(`resetDashboardStateForNewCenter()`): 탭=대시보드, 기간=단월, 월=이번달로 리셋. 이전엔 직전 센터에서 보던 탭·기간이 그대로 유지되는 버그가 있었음.

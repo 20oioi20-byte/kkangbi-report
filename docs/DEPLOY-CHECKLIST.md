@@ -23,15 +23,18 @@
 - **(2026-07-15 장애 이후 필수 절차) `index.ts`를 배포하기 전에 반드시 로컬에서 `deno check index.ts`로 타입체크 통과를 확인할 것.** 2026-07-15에 `mammoth` 라이브러리의 esm.sh 타입선언이 예고 없이 바뀌면서 배포가 통째로 막히고 사이트 전체(센터 목록 포함)가 멈춘 적이 있음 — 코드를 안 건드려도 외부 CDN 타입선언 변경만으로 배포가 실패할 수 있으므로, 매 배포 전 `deno check`를 습관화할 것. Deno가 없으면 `curl -fsSL https://deno.land/install.sh | sh`로 설치.
 - 장애 시 진단 순서: (1) Supabase Table Editor로 DB 데이터 실제 존재 여부 확인(데이터 유실이 아닌지 우선 구분) → (2) 브라우저 콘솔에 CORS 에러가 뜨면 Edge Function이 요청 처리 전에 죽고 있다는 뜻 → (3) 로컬에서 `deno check index.ts`로 재현 → (4) 안전하면 이전 정상 배포본으로 즉시 롤백해 서비스부터 복구.
 
-## 1-2. 🟡 센터 삭제 500 에러 (2026-07-21, 원인 확인됨 · 수정 대기)
-- **증상**: 사이드바에서 센터 삭제 시 `Failed to load resource: ... 500`, 실제 메시지는 `삭제 실패: update or delete on table "center_config" violates foreign key constraint "center_monthly_settings_center_code_fkey" on table "center_monthly_settings"`(Supabase Edge Function 로그로 확인).
-- **원인**: `center-delete` 액션이 `center_config` 행을 물리적으로 `DELETE`하는데, 그 센터를 참조하는 `center_monthly_settings`(및 다른 하위 테이블도 데이터가 있으면 마찬가지) 행이 남아있어 외래키 제약 위반. 그런데 현재 삭제 확인창 문구는 "등록된 실적 데이터는 DB에 남지만 목록에서는 사라집니다"라서, 원래 의도는 물리 삭제가 아니라 **소프트 삭제**(목록에서만 숨기기)였던 것으로 보임 — 실제 구현이 그 의도와 어긋나 있는 상태.
-- **준비된 것**: `schema_addendum_12_center_soft_delete.sql` — `center_config`에 `is_deleted boolean default false` 컬럼 추가(추가 전용, 기존 데이터 무변경).
-- **아직 필요한 것(index.ts 수정, 이 저장소에 소스가 없어 미완료)**:
-  1. `center-delete` 액션: `DELETE FROM center_config ...` → `UPDATE center_config SET is_deleted = true WHERE center_code = ...`로 변경.
-  2. 센터 목록을 내려주는 쿼리(사이드바에 뜨는 센터 목록, `centers-list` 류 액션으로 추정)에 `WHERE is_deleted = false` 조건 추가.
-  3. (선택) "복구" 기능이 필요하면 `is_deleted = false`로 되돌리는 관리자 액션도 추가 가능.
-- 프론트엔드(`app.js`)는 `action=center-delete` 호출부 그대로 재사용 가능 — 수정 불필요.
+## 1-2. 🟡 센터 삭제 → "숨기기/다시 보이기"로 전환 (2026-07-21, 프론트엔드 완료 · 백엔드 액션 2개 대기)
+- **배경**: 센터 삭제 시 `center_config` 행을 물리 DELETE하다 하위 테이블(`center_monthly_settings` 등) 외래키 위반으로 500 에러가 났던 문제(원인은 위 CHANGELOG 2026-07-21 항목 참고). 이를 완전한 삭제가 아니라 **숨기기(소프트 삭제)/다시 보이기** 기능으로 전환하기로 함 — 숨긴 센터는 사이드바·전체현황에서 안 보이지만 데이터는 DB에 그대로 남고, 언제든 다시 보이게 할 수 있음.
+- **SQL 준비됨**: `schema_addendum_12_center_soft_delete.sql` — `center_config`에 `is_deleted boolean default false` 컬럼 추가(추가 전용).
+- **프론트엔드(`app.js`/`admin.html`) 완료**:
+  - 사이드바 센터 메뉴의 "✕ 삭제" → "🙈 숨기기"로 교체(`hideCenterPrompt()`, `action=center-hide` 호출).
+  - "⚙ 계정 ▾" 메뉴에 "🙈 숨긴 센터 관리" 추가 → 패널에서 숨긴 센터 목록과 "다시 보이기" 버튼 표시(`toggleHiddenCentersPanel()`/`renderHiddenCentersPanel()`/`unhideCenter()`, `action=center-unhide` 호출).
+  - 사이드바 목록·전체현황(`renderWorkspaceOverview`)·자동 센터 선택 로직 전부 `is_deleted=true`인 센터를 제외하도록 수정(`visibleCentersMeta()`). 전체현황의 실적 데이터(`allRows`)도 숨긴 센터의 행을 클라이언트에서 한 번 더 걸러냄(`loadAllCentersOverview()`).
+- **아직 필요한 것(index.ts 수정, 이 저장소에 소스가 없어 미완료)** — 아래 2개 액션을 `center-delete`/`center-update`와 동일한 패턴(`workspace_password` 인증, `center_code` 파라미터)으로 추가:
+  1. `action=center-hide` — `UPDATE center_config SET is_deleted = true WHERE center_code = $1`
+  2. `action=center-unhide` — `UPDATE center_config SET is_deleted = false WHERE center_code = $1`
+  3. `centers-manage-list` 응답에 `is_deleted` 필드가 포함돼야 함 — `SELECT *`로 조회하고 있다면 SQL만 실행해도 자동으로 포함되어 이 항목은 코드 수정이 필요 없을 가능성이 높음(컬럼을 명시적으로 나열하는 쿼리라면 `is_deleted` 추가 필요).
+- 기존 `action=center-delete`는 그대로 두거나 제거해도 무방(프론트엔드에서 더 이상 호출하지 않음).
 
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |
