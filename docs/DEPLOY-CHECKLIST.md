@@ -15,7 +15,6 @@
 10. `schema_addendum_9_ai_provider.sql` — AI 보조기능(엑셀 매핑 override + 호출 로그) 테이블 신규
 11. `schema_addendum_10_notification_manual.sql` — 알림 로그에 즉시발송 여부(`is_manual`) 컬럼 추가
 12. `schema_addendum_11_lge_total_center.sql` — LG전자통합(`lge_total`) 신규 센터 등록 (실행 후 기본 비밀번호 000000 → 변경 필요)
-13. 🟡 `schema_addendum_12_center_soft_delete.sql` — `center_config.is_deleted` 컬럼 추가(소프트 삭제용). **SQL만으로는 버그가 완전히 고쳐지지 않음** — Edge Function의 `center-delete` 액션(현재 `center_config` 행을 물리 DELETE → 하위 테이블 외래키 위반으로 500 에러)을 `is_deleted = true`로 UPDATE하도록, 그리고 센터 목록 조회 쿼리를 `is_deleted = false`만 보이도록 index.ts를 함께 수정해야 완료됨(아래 "센터 삭제 500 에러" 참고).
 
 ## 1-1. Edge Function 배포 (2026-07-13, index.ts 전체 병합 완료)
 - 이전엔 index.ts 원본이 없어 병합용 스니펫으로만 드렸지만, 이제 사용자가 제공한 실제 `index.ts`에 AI 보조기능 3개 액션 + "즉시 발송" 액션 + 캐싱 헬퍼가 전부 반영된 **완전한 파일**을 드립니다. 그대로 `supabase functions deploy center-report-upload`만 하면 됩니다(코드 수정 불필요).
@@ -23,18 +22,14 @@
 - **(2026-07-15 장애 이후 필수 절차) `index.ts`를 배포하기 전에 반드시 로컬에서 `deno check index.ts`로 타입체크 통과를 확인할 것.** 2026-07-15에 `mammoth` 라이브러리의 esm.sh 타입선언이 예고 없이 바뀌면서 배포가 통째로 막히고 사이트 전체(센터 목록 포함)가 멈춘 적이 있음 — 코드를 안 건드려도 외부 CDN 타입선언 변경만으로 배포가 실패할 수 있으므로, 매 배포 전 `deno check`를 습관화할 것. Deno가 없으면 `curl -fsSL https://deno.land/install.sh | sh`로 설치.
 - 장애 시 진단 순서: (1) Supabase Table Editor로 DB 데이터 실제 존재 여부 확인(데이터 유실이 아닌지 우선 구분) → (2) 브라우저 콘솔에 CORS 에러가 뜨면 Edge Function이 요청 처리 전에 죽고 있다는 뜻 → (3) 로컬에서 `deno check index.ts`로 재현 → (4) 안전하면 이전 정상 배포본으로 즉시 롤백해 서비스부터 복구.
 
-## 1-2. 🟡 센터 삭제 → "숨기기/다시 보이기"로 전환 (2026-07-21, 프론트엔드 완료 · 백엔드 액션 2개 대기)
-- **배경**: 센터 삭제 시 `center_config` 행을 물리 DELETE하다 하위 테이블(`center_monthly_settings` 등) 외래키 위반으로 500 에러가 났던 문제(원인은 위 CHANGELOG 2026-07-21 항목 참고). 이를 완전한 삭제가 아니라 **숨기기(소프트 삭제)/다시 보이기** 기능으로 전환하기로 함 — 숨긴 센터는 사이드바·전체현황에서 안 보이지만 데이터는 DB에 그대로 남고, 언제든 다시 보이게 할 수 있음.
-- **SQL 준비됨**: `schema_addendum_12_center_soft_delete.sql` — `center_config`에 `is_deleted boolean default false` 컬럼 추가(추가 전용).
-- **프론트엔드(`app.js`/`admin.html`) 완료**:
-  - 사이드바 센터 메뉴의 "✕ 삭제" → "🙈 숨기기"로 교체(`hideCenterPrompt()`, `action=center-hide` 호출).
-  - "⚙ 계정 ▾" 메뉴에 "🙈 숨긴 센터 관리" 추가 → 패널에서 숨긴 센터 목록과 "다시 보이기" 버튼 표시(`toggleHiddenCentersPanel()`/`renderHiddenCentersPanel()`/`unhideCenter()`, `action=center-unhide` 호출).
-  - 사이드바 목록·전체현황(`renderWorkspaceOverview`)·자동 센터 선택 로직 전부 `is_deleted=true`인 센터를 제외하도록 수정(`visibleCentersMeta()`). 전체현황의 실적 데이터(`allRows`)도 숨긴 센터의 행을 클라이언트에서 한 번 더 걸러냄(`loadAllCentersOverview()`).
-- **아직 필요한 것(index.ts 수정, 이 저장소에 소스가 없어 미완료)** — 아래 2개 액션을 `center-delete`/`center-update`와 동일한 패턴(`workspace_password` 인증, `center_code` 파라미터)으로 추가:
-  1. `action=center-hide` — `UPDATE center_config SET is_deleted = true WHERE center_code = $1`
-  2. `action=center-unhide` — `UPDATE center_config SET is_deleted = false WHERE center_code = $1`
-  3. `centers-manage-list` 응답에 `is_deleted` 필드가 포함돼야 함 — `SELECT *`로 조회하고 있다면 SQL만 실행해도 자동으로 포함되어 이 항목은 코드 수정이 필요 없을 가능성이 높음(컬럼을 명시적으로 나열하는 쿼리라면 `is_deleted` 추가 필요).
-- 기존 `action=center-delete`는 그대로 두거나 제거해도 무방(프론트엔드에서 더 이상 호출하지 않음).
+## 1-2. ✅ 센터 삭제 → "숨기기/다시 보이기"로 전환 (2026-07-21, 완료 — 백엔드 배포 불필요)
+- **배경**: 센터 삭제 시 `center_config` 행을 물리 DELETE하다 하위 테이블(`center_monthly_settings` 등) 외래키 위반으로 500 에러가 났던 문제(원인은 아래 CHANGELOG 2026-07-21 항목 참고). 이를 완전한 삭제가 아니라 **숨기기/다시 보이기** 기능으로 전환.
+- **핵심 발견**: 사용자가 공유한 실제 `index.ts`를 확인해보니, `center_config`에 이미 `is_active` 컬럼이 있고 `center-update` 액션이 이미 이 필드를 받아 `UPDATE`해주고 있었음 — 새 컬럼이나 새 액션을 전혀 추가할 필요 없이 **기존 `action=center-update`를 `{center_code, is_active:false}`로 호출하는 것만으로 숨기기가 완성됨**. 그래서 준비했던 `schema_addendum_12_center_soft_delete.sql`(`is_deleted` 컬럼 추가안)은 폐기 — SQL 실행도, index.ts 수정도, 재배포도 필요 없이 바로 동작함.
+- **구현**(`app.js`/`admin.html`):
+  - 사이드바 센터 메뉴의 "✕ 삭제" → "🙈 숨기기"로 교체(`hideCenterPrompt()`) — `action=center-update`에 `is_active:false`로 호출.
+  - "⚙ 계정 ▾" 메뉴에 "🙈 숨긴 센터 관리" 추가 → 패널에서 숨긴 센터 목록과 "다시 보이기" 버튼(`unhideCenter()` — `is_active:true`로 호출).
+  - 사이드바 목록·전체현황(`renderWorkspaceOverview`)·자동 센터 선택 로직 전부 `is_active===false`인 센터를 제외(`visibleCentersMeta()`). 전체현황 실적 데이터(`allRows`)도 숨긴 센터 행을 클라이언트에서 한 번 더 걸러냄(`loadAllCentersOverview()`, `admin-overview` 자체는 `is_active`로 거르지 않으므로).
+- **부수 효과(의도된 동작)**: `is_active=false`는 index.ts의 `verify`/`upload`/`history`/`schema`/`manual-entry(-bulk)`/`archive-upload-file` 및 미업로드 알림(`runNotificationCheck`)에서도 공통으로 검사하는 필드라서, 센터를 숨기는 동안 그 센터의 업로드 링크(토큰)와 미업로드 알림도 함께 멈춘다 — "당분간 안 쓰는 센터를 치워둔다"는 의도와 자연스럽게 맞음. 다시 보이게 하면 전부 즉시 정상 동작으로 복귀.
 
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |

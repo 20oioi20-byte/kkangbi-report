@@ -2,6 +2,14 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-21 (3차) — ✅ 센터 "숨기기/다시 보이기" 완성 (기존 is_active 재사용, 배포 불필요)
+- **요청 배경**: 2차 항목에서 프론트엔드를 준비하며 새 `is_deleted` 컬럼 + `center-hide`/`center-unhide` 신규 백엔드 액션이 필요하다고 안내했었는데, 사용자가 실제 `index.ts` 전체를 공유해줌.
+- **핵심 발견**: index.ts를 확인해보니 `center_config`에 이미 `is_active` 컬럼이 있었고(`center-create` 시 `true`로 생성, `verify`/`upload`/`history`/`schema`/`manual-entry(-bulk)`/`archive-upload-file`/`runNotificationCheck`가 전부 이 값을 검사), `center-update` 액션이 이미 `is_active`를 받아 `UPDATE`해주고 있었음. 프론트엔드 어디에서도 `center_config.is_active`를 쓰고 있지 않았던 것도 확인(`center_contacts.is_active`와는 다른 필드) — 즉 **새 컬럼도, 새 액션도 필요 없이 기존 `action=center-update`를 `{center_code, is_active:false}`로 호출하는 것만으로 숨기기가 완성**됨.
+- **수정**: 직전 2차 구현에서 임시로 쓰던 `action=center-hide`/`action=center-unhide` 호출과 `is_deleted` 필드 참조를 전부 `action=center-update`(`is_active`)로 교체(`hideCenterPrompt`, `unhideCenter`, `visibleCentersMeta`, `refreshAfterAuthChange`, `init`, `loadAllCentersOverview`). 더 이상 필요 없어진 `schema_addendum_12_center_soft_delete.sql`은 삭제.
+- **결과**: SQL 실행도, index.ts 수정도, Edge Function 재배포도 전혀 필요 없이 기존 백엔드 그대로 즉시 동작. 부수 효과로 숨긴 센터는 업로드 링크와 미업로드 알림도 함께 멈추는데(둘 다 `is_active`를 공유 검사하므로), "당분간 안 쓰는 센터를 치워둔다"는 취지와 자연스럽게 맞아 원하는 동작으로 판단.
+- **검증**: `node --check` 통과. 로컬 정적 서버 + 가짜 데이터(3개 센터 중 1개 `is_active:false`)로 (1) 숨긴 센터가 사이드바·전체현황 어디에도 안 보이는지 (2) "숨기기" 클릭 시 실제로 `action=center-update`에 `{is_active:false}`가 정확히 전달되는지(요청 페이로드 직접 캡처해 확인) (3) "다시 보이기" 클릭 시 사이드바에 재등장하는지 브라우저에서 직접 확인함.
+- `docs/FEATURE.md` 1번 섹션, `docs/DEPLOY-CHECKLIST.md` "1-2" 섹션 갱신함.
+
 ## 2026-07-21 (2차) — 🟡 센터 "삭제"를 "숨기기/다시 보이기"로 전환 (프론트엔드 완료, 백엔드 액션 대기)
 - **요청 배경**: 직전 항목의 센터 삭제 500 에러를 계기로, 아예 "삭제" 기능 자체를 없애고 "숨기기(목록에서만 안 보임, 데이터는 보존)"와 "다시 보이기(복원)" 기능으로 바꿔달라는 요청. 숨긴 센터는 전체현황에서도 데이터가 안 보이고, 다시 보이게 하면 전체현황에도 다시 나와야 함.
 - **프론트엔드 구현**(`app.js`, `admin.html`):
