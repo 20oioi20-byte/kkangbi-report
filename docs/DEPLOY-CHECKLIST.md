@@ -31,6 +31,13 @@
   - 사이드바 목록·전체현황(`renderWorkspaceOverview`)·자동 센터 선택 로직 전부 `is_active===false`인 센터를 제외(`visibleCentersMeta()`). 전체현황 실적 데이터(`allRows`)도 숨긴 센터 행을 클라이언트에서 한 번 더 걸러냄(`loadAllCentersOverview()`, `admin-overview` 자체는 `is_active`로 거르지 않으므로).
 - **부수 효과(의도된 동작)**: `is_active=false`는 index.ts의 `verify`/`upload`/`history`/`schema`/`manual-entry(-bulk)`/`archive-upload-file` 및 미업로드 알림(`runNotificationCheck`)에서도 공통으로 검사하는 필드라서, 센터를 숨기는 동안 그 센터의 업로드 링크(토큰)와 미업로드 알림도 함께 멈춘다 — "당분간 안 쓰는 센터를 치워둔다"는 의도와 자연스럽게 맞음. 다시 보이게 하면 전부 즉시 정상 동작으로 복귀.
 
+## 1-3. 🟡 전체현황 핵심지표가 센터별 대시보드와 값이 다름 — 원인 확인, index.ts 패치 필요 (2026-07-21)
+- **증상**: 전체현황(워크스페이스) 표의 "핵심지표(이번달/누적)" 값이 그 센터의 대시보드 화면에서 보는 "이번달/누적" 값과 다름(LG전자통합만 정확 — 월평균 수동입력값 1건만 읽는 구조라 이 문제의 영향을 안 받음).
+- **원인(공유받은 실제 index.ts로 확인)**: `admin-overview` 액션의 쿼리가 `.order('report_date', desc).limit(300)`을 센터 필터보다 먼저 적용하고 있음. 센터별 대시보드는 `&center=코드`를 붙여 요청해서 "그 센터의 최근 300건"을 정확히 받지만, 전체현황은 필터 없이 요청해서 "**전체 센터를 통틀어** 최근 300건"만 받는다 — 센터가 여러 개면 데이터를 자주 저장한 센터의 최근 행이 다른 센터의(하지만 이번달·연초누적 계산에는 필요한) 오래된 행을 밀어내면서, 그 센터는 전체현황에서만 불완전한 데이터로 계산됨. `loadOverviewForCurrent()`(프론트엔드, 이전에 수정함)와 같은 유형의 버그가 백엔드 `admin-overview` 액션에 남아있던 것.
+- **수정(index.ts, 이 저장소에 소스가 없어 직접 적용 못함 — 패치 코드 전달함)**: 센터 필터가 없을 때는 행 개수 캡(`.limit(300)`) 대신 "올해 1월 1일 이후"로 기간을 제한하도록 변경. 전체현황이 실제로 필요한 데이터 범위(이번달+연초누적)와 정확히 일치하고, 센터 수가 늘어나도 절대 누락되지 않음. 센터 필터가 있는 경우(대시보드 등)는 기존 `.limit(300)` 그대로 유지.
+- **배포**: 위 패치를 `index.ts`의 `admin-overview` 핸들러에 반영한 뒤 `deno check index.ts` 통과 확인 → `supabase functions deploy center-report-upload`로 배포.
+- **검증(배포 후)**: 전체현황의 KB손보부천/KB손보정비/평택시청 핵심지표(이번달/누적) 값이 각 센터 대시보드의 값과 정확히 일치하는지 확인.
+
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |
 |---|---|---|
