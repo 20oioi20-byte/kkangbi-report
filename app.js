@@ -176,7 +176,37 @@ function getLgeTotalMonthlyAvgValue(perfKey, rows) {
   return vals.length ? (vals.reduce(function(a, b) { return a + b; }, 0) / vals.length) : null;
 }
 
-// 지표 하나의 평균값을 구하는 공용 함수. LG전자통합의 위 4개 지표만 예외적으로 "월평균" 수동입력값을 쓰고,
+// 처리율/준수율처럼 "일별 비율의 평균"이 아니라 "기간 전체 분자합계 ÷ 분모합계"로 계산해야 정확한 지표들.
+// 예를 들어 어느 날은 접수 5건 중 5건 처리(100%), 다른 날은 접수 200건 중 100건 처리(50%)라면,
+// 일별 비율을 그냥 평균 내면 75%가 나오지만(물량이 적은 날의 비율이 과도하게 반영됨), 실제 기간 전체로는
+// 105÷205=51.2%가 맞는 값이다. numeratorKeys/denominatorKeys는 여러 항목을 합산해야 할 때(통합_처리율 등)를
+// 위해 배열로 받는다.
+const RATIO_METRIC_DEFS = {
+  'kbjeongbi': {
+    '고지의무_처리율': { numeratorKeys: ['처리_고지의무'], denominatorKeys: ['접수_고지의무'] },
+    '통지의무_처리율': { numeratorKeys: ['처리_통지의무'], denominatorKeys: ['접수_통지의무'] },
+    '목적물소멸_처리율': { numeratorKeys: ['처리_목적물소멸'], denominatorKeys: ['접수_목적물소멸'] },
+    '통합_처리율': {
+      numeratorKeys: ['처리_고지의무', '처리_통지의무', '처리_목적물소멸'],
+      denominatorKeys: ['접수_고지의무', '접수_통지의무', '접수_목적물소멸'],
+    },
+    '고지의무_준수율': { numeratorKeys: ['고지의무_변경기한일_처리건'], denominatorKeys: ['고지의무_변경기한일_처리건', '고지의무_변경기한일_미처리건'] },
+    '통지의무_준수율': { numeratorKeys: ['통지의무_변경기한일_처리건'], denominatorKeys: ['통지의무_변경기한일_처리건', '통지의무_변경기한일_미처리건'] },
+  },
+};
+
+function avgRatioMetric(def, rows) {
+  const workRows = rows.filter(function(r) { return !isWeekendOrHoliday(r.report_date); });
+  let numSum = 0, denomSum = 0;
+  workRows.forEach(function(r) {
+    def.numeratorKeys.forEach(function(k) { const n = extractNum(r, 'performance_data', k); if (n !== null && !isNaN(n)) numSum += n; });
+    def.denominatorKeys.forEach(function(k) { const n = extractNum(r, 'performance_data', k); if (n !== null && !isNaN(n)) denomSum += n; });
+  });
+  return denomSum > 0 ? (numSum / denomSum * 100) : null;
+}
+
+// 지표 하나의 평균값을 구하는 공용 함수. LG전자통합의 4개 지표는 예외적으로 "월평균" 수동입력값을 쓰고,
+// KB손보정비의 처리율·준수율 지표는 기간 전체 분자/분모 합계 비율로 계산하며(RATIO_METRIC_DEFS),
 // 그 외 모든 센터/지표는 기존과 동일하게 주말·공휴일 제외 일별 실측값 평균을 사용한다.
 function avgMetricValue(key, rows) {
   if (currentCenter === 'lge_total') {
@@ -189,6 +219,8 @@ function avgMetricValue(key, rows) {
       return (inout !== null && inOnly !== null) ? Math.max(0, inout - inOnly) : null;
     }
   }
+  const ratioDef = RATIO_METRIC_DEFS[currentCenter] && RATIO_METRIC_DEFS[currentCenter][key];
+  if (ratioDef) return avgRatioMetric(ratioDef, rows);
   return avgExcludingHolidays(rows, function(r) { return resolveMetric(r, key); });
 }
 
