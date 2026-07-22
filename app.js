@@ -2723,10 +2723,10 @@ const KBJ_CATEGORY_CARDS = [
 ];
 
 function renderKbjeongbiSummaryCards2(monthRows, cumulativeRows) {
-  // 상단 토글 기본값(단월)에서는 "월누적"(=이번 달 실적, 해당 월 지표)을 보여주고,
-  // 분기/반기/연초누적 토글 시에는 그 기간 전체(periodCumLabel/cumulativeRows)로 자동 전환된다.
+  // 상단 토글 기본값(단월)에서는 "누적"(=이번 달 실적, 해당 월 지표)을 보여주고,
+  // 분기/반기/연초누적 토글 시에는 그 기간 전체(periodCumLabel/cumulativeRows)로 자동 전환된다(라벨은 그대로 유지).
   const cumSourceRows = viewMode === 'single' ? monthRows : cumulativeRows;
-  const cumLabel = viewMode === 'single' ? '월누적' : periodCumLabel();
+  const cumLabel = viewMode === 'single' ? '누적' : periodCumLabel();
   const cards = KBJ_CATEGORY_CARDS.map(function(c, i) {
     const dailyAcc = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, c.accKey); });
     const dailyProc = avgExcludingHolidays(monthRows, function(r) { return resolveMetric(r, c.procKey); });
