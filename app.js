@@ -398,22 +398,27 @@ function isWeekendOrHoliday(dateStr) {
 // 인증 / 세션 (워크스페이스·센터별 비밀번호)
 // 주의: 정적 파일 + anon key 구조라 완벽한 서버 인증은 아니며,
 // 비밀번호를 모르는 일반 사용자를 막는 수준의 보호입니다.
+// 2026-07-22: 브라우저를 완전히 껐다 켜도 로그인이 유지되도록 sessionStorage(탭을 닫으면 즉시 소멸)
+// 대신 localStorage(직접 "잠그기"를 누르거나 브라우저 데이터를 지우기 전까지 유지)를 사용한다.
+// 매 접속마다(init()) 캐시된 비밀번호를 서버에 실제로 재검증하는 로직(tryWorkspaceLogin)은 그대로라
+// 저장 방식만 바뀌는 것 — 이전에 제거한 "URL만 알면 누구나 우회 가능"했던 자동인증과는 성격이 다르고,
+// 이 값을 읽을 수 있는 건 그 브라우저/기기에 접근 가능한 사람으로 한정된다.
 // ============================================
 function restoreSession() {
   try {
-    workspacePasswordCache = sessionStorage.getItem(SS_WORKSPACE_PW) || '';
+    workspacePasswordCache = localStorage.getItem(SS_WORKSPACE_PW) || '';
     workspaceUnlocked = !!workspacePasswordCache;
-    const uc = sessionStorage.getItem(SS_UNLOCKED_CENTERS);
+    const uc = localStorage.getItem(SS_UNLOCKED_CENTERS);
     unlockedCenters = new Set(uc ? JSON.parse(uc) : []);
-    const ct = sessionStorage.getItem(SS_CENTER_TOKENS);
+    const ct = localStorage.getItem(SS_CENTER_TOKENS);
     centerTokenMap = ct ? JSON.parse(ct) : {};
   } catch (e) { /* ignore */ }
 }
 
 function persistSession() {
-  sessionStorage.setItem(SS_WORKSPACE_PW, workspaceUnlocked ? workspacePasswordCache : '');
-  sessionStorage.setItem(SS_UNLOCKED_CENTERS, JSON.stringify(Array.from(unlockedCenters)));
-  sessionStorage.setItem(SS_CENTER_TOKENS, JSON.stringify(centerTokenMap));
+  localStorage.setItem(SS_WORKSPACE_PW, workspaceUnlocked ? workspacePasswordCache : '');
+  localStorage.setItem(SS_UNLOCKED_CENTERS, JSON.stringify(Array.from(unlockedCenters)));
+  localStorage.setItem(SS_CENTER_TOKENS, JSON.stringify(centerTokenMap));
 }
 
 async function loadCentersMeta() {
