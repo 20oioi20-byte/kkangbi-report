@@ -2,6 +2,13 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-23 — 첫 화면 접속 시 데이터 로딩 속도 개선 (app.js, upload.html)
+- **요청 배경**: "첫 화면에 접속할때 데이터 불러오기까지 시간이 너무 오래걸려서 이부분을 빠르게 보여지도록 개선해줘".
+- **원인 1 — 낭비되는 직렬 요청**: `init()`이 `loadCentersMeta()` → `tryDomainAutoUnlock()` → (필요시) `tryWorkspaceLogin()` → `Promise.all([설정데이터, 업로드신호등, 실적데이터])` 순서로 매번 하나씩 기다렸다가 다음 요청을 시작했음. 이 중 `tryDomainAutoUnlock()`(도메인 자동로그인)은 2026-07-22 Origin 우회 보안 패치로 백엔드가 항상 `valid:false`만 반환하도록 무력화되어 있어(index.ts `domain-auto-unlock` 핸들러 참고), 매 접속마다 결과가 뻔한데도 응답을 기다리기만 하는 완전한 낭비 요청이었음.
+- **원인 2 — 병렬화 가능한데 직렬로 묶여있던 요청**: 설정데이터(`list-monthly-to`/`list-kpi-settings`/`list-kpi-monthly-targets`)와 업로드신호등(`list-last-upload`)은 인증 여부·센터목록과 무관한 공개 조회인데도, 센터목록 로딩과 로그인 확인이 끝날 때까지 시작조차 안 하고 있었음.
+- **수정**: (1) `tryDomainAutoUnlock()` 호출 및 함수 정의 자체를 app.js/upload.html에서 완전히 제거. (2) `loadCentersMeta()`/로그인확인/`loadAllSettingsData()`/`loadLastUploadMap()` 네 요청을 `init()` 시작 시점에 한꺼번에 발사해 병렬로 진행, 센터목록·로그인 확인이 끝나는 대로 바로 화면을 그리고 실적데이터(전체현황 또는 센터별)만 마지막에 이어 받도록 재구성. (3) 전체현황(워크스페이스 개요) 화면도 기존 센터별 캐시(`getCachedRows`/`ROWS_CACHE_LS_KEY`)와 같은 방식으로 마지막 조회 결과를 `kkangbi_admin_overview_cache_v1`에 캐시해, 새로고침 직후 네트워크 응답을 기다리지 않고 캐시로 먼저 화면을 그리도록 `getCachedOverviewRows()`/`setCachedOverviewRows()` 추가.
+- **검증**: `node --check app.js` 통과, upload.html 인라인 스크립트 파싱 확인. 로컬 정적 서버 + 실제 운영 Supabase 백엔드(읽기 전용 공개 조회만 사용)로 브라우저에서 직접 로드해 (1) `tryDomainAutoUnlock` 미정의로 호출 안 되는지 (2) `performance.getEntriesByType('resource')`로 5개 요청(centers-manage-list/list-monthly-to/list-kpi-settings/list-kpi-monthly-targets/list-last-upload)이 모두 같은 시점(65~66ms)에 동시 시작되는지 (3) 콘솔 에러 없이 정상 렌더링되는지 (4) 전체현황 캐시 저장/조회 함수가 정상 동작하는지 확인함. 기존에는 이 요청들이 순서대로 하나씩(센터목록→도메인자동로그인→나머지) 진행돼 최소 2~3번의 왕복이 직렬로 쌓였는데, 이제는 최대 1번의 왕복 시간(느린 요청 기준 약 1.1초)으로 줄어듦.
+
 ## 2026-07-22 (4차) — KB손보정비 처리율·준수율 계산 방식을 "일별 평균" → "기간 전체 합계 비율"로 개선
 - **요청 배경**: 전체현황 핵심지표의 "목적물소멸 처리율 70.3%"가 어떻게 계산된 값인지 질문 → 계산 방식을 설명하는 과정에서 "일별 처리율을 단순 평균"하는 방식이라 접수량이 적은 날의 비율이 과도하게 반영될 수 있는 왜곡이 있음을 안내했고, 이를 개선해달라는 요청.
 - **문제**: 예를 들어 하루는 접수 5건 중 5건 처리(100%), 다른 하루는 접수 200건 중 100건 처리(50%)면, 일별 비율을 단순 평균할 경우 75%가 나오지만 실제 기간 전체 물량 기준으로는 105÷205=51.2%가 맞는 값. 접수 건수가 적은 날일수록 그날의 비율이 실제 비중보다 훨씬 크게 반영되는 통계적 왜곡이 있었음.

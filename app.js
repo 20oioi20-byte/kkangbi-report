@@ -411,6 +411,24 @@ function setCachedRows(centerCode, rows) {
   centerRowsCache[centerCode] = rows;
   try { localStorage.setItem(ROWS_CACHE_LS_KEY, JSON.stringify({ centerCode: centerCode, rows: rows, ts: Date.now() })); } catch (e) { /* 저장 실패해도 무시 */ }
 }
+
+// 전체현황(워크스페이스 개요) 화면도 위와 같은 방식으로 마지막 조회 결과를 캐시해,
+// 새로고침 직후 네트워크 응답을 기다리지 않고 먼저 화면부터 그린다.
+const OVERVIEW_CACHE_LS_KEY = 'kkangbi_admin_overview_cache_v1';
+
+function getCachedOverviewRows() {
+  try {
+    const raw = localStorage.getItem(OVERVIEW_CACHE_LS_KEY);
+    if (!raw) return null;
+    const parsed = JSON.parse(raw);
+    if (parsed && Array.isArray(parsed.rows)) return parsed.rows;
+  } catch (e) { /* 캐시 없어도 정상 동작(그냥 기존처럼 네트워크 응답을 기다림) */ }
+  return null;
+}
+
+function setCachedOverviewRows(rows) {
+  try { localStorage.setItem(OVERVIEW_CACHE_LS_KEY, JSON.stringify({ rows: rows, ts: Date.now() })); } catch (e) { /* 저장 실패해도 무시 */ }
+}
 let currentCenter = null;
 let currentMonth = localDateStr(new Date()).slice(0, 7);
 let viewMode = 'single';
@@ -721,23 +739,6 @@ function moveCenterOrder(code, dir) {
   }).catch(function(e) { alert('오류: ' + e.message); });
 }
 
-async function tryDomainAutoUnlock() {
-  try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=domain-auto-unlock', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
-    });
-    const data = await res.json();
-    if (data.success && data.valid) {
-      workspaceUnlocked = true;
-      centerTokenMap = {};
-      (data.centers || []).forEach(function(c) { centerTokenMap[c.center_code] = c.upload_token; });
-      return true;
-    }
-  } catch (e) { /* 무시하고 일반 로그인 절차로 진행 */ }
-  return false;
-}
-
 // 데이터입력의 모든 업로드 박스(.panel, .entry-wrap)에 파일 드래그앤드롭 첨부를 공통 적용
 // #main에 한 번만 이벤트를 걸어두고(이벤트 위임), 화면이 다시 그려져도 계속 동작한다.
 function initDragDropZones() {
@@ -771,9 +772,16 @@ function initDragDropZones() {
 
 async function init() {
   restoreSession();
-  await loadCentersMeta();
-  const autoUnlocked = await tryDomainAutoUnlock();
-  if (!autoUnlocked && workspaceUnlocked) { await tryWorkspaceLogin(workspacePasswordCache, true); }
+
+  // 센터목록조회/로그인검증/설정데이터/업로드신호등 네 요청은 서로의 결과에 의존하지 않으므로
+  // (도메인 자동로그인 기능은 보안상 완전히 제거되어 항상 실패하는 낭비성 요청이었기에 호출 자체를 없앴다)
+  // 순서대로 하나씩 기다리지 않고 한꺼번에 시작해 첫 화면 데이터 로딩 시간을 단축한다.
+  const centersMetaPromise = loadCentersMeta();
+  const loginPromise = workspaceUnlocked ? tryWorkspaceLogin(workspacePasswordCache, true) : Promise.resolve();
+  const settingsPromise = loadAllSettingsData();
+  const lastUploadPromise = loadLastUploadMap();
+
+  await Promise.all([centersMetaPromise, loginPromise]);
   const available = allCentersMeta.filter(function(c) { return c.is_active !== false && (workspaceUnlocked || unlockedCenters.has(c.center_code)); });
   if (workspaceUnlocked) {
     viewingWorkspaceOverview = true;
@@ -784,16 +792,23 @@ async function init() {
   loadColPrefs();
   renderSidebar();
 
-  // 새로고침 직후라도 마지막으로 봤던 센터의 캐시가 있으면, 네트워크 응답을 기다리지 않고 먼저 그 데이터로 화면부터 그린다.
+  // 새로고침 직후라도 마지막으로 봤던 화면(특정 센터 또는 전체현황)의 캐시가 있으면,
+  // 네트워크 응답을 기다리지 않고 먼저 그 데이터로 화면부터 그린다.
   if (!viewingWorkspaceOverview && currentCenter) {
     const cached = getCachedRows(currentCenter);
     if (cached) { allRows = cached; renderMain(); }
+  } else if (viewingWorkspaceOverview) {
+    const cachedOverview = getCachedOverviewRows();
+    if (cachedOverview) {
+      const hiddenCodes = allCentersMeta.filter(function(c) { return c.is_active === false; }).map(function(c) { return c.center_code; });
+      allRows = cachedOverview.filter(function(r) { return hiddenCodes.indexOf(r.center_code) === -1; });
+      renderMain();
+    }
   }
 
-  // 설정데이터(월별TO/핵심지표)와 실적 데이터는 서로 의존하지 않으므로 병렬로 불러와 초기 로딩 시간을 단축한다
   await Promise.all([
-    loadAllSettingsData(),
-    loadLastUploadMap(),
+    settingsPromise,
+    lastUploadPromise,
     viewingWorkspaceOverview ? loadAllCentersOverview() : (currentCenter ? loadOverviewForCurrent() : Promise.resolve())
   ]);
   renderSidebar(); // 신호등 데이터 반영해 다시 그림
@@ -1031,6 +1046,7 @@ async function loadAllCentersOverview() {
       // 센터 목록은 loadCentersMeta()가 이미 is_active를 알고 있으므로 그걸로 판단).
       const hiddenCodes = allCentersMeta.filter(function(c) { return c.is_active === false; }).map(function(c) { return c.center_code; });
       allRows = (data.rows || []).filter(function(r) { return hiddenCodes.indexOf(r.center_code) === -1; });
+      setCachedOverviewRows(data.rows || []);
     }
   } catch (e) {
     document.getElementById('main').innerHTML = '<div class="empty">데이터 로드 실패: ' + e.message + '</div>';

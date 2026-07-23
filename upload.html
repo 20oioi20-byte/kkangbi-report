@@ -793,23 +793,6 @@ function moveCenterOrder(code, dir) {
   }).catch(function(e) { alert('오류: ' + e.message); });
 }
 
-async function tryDomainAutoUnlock() {
-  try {
-    const res = await fetch(SB_FUNCTION_URL + '?action=domain-auto-unlock', {
-      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({})
-    });
-    const data = await res.json();
-    if (data.success && data.valid) {
-      workspaceUnlocked = true;
-      centerTokenMap = {};
-      (data.centers || []).forEach(function(c) { centerTokenMap[c.center_code] = c.upload_token; });
-      return true;
-    }
-  } catch (e) { /* 무시하고 일반 로그인 절차로 진행 */ }
-  return false;
-}
-
 // 데이터입력의 모든 업로드 박스(.panel, .entry-wrap)에 파일 드래그앤드롭 첨부를 공통 적용
 // #main에 한 번만 이벤트를 걸어두고(이벤트 위임), 화면이 다시 그려져도 계속 동작한다.
 function initDragDropZones() {
@@ -843,9 +826,16 @@ function initDragDropZones() {
 
 async function init() {
   restoreSession();
-  await loadCentersMeta();
-  const autoUnlocked = await tryDomainAutoUnlock();
-  if (!autoUnlocked && workspaceUnlocked) { await tryWorkspaceLogin(workspacePasswordCache, true); }
+
+  // 센터목록조회/로그인검증/설정데이터/업로드신호등 네 요청은 서로의 결과에 의존하지 않으므로
+  // (도메인 자동로그인 기능은 보안상 완전히 제거되어 항상 실패하는 낭비성 요청이었기에 호출 자체를 없앴다)
+  // 순서대로 하나씩 기다리지 않고 한꺼번에 시작해 첫 화면 데이터 로딩 시간을 단축한다.
+  const centersMetaPromise = loadCentersMeta();
+  const loginPromise = workspaceUnlocked ? tryWorkspaceLogin(workspacePasswordCache, true) : Promise.resolve();
+  const settingsPromise = loadAllSettingsData();
+  const lastUploadPromise = loadLastUploadMap();
+
+  await Promise.all([centersMetaPromise, loginPromise]);
   const available = allCentersMeta.filter(function(c) { return workspaceUnlocked || unlockedCenters.has(c.center_code); });
   if (workspaceUnlocked) {
     viewingWorkspaceOverview = true;
@@ -855,10 +845,9 @@ async function init() {
   renderTopbarAuth();
   loadColPrefs();
   renderSidebar();
-  // 설정데이터(월별TO/핵심지표)와 실적 데이터는 서로 의존하지 않으므로 병렬로 불러와 초기 로딩 시간을 단축한다
   await Promise.all([
-    loadAllSettingsData(),
-    loadLastUploadMap(),
+    settingsPromise,
+    lastUploadPromise,
     viewingWorkspaceOverview ? loadAllCentersOverview() : (currentCenter ? loadOverviewForCurrent() : Promise.resolve())
   ]);
   renderSidebar(); // 신호등 데이터 반영해 다시 그림
