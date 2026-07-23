@@ -5442,7 +5442,7 @@ async function generateLgeTotalRows() {
       + '<button class="btn-outline" style="' + btnStyle + '" onclick="applyLgeTotalColumn(\'att\',\'' + m.key + '\',\'' + m.parts[1] + '\')">전체반영</button></td>';
   }).join('');
   const perfBulkCells = LGE_TOTAL_PERF_METRICS.map(function(m) {
-    return '<td><input type="text" class="lge-total-bulk-perf" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '값') + '"' + (m.duration ? ' onblur="formatDurationOnBlur(this)"' : '') + ' style="width:60px;padding:3px;border:1px solid #2c2c2e;border-radius:4px;font-size:11px;text-align:center;background:#111113;color:#f5f5f7;">'
+    return '<td><input type="text" class="lge-total-bulk-perf" data-metric="' + m.key + '" placeholder="' + (m.duration ? '4:00:00' : '값') + '" title="엑셀 등에서 여러 날짜 값을 한 줄로 복사해 붙여넣으면 날짜 순서대로 자동 반영됩니다"' + (m.duration ? ' onblur="formatDurationOnBlur(this)"' : '') + ' onpaste="handleLgeTotalPerfPaste(event,\'' + m.key + '\',' + (m.duration ? 'true' : 'false') + ')" style="width:60px;padding:3px;border:1px solid #2c2c2e;border-radius:4px;font-size:11px;text-align:center;background:#111113;color:#f5f5f7;">'
       + '<button class="btn-outline" style="display:block;width:100%;margin-top:3px;padding:2px 0;font-size:9px;" onclick="applyLgeTotalColumn(\'perf\',\'' + m.key + '\')">전체반영</button></td>';
   }).join('');
   const bulkRow = '<tr class="lge-total-bulk-row" style="background:rgba(90,200,250,.08);">'
@@ -5529,6 +5529,34 @@ function applyLgeTotalColumn(type, metricKey, part) {
   statusEl.className = 'status-msg ok';
   statusEl.textContent = targetIdx.length + '개 날짜에 값을 적용했습니다.' + skipNote + ' 저장 전에 다시 한 번 확인해 주세요.';
   return targetIdx.length;
+}
+
+// 일괄입력 행의 실적 항목(T-NPS/생산성/통화시간) 칸에 엑셀 등에서 복사한 여러 값(탭/줄바꿈/공백으로 구분)을
+// 붙여넣으면, 값 하나하나를 표의 날짜 순서(오름차순)대로 자동으로 채워준다.
+// 예: 7/1~7/10 기간에 "100.0 100.0 ... 100.0"(10개 값)을 T-NPS 칸에 붙여넣으면 7/1→100.0, 7/2→100.0 ... 순으로 반영.
+// 값이 1개뿐이면(콤마/탭 없이 숫자 하나만 붙여넣은 경우) 기존처럼 붙여넣기 결과를 그대로 두고
+// "전체반영" 버튼으로 모든 날짜에 같은 값을 적용하는 기존 방식을 그대로 쓸 수 있다.
+function handleLgeTotalPerfPaste(event, metricKey, isDuration) {
+  const clipboard = event.clipboardData || window.clipboardData;
+  if (!clipboard) return;
+  const tokens = clipboard.getData('text').trim().split(/\s+/).filter(function(s) { return s !== ''; });
+  if (tokens.length <= 1) return; // 값이 하나면 기존 붙여넣기 동작(전체반영 버튼 사용) 그대로 둔다
+
+  event.preventDefault();
+  const count = Math.min(tokens.length, lgeTotalDates.length);
+  for (let ri = 0; ri < count; ri++) {
+    const inp = document.querySelector('.lge-total-perf[data-row="' + ri + '"][data-metric="' + metricKey + '"]');
+    if (!inp) continue;
+    inp.value = tokens[ri];
+    if (isDuration) formatDurationOnBlur(inp);
+  }
+  event.target.value = ''; // 일괄입력 칸은 다시 비워 "전체반영"(같은 값을 전체에 적용)과 혼동되지 않게 한다
+
+  const statusEl = document.getElementById('lgeTotalStatus');
+  statusEl.className = tokens.length === lgeTotalDates.length ? 'status-msg ok' : 'status-msg err';
+  statusEl.textContent = tokens.length === lgeTotalDates.length
+    ? (count + '개 값을 날짜 순서대로 반영했습니다.')
+    : ('붙여넣은 값(' + tokens.length + '개)과 표시된 날짜 수(' + lgeTotalDates.length + '개)가 달라 앞에서부터 ' + count + '개만 반영했습니다.');
 }
 
 // 일괄입력 행에서 값이 채워진 항목을 전부 반영한다. AS/성수기 항목은 기본 요일 규칙이, 실적 항목은 전체 날짜가 적용된다.
