@@ -4603,9 +4603,10 @@ async function extractDailyReportAndFill() {
   document.getElementById('ptUnifiedStart').value = minDate;
   document.getElementById('ptUnifiedEnd').value = maxDate;
   await generatePtUnifiedRows();
+  const skippedDates = [];
   results.forEach(function(r) {
     const ri = ptUnifiedDates.indexOf(r.fullDate);
-    if (ri === -1) return;
+    if (ri === -1) { skippedDates.push(r.fullDate); return; }
     const combined = Object.assign({}, r.dailyStats || {}, r.categoryStats || {});
     Object.keys(combined).forEach(function(key) {
       if (combined[key] === '') return;
@@ -4615,9 +4616,10 @@ async function extractDailyReportAndFill() {
   });
 
   pendingPerfArchiveFiles = results.map(function(r) { return r.file; });
-  statusEl.className = errors.length ? 'status-msg err' : 'status-msg ok';
+  statusEl.className = (errors.length || skippedDates.length) ? 'status-msg err' : 'status-msg ok';
   let msg = results.length + '개 파일(' + minDate + ' ~ ' + maxDate + ') 추출 완료. 아래 표에서 값을 확인한 뒤 "전체저장"을 눌러주세요.';
   if (errors.length) msg += ' / 실패 ' + errors.length + '건 — ' + errors.join(' / ');
+  if (skippedDates.length) msg += ' / 주말·공휴일이라 표에서 빠진 날짜 — ' + skippedDates.join(', ');
   statusEl.textContent = msg;
 }
 
@@ -6043,7 +6045,9 @@ function renderPyeongtaekEntryPanel() {
     + '</div>';
 }
 
-async function generatePtUnifiedRows() {
+// forceIncludeDate: 이미 저장된 특정 날짜를 수정하러 불러올 때(loadPtUnifiedRowForEdit) 쓰는 값 —
+// 그 날짜가 주말/공휴일이어도(예: 특별근무) 표에서 빠지지 않고 항상 보이게 한다.
+async function generatePtUnifiedRows(forceIncludeDate) {
   const statusEl = document.getElementById('ptUnifiedStatus');
   const start = document.getElementById('ptUnifiedStart').value;
   const end = document.getElementById('ptUnifiedEnd').value;
@@ -6056,7 +6060,8 @@ async function generatePtUnifiedRows() {
   statusEl.className = 'status-msg';
   statusEl.textContent = '직전 저장 데이터를 확인하는 중...';
 
-  ptUnifiedDates = lgeTotalDateRange(start, end);
+  // 평택시청은 주말·공휴일에 운영하지 않으므로 표 자체에서 그 날짜들은 아예 뺀다(빈 행으로 보여주지 않음)
+  ptUnifiedDates = lgeTotalDateRange(start, end).filter(function(d) { return !isWeekendOrHoliday(d) || d === forceIncludeDate; });
   ptUnifiedCols = rowSchema.concat(categorySchema);
   const token = centerTokenMap[currentCenter];
   let seed = null;
@@ -6067,16 +6072,18 @@ async function generatePtUnifiedRows() {
     seed = rows.filter(function(r) { return r.report_date < start; }).sort(function(a, b) { return a.report_date < b.report_date ? 1 : -1; })[0] || null;
   } catch (e) { /* 이월값 조회 실패해도 빈 값으로 계속 진행 */ }
 
-  // 근태(재직인원/투입인원)만 직전 저장일 값으로 이월. 업무유형별 세부현황은 이월 없이 매일 새로 입력.
+  // 재직인원만 직전 저장일 값으로 이월(자주 안 바뀌는 값). 투입인원은 매일 실제로 근무한 인원이 달라
+  // 이전 값을 그대로 두면 오해를 살 수 있어 이월하지 않고 매일 빈 칸에서 새로 입력한다.
+  // 업무유형별 세부현황도 이월 없이 매일 새로 입력.
   const attSeed = (seed && seed.attendance_data) || {};
   const carry = {};
-  ptUnifiedCols.forEach(function(c) { carry[c.key] = (c.group === 'attendance' && attSeed[c.key] !== undefined) ? attSeed[c.key] : ''; });
+  ptUnifiedCols.forEach(function(c) { carry[c.key] = (c.group === 'attendance' && c.key !== '투입인원' && attSeed[c.key] !== undefined) ? attSeed[c.key] : ''; });
 
   const area = document.getElementById('ptUnifiedTemplateArea');
   const groupHeaderCells = '<th colspan="' + rowSchema.length + '" style="text-align:center;background:rgba(90,200,250,.12);">일자별 실적</th>'
     + '<th colspan="' + categorySchema.length + '" style="text-align:center;background:rgba(52,199,89,.12);">업무유형별 세부현황</th>';
   const headCells = ptUnifiedCols.map(function(c) {
-    return '<th style="text-align:center;">' + c.key + (c.group === 'attendance' ? ' <span style="font-weight:400;color:#5b6472;">(이월)</span>' : '') + '</th>';
+    return '<th style="text-align:center;">' + c.key + ((c.group === 'attendance' && c.key !== '투입인원') ? ' <span style="font-weight:400;color:#5b6472;">(이월)</span>' : '') + '</th>';
   }).join('');
 
   const bodyRows = ptUnifiedDates.map(function(date, ri) {
@@ -6186,7 +6193,7 @@ async function savePtUnifiedRows() {
 async function loadPtUnifiedRowForEdit(row) {
   document.getElementById('ptUnifiedStart').value = row.report_date;
   document.getElementById('ptUnifiedEnd').value = row.report_date;
-  await generatePtUnifiedRows();
+  await generatePtUnifiedRows(row.report_date);
   const ri = ptUnifiedDates.indexOf(row.report_date);
   if (ri === -1) return;
   ptUnifiedCols.forEach(function(col) {
