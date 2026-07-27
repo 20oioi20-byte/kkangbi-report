@@ -44,7 +44,9 @@ const CENTER_KPI_DEFS = {
     { label: '손사SL', type: 'rate', perfKey: '장기손사_SL' },
   ],
   'pyeongtaek': [
-    { label: '상담재직인원', type: 'staff', attKey: '투입인원' },
+    // 재직인원은 센터장/강사/팀장까지 포함한 전체 운영인력이라 상담사 정원(TO_TARGET) 비율 표시가 맞지 않아 type:'people'(비율 없이 인원수만 표시)로 둔다.
+    { label: '재직인원', type: 'people', attKey: '재직인원' },
+    { label: '상담사투입인원', type: 'staff', attKey: '투입인원' },
     { label: '요청호', type: 'count', perfKey: '요청호' },
     { label: '응답호', type: 'count', perfKey: '응답호' },
     { label: '응대율', type: 'rate', perfKey: '응대율' },
@@ -3442,6 +3444,8 @@ const HIDDEN_DUPLICATE_ATT_KEYS = ['AS재직인원_합계', '성수기재직인�
 function filterVisibleTableKeys(keysAll, field) {
   return keysAll.filter(function(k) {
     if (field === 'performance_data' && /_월평균$/.test(k)) return false;
+    // 평택시청 업무유형별 비중(교통_비중 등)은 원자료가 아니라 파생 계산값이라 데이터 표에서는 숨김(카드/차트 등 다른 화면에는 영향 없음)
+    if (field === 'performance_data' && /_비중$/.test(k)) return false;
     if (field === 'attendance_data' && HIDDEN_DUPLICATE_ATT_KEYS.includes(k)) return false;
     return true;
   });
@@ -4468,6 +4472,28 @@ function dayrptFormatDate(raw) {
   return '';
 }
 
+// 제목의 날짜에 연도까지 포함돼 있으면(예: "26.7.24." → 2026-07-24) 완전한 날짜로 반환.
+// 여러 파일을 한 번에 업로드할 때 "몇 년도 파일인지"를 파일마다 정확히 구분하기 위해 필요(dayrptFormatDate는 M/D만 반환해서 부족함).
+// 연도가 없는 제목(2개 숫자만 있는 경우)은 #entryYear(기준 연도 입력칸) 값을 대신 사용한다.
+function dayrptFormatFullDate(raw) {
+  const nums = String(raw || '').match(/\d+/g) || [];
+  const pad2 = function(n) { return String(n).padStart(2, '0'); };
+  if (nums.length >= 3) {
+    const y = parseInt(nums[nums.length - 3], 10), m = parseInt(nums[nums.length - 2], 10), d = parseInt(nums[nums.length - 1], 10);
+    if (!isNaN(y) && !isNaN(m) && !isNaN(d)) {
+      const fullYear = y < 100 ? 2000 + y : y;
+      return fullYear + '-' + pad2(m) + '-' + pad2(d);
+    }
+  }
+  if (nums.length === 2) {
+    const m = parseInt(nums[0], 10), d = parseInt(nums[1], 10);
+    const yearEl = document.getElementById('entryYear');
+    const fallbackYear = yearEl ? parseInt(yearEl.value, 10) : new Date().getFullYear();
+    if (!isNaN(m) && !isNaN(d) && !isNaN(fallbackYear)) return fallbackYear + '-' + pad2(m) + '-' + pad2(d);
+  }
+  return '';
+}
+
 function dayrptParseTitleAndDate(allText, tables, filename) {
   const tableTitle = String((tables[0] && tables[0][0] && tables[0][0][0]) || '').replace(/\s+/g, ' ').trim();
   const textMatch = allText.match(/민원상담\s*콜센터\s*일일업무보고\s*\([^\n)]+\)/);
@@ -4475,7 +4501,7 @@ function dayrptParseTitleAndDate(allText, tables, filename) {
   const title = tableTitle || textTitle || filename;
   let dateRaw = (title.match(/\(([^)]+)\)/) || [, ''])[1];
   if (!dateRaw) dateRaw = (filename.match(/\(([^)]+)\)/) || [, ''])[1];
-  return { title: title, date: dayrptFormatDate(dateRaw) };
+  return { title: title, date: dayrptFormatDate(dateRaw), fullDate: dayrptFormatFullDate(dateRaw) };
 }
 
 function dayrptHeaderIndex(headers, keyword) {
@@ -4511,7 +4537,14 @@ function dayrptParseStaffInput(tables) {
   return dayrptFormatComputed(total - manager);
 }
 
-function dayrptParseDailyStats(tables) {
+// "※ 콜센터 운영인력 :23명(센터장 1, 강사 1, 팀장 2, 상담사 19)" 문구에서 전체 재직인원(운영인력) 숫자만 추출.
+// 근무현황표의 "계"(그날 실제 근무한 인원 - 연차/반차 반영된 값)와는 다른, 정원 자체를 나타내는 값이라 별도 항목으로 뽑는다.
+function dayrptParseStaffOnRoll(allText) {
+  const m = String(allText || '').match(/콜센터\s*운영인력\s*[:：]\s*(\d+)\s*명/);
+  return m ? m[1] : '';
+}
+
+function dayrptParseDailyStats(tables, allText) {
   const tbl = tables.find(function(t) {
     return t.length >= 2 && dayrptHas(t[0] || [], '인입호') && dayrptHas(t[0] || [], '응대호')
       && dayrptHas(t[0] || [], '포기호') && dayrptHas(t[0] || [], '응대율') && dayrptHas(t[0] || [], '1일평균상담건수');
@@ -4525,6 +4558,7 @@ function dayrptParseDailyStats(tables) {
     '응답호': dayrptValueByHeader(sourceHeaders, row, '응대호'),
     '응대율': dayrptCleanPercent(dayrptValueByHeader(sourceHeaders, row, '응대율')),
     '포기호': dayrptValueByHeader(sourceHeaders, row, '포기호'),
+    '재직인원': dayrptParseStaffOnRoll(allText),
     '투입인원': staffInput,
     'CPD': dayrptValueByHeader(sourceHeaders, row, '1일평균상담건수')
   };
@@ -4551,65 +4585,101 @@ function dayrptParseCategoryStats(tables) {
   return row;
 }
 
+// 일일업무보고(HWPX)를 한 번에 여러 개 업로드하면, 파일마다 제목의 날짜를 읽어 각 날짜의
+// "일자별 실적"·"업무유형별 세부현황" 항목별 입력폼(표)을 만들고 추출된 값을 해당 날짜 칸에 채운다.
+// (예전에는 파일 1개만 지원 + 텍스트 붙여넣기 칸에 채우는 방식이었으나, 이제는 표에 바로 채운다)
+let pendingPerfArchiveFiles = []; // 추출에 쓰인 원본 파일들 - "전체저장" 성공 시 업로드 자료함에 반영
+
 async function extractDailyReportAndFill() {
   const statusEl = document.getElementById('dayReportStatus');
   const fileInput = document.getElementById('dayReportFile');
-  const f = fileInput.files[0];
-  if (!f) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 .hwpx 파일을 선택해 주세요.'; return; }
+  const files = Array.from(fileInput.files || []);
+  if (files.length === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '먼저 .hwpx 파일을 선택해 주세요(여러 날짜 파일을 한 번에 선택할 수 있습니다).'; return; }
 
   statusEl.className = 'status-msg';
-  statusEl.textContent = '일일업무보고 파일을 읽는 중...';
-  try {
-    const xml = await hwpxUnzipOne(await f.arrayBuffer(), 'Contents/section0.xml');
-    const parsed = dayrptParseXml(xml);
-    const titleInfo = dayrptParseTitleAndDate(parsed.allText, parsed.tables, f.name);
-    const dailyStats = dayrptParseDailyStats(parsed.tables);
-    const categoryStats = dayrptParseCategoryStats(parsed.tables);
+  statusEl.textContent = '일일업무보고 파일 ' + files.length + '개를 읽는 중...';
 
-    if (!titleInfo.date) throw new Error('문서 제목에서 날짜를 찾지 못했습니다.');
-    if (!dailyStats && !categoryStats) throw new Error('일별실적/상담유형별 인입호 표를 찾지 못했습니다.');
-
-    if (dailyStats && rowSchema && rowSchema.length) {
-      const line = titleInfo.date + '\t' + rowSchema.map(function(col) { return dailyStats[col.key] !== undefined ? dailyStats[col.key] : ''; }).join('\t');
-      const pasteBoxEl = document.getElementById('pasteBox');
-      if (pasteBoxEl) pasteBoxEl.value = line;
+  const results = [];
+  const errors = [];
+  for (const f of files) {
+    try {
+      const xml = await hwpxUnzipOne(await f.arrayBuffer(), 'Contents/section0.xml');
+      const parsed = dayrptParseXml(xml);
+      const titleInfo = dayrptParseTitleAndDate(parsed.allText, parsed.tables, f.name);
+      if (!titleInfo.fullDate) throw new Error('문서 제목에서 날짜를 찾지 못했습니다.');
+      const dailyStats = dayrptParseDailyStats(parsed.tables, parsed.allText);
+      const categoryStats = dayrptParseCategoryStats(parsed.tables);
+      if (!dailyStats && !categoryStats) throw new Error('일별실적/상담유형별 세부현황 표를 찾지 못했습니다.');
+      results.push({ fullDate: titleInfo.fullDate, dateLabel: titleInfo.date, dailyStats: dailyStats, categoryStats: categoryStats, file: f });
+    } catch (e) {
+      errors.push(f.name + ': ' + e.message);
     }
-    if (categoryStats && categorySchema && categorySchema.length) {
-      const line = titleInfo.date + '\t' + categorySchema.map(function(col) { return categoryStats[col.key] !== undefined ? categoryStats[col.key] : ''; }).join('\t');
-      const catBoxEl = document.getElementById('categoryPasteBox');
-      if (catBoxEl) catBoxEl.value = line;
-    }
-
-    pendingPerfArchiveFile = f; // "전체저장" 성공 시에만 업로드 자료함에 반영 (saveEverything 참고)
-    statusEl.className = 'status-msg ok';
-    statusEl.textContent = titleInfo.date + ' 자료 추출 완료. "전체 양식에 반영"을 눌러 두 표에 함께 반영하세요.';
-  } catch (e) {
-    statusEl.className = 'status-msg err';
-    statusEl.textContent = '추출 실패: ' + e.message;
   }
+
+  if (results.length === 0) {
+    statusEl.className = 'status-msg err';
+    statusEl.textContent = '추출 실패 — ' + errors.join(' / ');
+    return;
+  }
+  results.sort(function(a, b) { return a.fullDate < b.fullDate ? -1 : 1; });
+  const minDate = results[0].fullDate, maxDate = results[results.length - 1].fullDate;
+
+  // 일자별 실적 폼: 추출된 날짜 범위로 표를 만들고(범위 안의 빈 날짜는 이월/공란), 추출된 값만 해당 날짜 칸에 채운다
+  if (results.some(function(r) { return r.dailyStats; })) {
+    document.getElementById('ptDailyItemStart').value = minDate;
+    document.getElementById('ptDailyItemEnd').value = maxDate;
+    await generatePtDailyItemRows();
+    results.forEach(function(r) {
+      if (!r.dailyStats) return;
+      const ri = ptDailyItemDates.indexOf(r.fullDate);
+      if (ri === -1) return;
+      Object.keys(r.dailyStats).forEach(function(key) {
+        if (r.dailyStats[key] === '') return;
+        const inp = document.querySelector('.pt-daily-input[data-row="' + ri + '"][data-key="' + key + '"]');
+        if (inp) inp.value = r.dailyStats[key];
+      });
+    });
+  }
+
+  // 업무유형별 세부현황 폼
+  if (results.some(function(r) { return r.categoryStats; })) {
+    document.getElementById('ptCategoryItemStart').value = minDate;
+    document.getElementById('ptCategoryItemEnd').value = maxDate;
+    generatePtCategoryItemRows();
+    results.forEach(function(r) {
+      if (!r.categoryStats) return;
+      const ri = ptCategoryItemDates.indexOf(r.fullDate);
+      if (ri === -1) return;
+      Object.keys(r.categoryStats).forEach(function(key) {
+        if (r.categoryStats[key] === '') return;
+        const inp = document.querySelector('.pt-category-input[data-row="' + ri + '"][data-key="' + key + '"]');
+        if (inp) inp.value = r.categoryStats[key];
+      });
+    });
+  }
+
+  pendingPerfArchiveFiles = results.map(function(r) { return r.file; });
+  statusEl.className = errors.length ? 'status-msg err' : 'status-msg ok';
+  let msg = results.length + '개 파일(' + minDate + ' ~ ' + maxDate + ') 추출 완료. 아래 표에서 값을 확인한 뒤 "전체저장"을 눌러주세요.';
+  if (errors.length) msg += ' / 실패 ' + errors.length + '건 — ' + errors.join(' / ');
+  statusEl.textContent = msg;
 }
 
-function applyBothForms() {
-  parseMultiPaste();
-  parseCategoryPaste();
-}
-
-async function saveEverything() {
+// 추출로 채운 "일자별 실적"·"업무유형별 세부현황" 두 표를 한 번에 저장하고,
+// 성공하면 이번에 업로드했던 원본 hwpx 파일들을 업로드 자료함에도 반영한다.
+async function savePyeongtaekDailyReportAll() {
   const statusEl = document.getElementById('dayReportStatus');
-  parseMultiPaste();
-  parseCategoryPaste();
-  // saveAllRows()가 내부에서 pendingPerfArchiveFile을 소비(및 초기화)하므로,
-  // saveCategoryRows()만 성공한 경우(=일별실적표는 없고 업무유형별 인입호만 추출된 경우)에도
-  // 자료함 반영을 판단할 수 있도록 미리 별도로 붙잡아 둔다.
-  const fileToArchive = pendingPerfArchiveFile;
-  if (statusEl) { statusEl.className = 'status-msg'; statusEl.textContent = '일자별 실적 저장 중...'; }
-  let dailyOk = false, categoryOk = false;
-  if (typeof parsedRows !== 'undefined' && parsedRows.length) dailyOk = await saveAllRows();
-  if (statusEl) statusEl.textContent = '업무유형별 인입현황 저장 중...';
-  if (typeof categoryParsedRows !== 'undefined' && categoryParsedRows.length) categoryOk = await saveCategoryRows();
-  if (statusEl) { statusEl.className = 'status-msg ok'; statusEl.textContent = '일자별 실적 + 업무유형별 인입현황 저장을 모두 완료했습니다.'; }
-  // dailyOk일 때는 saveAllRows()가 이미 자료함에 반영했으므로 중복 업로드하지 않는다.
-  if (!dailyOk && categoryOk && fileToArchive) { uploadFileToArchive(fileToArchive, '실적파일'); pendingPerfArchiveFile = null; }
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '일자별 실적 저장 중...';
+  await savePtDailyItemRows();
+  statusEl.textContent = '업무유형별 세부현황 저장 중...';
+  await savePtCategoryItemRows();
+  statusEl.className = 'status-msg ok';
+  statusEl.textContent = '일자별 실적 + 업무유형별 세부현황 저장을 모두 완료했습니다.';
+  if (pendingPerfArchiveFiles.length) {
+    pendingPerfArchiveFiles.forEach(function(f) { uploadFileToArchive(f, '실적파일'); });
+    pendingPerfArchiveFiles = [];
+  }
 }
 
 const HWPX_FIELD_ORDER = {
@@ -5735,12 +5805,11 @@ async function renderEntry() {
 
   const dayReportBox = DAY_REPORT_CENTERS[currentCenter]
     ? '<div class="panel" style="max-width:720px;margin-bottom:16px;">'
-      + '<h3>일일업무보고 한글파일(HWPX)에서 자동 추출</h3>'
-      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">하루치 일일업무보고(.hwpx)를 첨부하면 "일별실적"과 "상담유형별 인입호"를 함께 읽어 각각의 붙여넣기 칸에 자동으로 채워줍니다.</p>'
-      + '<input type="file" id="dayReportFile" accept=".hwpx">'
+      + '<h3>일일업무보고 한글파일(HWPX)에서 자동 추출 (기본 입력 방식)</h3>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin-bottom:8px;">일일업무보고(.hwpx)를 첨부하면 됩니다 — 여러 날짜 파일을 한 번에 선택할 수 있고, 파일마다 제목의 날짜를 자동으로 인식해 "일자별 실적"과 "업무유형별 세부현황" 표의 해당 날짜 칸에 자동으로 채워줍니다.</p>'
+      + '<input type="file" id="dayReportFile" accept=".hwpx" multiple>'
       + '<button class="btn-secondary" onclick="extractDailyReportAndFill()">추출해서 채우기</button>'
-      + '<button class="btn-primary" onclick="applyBothForms()">전체 양식에 반영</button>'
-      + '<button class="btn-primary" onclick="saveEverything()" style="background:#34c759;">전체저장</button>'
+      + '<button class="btn-primary" onclick="savePyeongtaekDailyReportAll()" style="background:#34c759;">전체저장</button>'
       + '<div class="status-msg" id="dayReportStatus"></div>'
       + '</div>'
     : '';
@@ -5759,18 +5828,20 @@ async function renderEntry() {
     extraction = { label: '엑셀 자동추출 (' + LGEX_CENTER_CONFIG[currentCenter].targetGroup + ' Total)', html: lgeExcelBox };
   }
 
-  const pasteHtml = '<div class="entry-wrap panel">'
-    + '<h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>'
-    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)</p>'
-    + '<textarea class="paste-box" id="pasteBox" placeholder="6/1	165.5	34	90.5	...&#10;6/2	164.5	34	89.5	..."></textarea>'
-    + '<button class="btn-secondary" onclick="parseMultiPaste()">양식에 반영</button>'
-    + '<button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>'
-    + '<button class="btn-primary" id="manualSaveAttBtn" style="display:none;background:#5ac8fa;" onclick="saveAllRows(\'attendance\')">근태만 저장</button>'
-    + '<button class="btn-primary" id="manualSavePerfBtn" style="display:none;background:#34c759;" onclick="saveAllRows(\'performance\')">실적만 저장</button>'
-    + '<div class="status-msg" id="manualStatus"></div>'
-    + '<div id="templateArea" style="margin-top:16px;"></div>'
-    + '</div>'
-    + (currentCenter === 'pyeongtaek' ? renderPtDailyItemShell() : '');
+  // 평택시청은 텍스트 붙여넣기 대신 항목별 입력폼만 사용(LG전자통합과 동일한 방식) — 일일업무보고 자동추출이 기본이고, 이건 보조 수단
+  const pasteHtml = currentCenter === 'pyeongtaek'
+    ? renderPtDailyItemShell()
+    : '<div class="entry-wrap panel">'
+      + '<h3>일자별 실적 직접입력 (여러 날짜 한번에 가능)</h3>'
+      + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">엑셀에서 날짜 칸부터 마지막 칸까지, 여러 날짜 행을 한 번에 드래그해 복사한 뒤 붙여넣으세요 (한 줄 = 하루치)</p>'
+      + '<textarea class="paste-box" id="pasteBox" placeholder="6/1	165.5	34	90.5	...&#10;6/2	164.5	34	89.5	..."></textarea>'
+      + '<button class="btn-secondary" onclick="parseMultiPaste()">양식에 반영</button>'
+      + '<button class="btn-primary" id="manualSaveBtn" style="display:none;" onclick="saveAllRows()">전체 저장</button>'
+      + '<button class="btn-primary" id="manualSaveAttBtn" style="display:none;background:#5ac8fa;" onclick="saveAllRows(\'attendance\')">근태만 저장</button>'
+      + '<button class="btn-primary" id="manualSavePerfBtn" style="display:none;background:#34c759;" onclick="saveAllRows(\'performance\')">실적만 저장</button>'
+      + '<div class="status-msg" id="manualStatus"></div>'
+      + '<div id="templateArea" style="margin-top:16px;"></div>'
+      + '</div>';
 
   // 입력 방법을 "선택카드 + 접이식"으로 정리 — 파일업로드가 있는 센터는 그것을 기본 선택으로, 없으면 직접입력이 기본
   const methods = [];
@@ -5804,7 +5875,10 @@ async function renderEntry() {
     const data = await res.json();
     rowSchema = data.success ? (data.row_schema || []) : [];
     categorySchema = data.success ? (data.category_schema || []) : [];
-    if (rowSchema.length === 0) document.getElementById('templateArea').innerHTML = '<p style="color:#FF6B70;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>';
+    if (rowSchema.length === 0) {
+      const emptyArea = document.getElementById('templateArea') || document.getElementById('ptDailyItemTemplateArea');
+      if (emptyArea) emptyArea.innerHTML = '<p style="color:#FF6B70;font-size:13px;">이 센터는 아직 입력양식(row_schema)이 등록되지 않았습니다.</p>';
+    }
     const guideArea = document.getElementById('inputGuideArea');
     if (guideArea) guideArea.innerHTML = renderInputGuide();
     const attArea = document.getElementById('attendanceEntryArea');
@@ -5814,7 +5888,11 @@ async function renderEntry() {
     const dmArea = document.getElementById('dataManageArea');
     if (dmArea) dmArea.innerHTML = renderDataManagePanel();
     if (XLSX_EXTRACTOR_FIELDS[currentCenter]) await loadXlsxFieldOverride(currentCenter);
-  } catch (e) { document.getElementById('templateArea').innerHTML = '<p class="empty">양식을 불러오지 못했습니다.</p>'; }
+  } catch (e) {
+    // 평택시청처럼 templateArea가 없는(=텍스트 붙여넣기 UI를 안 쓰는) 센터에서도 안전하게 에러를 보여주기 위해 폴백을 둔다
+    const fallback = document.getElementById('templateArea') || document.getElementById('ptDailyItemTemplateArea') || document.getElementById('main');
+    if (fallback) fallback.innerHTML = '<p class="empty">양식을 불러오지 못했습니다.</p>';
+  }
 }
 
 // ============================================
@@ -5936,6 +6014,7 @@ function loadRowForEdit(idx) {
   const row = dmQueryResults[idx];
   if (!row) return;
   if (currentCenter === 'lge_total') { loadLgeTotalRowForEdit(row); return; }
+  if (currentCenter === 'pyeongtaek') { loadPtDailyRowForEdit(row); return; }
   if (!rowSchema || rowSchema.length === 0) return;
   const values = rowSchema.map(function(col) {
     const src = col.group === 'attendance' ? row.attendance_data : row.performance_data;
@@ -6092,6 +6171,25 @@ function applyPtDailyItemAllColumns() {
   if (count === 0) { statusEl.className = 'status-msg err'; statusEl.textContent = '일괄입력 행에 적용할 값을 하나 이상 입력해 주세요.'; return; }
   statusEl.className = 'status-msg ok';
   statusEl.textContent = count + '개 항목을 ' + ptDailyItemDates.length + '개 날짜 전체에 반영했습니다.';
+}
+
+// "저장된 데이터 조회·수정" 패널의 "수정하기" — 평택시청은 텍스트 붙여넣기 칸이 없으므로(LG전자통합과 동일하게)
+// 그 날짜 하나만 표시하는 항목별 입력폼으로 불러온다.
+async function loadPtDailyRowForEdit(row) {
+  document.getElementById('ptDailyItemStart').value = row.report_date;
+  document.getElementById('ptDailyItemEnd').value = row.report_date;
+  await generatePtDailyItemRows();
+  const ri = ptDailyItemDates.indexOf(row.report_date);
+  if (ri === -1) return;
+  rowSchema.forEach(function(col) {
+    const src = col.group === 'attendance' ? row.attendance_data : row.performance_data;
+    const val = (src && src[col.key] !== undefined) ? src[col.key] : '';
+    const inp = document.querySelector('.pt-daily-input[data-row="' + ri + '"][data-key="' + col.key + '"]');
+    if (inp) inp.value = val;
+  });
+  const area = document.getElementById('ptDailyItemTemplateArea');
+  if (area) area.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  alert(row.report_date + ' 데이터를 "일자별 실적 항목별 직접 입력" 표에 불러왔습니다. 값을 수정한 뒤 "전체 저장"을 눌러주세요.');
 }
 
 async function savePtDailyItemRows() {
@@ -6823,9 +6921,10 @@ function renderCategoryInputGuide() {
 
 function renderCategoryEntryPanel() {
   if (!categorySchema || categorySchema.length === 0) return '';
+  // 평택시청은 텍스트 붙여넣기 대신 항목별 입력폼만 사용(LG전자통합과 동일한 방식) — 일일업무보고 자동추출이 기본이고, 이건 보조 수단
+  if (currentCenter === 'pyeongtaek') return renderPtCategoryItemShell();
   const thisYear = new Date().getFullYear();
-  const guideHtml = currentCenter === 'pyeongtaek' ? '' : renderCategoryInputGuide(); // 평택시청은 상단 통합 가이드로 대체
-  return guideHtml
+  return renderCategoryInputGuide()
     + '<div class="entry-wrap panel" style="margin-top:16px;">'
     + '<h3>업무유형별 인입현황 입력</h3>'
     + '<div class="entry-row"><label>기준 연도</label><input type="number" id="categoryEntryYear" value="' + thisYear + '" style="width:90px;"></div>'
@@ -6835,8 +6934,7 @@ function renderCategoryEntryPanel() {
     + '<button class="btn-primary" id="categorySaveBtn" style="display:none;" onclick="saveCategoryRows()">전체 저장</button>'
     + '<div class="status-msg" id="categoryStatus"></div>'
     + '<div id="categoryTemplateArea" style="margin-top:16px;"></div>'
-    + '</div>'
-    + renderPtCategoryItemShell();
+    + '</div>';
 }
 
 // 엑셀에서 복사하면 탭(Tab)으로 구분되지만, 직접 타이핑하거나 채팅에서 붙여넣으면
