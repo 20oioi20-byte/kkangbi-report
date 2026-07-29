@@ -866,6 +866,7 @@ let viewingWorkspaceOverview = false;
 let viewingSettingsPage = false;
 let viewingUploadArchive = false;
 let viewingNotificationSettings = false;
+let viewingIssuesManagement = false;
 let categorySchemaCache = {}; // 센터별 업무유형별 스키마 캐시 (누락되어 ReferenceError를 일으키던 선언 추가)
 let monthlyToCache = {};
 let kpiSettingsCache = {};
@@ -965,6 +966,12 @@ function renderSidebar() {
       + '<span class="center-name-text">📁 업로드 자료함</span>'
       + '</div>'
     : '';
+  const totalUnreviewedIssues = workspaceUnlocked ? workspaceIssuesCache.filter(function(i) { return !i.reviewed; }).length : 0;
+  const issuesManagementHtml = workspaceUnlocked
+    ? '<div class="center-item ' + (viewingIssuesManagement ? 'active' : '') + '" onclick="selectIssuesManagement()" style="font-weight:700;border-bottom:1px solid #2a2e38;margin-bottom:4px;">'
+      + '<span class="center-name-text">📝 이슈 관리' + (totalUnreviewedIssues > 0 ? ' <span style="display:inline-flex;align-items:center;font-size:10px;font-weight:700;color:#fff;border-radius:9px;padding:1px 6px;margin-left:4px;background:#FF6B70;">' + totalUnreviewedIssues + '</span>' : '') + '</span>'
+      + '</div>'
+    : '';
   const notifyHtml = workspaceUnlocked
     ? '<div class="center-item ' + (viewingNotificationSettings ? 'active' : '') + '" onclick="selectNotificationSettings()" style="font-weight:700;border-bottom:1px solid #2a2e38;margin-bottom:4px;">'
       + '<span class="center-name-text">🔔 알림 설정</span>'
@@ -972,11 +979,11 @@ function renderSidebar() {
     : '';
 
   const visible = visibleCentersMeta();
-  if (visible.length === 0) { list.innerHTML = overviewHtml + archiveHtml + notifyHtml + '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
+  if (visible.length === 0) { list.innerHTML = overviewHtml + archiveHtml + issuesManagementHtml + notifyHtml + '<div class="empty">등록된 센터가 없습니다.</div>'; return; }
 
   const sorted = visible.slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
 
-  list.innerHTML = overviewHtml + archiveHtml + notifyHtml + sorted.map(function(c, idx) {
+  list.innerHTML = overviewHtml + archiveHtml + issuesManagementHtml + notifyHtml + sorted.map(function(c, idx) {
     const isUnlocked = workspaceUnlocked || unlockedCenters.has(c.center_code);
     const lockIcon = isUnlocked ? '' : '🔒 ';
     const activeCls = (!viewingWorkspaceOverview && c.center_code === currentCenter) ? 'active' : '';
@@ -1034,27 +1041,15 @@ function getCenterUploadSignal(centerCode) {
   return { color: 'red', label: '경고 (' + days + '일째 업로드 없음)', days: days };
 }
 
-// ============================================
-// 이슈 자동분류(키워드 기반) — 센터장은 등록할 때 아무것도 고르지 않는다.
-// 저장된 제목·내용을 관리자 화면(전체 피드/센터별 목록)에서 볼 때만 자동으로 유형을 붙여준다.
-// ============================================
-const ISSUE_CATEGORY_RULES = [
-  { key: 'staff', label: '인원변동', color: '#5ac8fa', keywords: ['입사', '퇴사', '신입', '채용', '퇴직', '휴직', '복직', '인원변동'] },
-  { key: 'performance', label: '실적이슈', color: '#FF6B70', keywords: ['sl', '응대율', '이탈', '포기', '급락', '급증', '인입', '민원'] },
-  { key: 'system', label: '시스템/장애', color: '#f5a623', keywords: ['장애', '시스템', '오류', '점검', '서버', '다운', '전산'] },
-  { key: 'notice', label: '공지/안내', color: '#34c759', keywords: ['공지', '안내', '휴무', '휴관', '정기점검'] }
-];
-function classifyIssue(item) {
-  const text = ((item.title || '') + ' ' + (item.content || '')).toLowerCase();
-  for (let i = 0; i < ISSUE_CATEGORY_RULES.length; i++) {
-    const rule = ISSUE_CATEGORY_RULES[i];
-    if (rule.keywords.some(function(k) { return text.includes(k.toLowerCase()); })) return rule;
-  }
-  return { key: 'etc', label: '기타', color: '#86868b', keywords: [] };
+// 목록에 미리보기로 보여줄 만큼만 잘라내고, 잘렸으면 "..."을 붙인다(줄바꿈은 공백으로 정리).
+function truncateText(text, maxLen) {
+  const clean = String(text || '').replace(/\s+/g, ' ').trim();
+  if (clean.length <= maxLen) return clean;
+  return clean.slice(0, maxLen) + '…';
 }
 
 // ============================================
-// 워크스페이스 관리자 전용: 전체 센터 이슈/쪽지 통합 조회 (전체현황 피드, 사이드바 신호등, 확인함 처리에 사용)
+// 워크스페이스 관리자 전용: 전체 센터 이슈/쪽지 통합 조회 (이슈 관리 페이지, 사이드바 신호등, 확인함 처리에 사용)
 // ============================================
 let workspaceIssuesCache = [];
 let workspaceMessagesSummary = {};
@@ -1089,8 +1084,13 @@ async function setIssueReviewed(id, reviewed) {
     if (item1) item1.reviewed = reviewed;
     const item2 = allIssuesCache.find(function(i) { return i.id === id; });
     if (item2) item2.reviewed = reviewed;
+    // 전체현황의 "미확인 이슈" 미니피드는 확인함 처리 즉시 그 항목이 목록에서 사라져야 하므로 다시 그린다.
     const feedListEl = document.getElementById('workspaceIssuesFeedList');
     if (feedListEl) feedListEl.innerHTML = renderWorkspaceIssuesFeedListHtml();
+    const feedTitleEl = document.getElementById('workspaceIssuesFeedTitle');
+    if (feedTitleEl) feedTitleEl.innerHTML = workspaceIssuesFeedTitleHtml();
+    const managementListEl = document.getElementById('issuesManagementList');
+    if (managementListEl) managementListEl.innerHTML = renderIssuesManagementListHtml();
     if (currentMainTab === 'issues' && !viewingWorkspaceOverview) filterIssueList();
     renderSidebar();
   } catch (e) {
@@ -1133,6 +1133,7 @@ async function selectWorkspaceOverview(forceRefresh) {
   viewingSettingsPage = false;
   viewingUploadArchive = false;
   viewingNotificationSettings = false;
+  viewingIssuesManagement = false;
   renderSidebar();
   renderTopbarAuth();
   await Promise.all([loadAllCentersOverview(), loadAllSettingsData(forceRefresh), loadLastUploadMap(), loadWorkspaceIssuesAndMessages()]);
@@ -1144,6 +1145,7 @@ async function selectSettingsPage() {
   viewingSettingsPage = true;
   viewingUploadArchive = false;
   viewingNotificationSettings = false;
+  viewingIssuesManagement = false;
   renderSidebar();
   renderTopbarAuth();
   await loadAllSettingsData();
@@ -1155,6 +1157,7 @@ async function selectUploadArchive() {
   viewingSettingsPage = false;
   viewingUploadArchive = true;
   viewingNotificationSettings = false;
+  viewingIssuesManagement = false;
   renderSidebar();
   renderTopbarAuth();
   await loadUploadArchive();
@@ -1166,9 +1169,22 @@ async function selectNotificationSettings() {
   viewingSettingsPage = false;
   viewingUploadArchive = false;
   viewingNotificationSettings = true;
+  viewingIssuesManagement = false;
   renderSidebar();
   renderTopbarAuth();
   await loadNotificationData();
+  renderMain();
+}
+
+async function selectIssuesManagement() {
+  viewingWorkspaceOverview = false;
+  viewingSettingsPage = false;
+  viewingUploadArchive = false;
+  viewingNotificationSettings = false;
+  viewingIssuesManagement = true;
+  renderSidebar();
+  renderTopbarAuth();
+  await loadWorkspaceIssuesAndMessages();
   renderMain();
 }
 
@@ -1236,6 +1252,7 @@ async function selectCenter(code) {
   viewingWorkspaceOverview = false;
   viewingUploadArchive = false;
   viewingNotificationSettings = false;
+  viewingIssuesManagement = false;
   if (currentCenter !== code) resetDashboardStateForNewCenter();
   currentCenter = code;
   loadColPrefs();
@@ -1267,6 +1284,7 @@ function renderMain() {
   if (viewingWorkspaceOverview) { renderWorkspaceOverview(); return; }
   if (viewingUploadArchive) { renderUploadArchive(); return; }
   if (viewingNotificationSettings) { renderNotificationSettings(); return; }
+  if (viewingIssuesManagement) { renderIssuesManagementPage(); return; }
   if (!currentCenter) {
     document.getElementById('main').innerHTML = '<div class="empty" style="padding:100px 24px;">왼쪽에서 센터를 선택해 비밀번호를 입력하거나,<br>상단의 "관리자화면 로그인"으로 전체 센터를 확인하세요.</div>';
     return;
@@ -1691,7 +1709,6 @@ function renderWorkspaceOverview() {
     + kpiHtml
     + uploadStatusHtml
     + renderWorkspaceIssuesFeedHtml()
-    + renderWorkspaceMessagesSummaryHtml()
     + '<div class="panel"><div class="table-scroll"><table class="ws-table"><thead><tr><th>센터</th><th>재직(TO대비)</th><th>핵심지표(이번달/누적)</th><th>상태</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
     + (workspaceUnlocked ? '<div style="text-align:center;padding:14px;color:#86868b;font-size:12px;cursor:pointer;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
     + '</div>'
@@ -1702,89 +1719,124 @@ function renderWorkspaceOverview() {
 }
 
 // ============================================
-// 전체현황: "전체 센터 이슈 피드"(태그 자동분류 + 확인함 + 전체 센터 검색) + "센터별 쪽지 현황" 패널
+// 전체현황: "미확인 이슈" 미니 피드 — 새로 생긴 것만 짧게 보여주고, 확인하면 목록에서 바로 사라진다.
+// 전체 이슈를 검색·필터링하며 보는 화면은 사이드바의 "📝 이슈 관리"(renderIssuesManagementPage)로 분리했다.
 // ============================================
-let workspaceIssueFeedSearch = '';
-
 function renderWorkspaceIssuesFeedHtml() {
   return '<div class="panel" style="margin-bottom:16px;">'
     + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;gap:10px;flex-wrap:wrap;">'
-    + '<h3 style="margin:0;font-size:15px;">📋 전체 센터 이슈 피드</h3>'
-    + '<input type="text" placeholder="전체 센터에서 검색(제목·내용·센터명)" value="' + escapeHtml(workspaceIssueFeedSearch) + '" oninput="filterWorkspaceIssueFeed(this.value)" style="padding:7px 10px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;width:260px;">'
+    + '<h3 id="workspaceIssuesFeedTitle" style="margin:0;font-size:15px;">' + workspaceIssuesFeedTitleHtml() + '</h3>'
+    + '<a href="javascript:void(0)" onclick="selectIssuesManagement()" style="font-size:12px;color:#5ac8fa;">전체 이슈 보기 →</a>'
     + '</div>'
     + '<div id="workspaceIssuesFeedList">' + renderWorkspaceIssuesFeedListHtml() + '</div>'
     + '</div>';
 }
 
+function workspaceIssuesFeedTitleHtml() {
+  const count = workspaceIssuesCache.filter(function(i) { return !i.reviewed; }).length;
+  return '📋 미확인 이슈' + (count > 0 ? ' <span style="color:#FF6B70;">(' + count + '건)</span>' : '');
+}
+
 function renderWorkspaceIssuesFeedListHtml() {
   const centerNameByCode = {};
   visibleCentersMeta().forEach(function(c) { centerNameByCode[c.center_code] = c.center_name; });
+  const unreviewed = workspaceIssuesCache.filter(function(i) { return !i.reviewed; });
 
-  const kw = workspaceIssueFeedSearch.trim().toLowerCase();
-  const filtered = workspaceIssuesCache.filter(function(i) {
-    if (!kw) return true;
-    const centerName = (centerNameByCode[i.center_code] || '').toLowerCase();
-    return (i.title || '').toLowerCase().includes(kw) || (i.content || '').toLowerCase().includes(kw) || centerName.includes(kw);
-  });
-  const unreviewedCount = workspaceIssuesCache.filter(function(i) { return !i.reviewed; }).length;
+  if (unreviewed.length === 0) return '<div class="empty">확인하지 않은 이슈가 없습니다.</div>';
 
-  const listHtml = filtered.length === 0
-    ? '<div class="empty">' + (kw ? '검색 결과가 없습니다.' : '등록된 이슈가 없습니다.') + '</div>'
-    : filtered.slice(0, 100).map(function(item) {
-      const cat = classifyIssue(item);
-      const centerName = centerNameByCode[item.center_code] || item.center_code;
-      const reviewBtn = item.reviewed
-        ? '<button style="border:none;background:none;color:#86868b;font-size:12px;cursor:pointer;" onclick="setIssueReviewed(\'' + item.id + '\', false)">확인취소</button>'
-        : '<button style="border:none;background:none;color:#34c759;font-size:12px;cursor:pointer;font-weight:700;" onclick="setIssueReviewed(\'' + item.id + '\', true)">✓ 확인함</button>';
-      return '<details class="issue-item" style="padding:0 4px;border-top:1px solid #2c2c2e;">'
-        + '<summary style="padding:12px 0;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:baseline;gap:10px;">'
-        + '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">'
-        + (item.reviewed ? '' : '<span title="미확인" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#FF6B70;margin-right:6px;"></span>')
-        + '<span style="font-size:11px;font-weight:700;color:' + cat.color + ';border:1px solid ' + cat.color + ';border-radius:4px;padding:1px 5px;margin-right:6px;">' + cat.label + '</span>'
-        + '<span style="font-weight:700;color:#5ac8fa;">' + escapeHtml(centerName) + '</span> '
-        + '<span style="font-weight:700;font-size:13px;">' + escapeHtml(item.title) + '</span>'
-        + '<span style="color:#86868b;font-size:12px;margin-left:8px;">' + item.issue_date + '</span></span>'
-        + '<span style="display:flex;gap:10px;flex-shrink:0;" onclick="event.preventDefault();event.stopPropagation();">'
-        + reviewBtn
-        + '<button style="border:none;background:none;color:#a1a1a6;font-size:12px;cursor:pointer;" onclick="selectCenter(\'' + item.center_code + '\');switchMainTab(\'issues\')">센터로 이동</button>'
-        + '</span>'
-        + '</summary>'
-        + '<div style="font-size:13px;color:#f5f5f7;margin:0 0 12px;white-space:pre-wrap;">' + (item.content ? escapeHtml(item.content) : '<span style="color:#86868b;">상세 내용 없음</span>') + '</div>'
-        + '</details>';
-    }).join('');
+  return unreviewed.slice(0, 20).map(function(item) {
+    const centerName = centerNameByCode[item.center_code] || item.center_code;
+    return '<div style="padding:10px 4px;border-top:1px solid #2c2c2e;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'
+      + '<div style="min-width:0;">'
+      + '<div><span title="미확인" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#FF6B70;margin-right:6px;"></span>'
+      + '<span style="font-weight:700;color:#5ac8fa;">' + escapeHtml(centerName) + '</span> '
+      + '<span style="font-weight:700;font-size:13px;">' + escapeHtml(item.title) + '</span>'
+      + '<span style="color:#86868b;font-size:12px;margin-left:8px;">' + item.issue_date + '</span></div>'
+      + (item.content ? '<div style="font-size:12px;color:#a1a1a6;margin-top:3px;">' + escapeHtml(truncateText(item.content, 80)) + '</div>' : '')
+      + '</div>'
+      + '<span style="display:flex;gap:10px;flex-shrink:0;">'
+      + '<button style="border:none;background:none;color:#34c759;font-size:12px;cursor:pointer;font-weight:700;" onclick="setIssueReviewed(\'' + item.id + '\', true)">✓ 확인함</button>'
+      + '<button style="border:none;background:none;color:#a1a1a6;font-size:12px;cursor:pointer;" onclick="selectCenter(\'' + item.center_code + '\');switchMainTab(\'issues\')">센터로 이동</button>'
+      + '</span>'
+      + '</div>';
+  }).join('') + (unreviewed.length > 20 ? '<div style="font-size:11px;color:#86868b;margin-top:8px;">그 외 ' + (unreviewed.length - 20) + '건은 "이슈 관리"에서 확인하세요.</div>' : '');
+}
 
-  return '<div style="font-size:12px;color:#86868b;margin-bottom:6px;">' + filtered.length + '건'
-    + (unreviewedCount > 0 ? ' <span style="color:#FF6B70;">(미확인 ' + unreviewedCount + '건)</span>' : '')
-    + (kw ? ' · 검색: "' + escapeHtml(workspaceIssueFeedSearch) + '"' : '')
-    + (filtered.length > 100 ? ' · 최근 100건만 표시' : '')
+// ============================================
+// 사이드바 "📝 이슈 관리" — 전체 센터 이슈를 한 화면에서 센터별 필터 + 검색으로 확인·관리한다(관리자 전용, 업로드 자료함 아래에 위치).
+// ============================================
+let issuesManagementCenterFilter = '';
+let issuesManagementSearch = '';
+
+function renderIssuesManagementPage() {
+  const main = document.getElementById('main');
+  const centerOptions = visibleCentersMeta().slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); })
+    .map(function(c) { return '<option value="' + c.center_code + '"' + (issuesManagementCenterFilter === c.center_code ? ' selected' : '') + '>' + c.center_name + '</option>'; }).join('');
+
+  main.innerHTML = '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:16px;">'
+    + '<h2 style="margin:0;font-size:20px;">📝 이슈 관리 (전체 센터)</h2>'
+    + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectIssuesManagement()">새로고침</button>'
     + '</div>'
-    + listHtml;
+    + '<div class="panel">'
+    + '<div style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;margin-bottom:10px;">'
+    + '<select id="issuesManagementCenterSelect" onchange="filterIssuesManagement()" style="padding:7px 10px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;background:#111113;color:#f5f5f7;">'
+    + '<option value="">전체 센터</option>' + centerOptions
+    + '</select>'
+    + '<input type="text" id="issuesManagementSearchInput" placeholder="제목·내용으로 검색" value="' + escapeHtml(issuesManagementSearch) + '" oninput="filterIssuesManagement()" style="padding:7px 10px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;width:260px;">'
+    + '</div>'
+    + '<div id="issuesManagementList">' + renderIssuesManagementListHtml() + '</div>'
+    + '</div>';
+
+  const selectEl = document.getElementById('issuesManagementCenterSelect');
+  if (selectEl) selectEl.value = issuesManagementCenterFilter;
 }
 
-function filterWorkspaceIssueFeed(kw) {
-  workspaceIssueFeedSearch = kw;
-  const el = document.getElementById('workspaceIssuesFeedList');
-  if (el) el.innerHTML = renderWorkspaceIssuesFeedListHtml();
+function renderIssuesManagementListHtml() {
+  const centerNameByCode = {};
+  visibleCentersMeta().forEach(function(c) { centerNameByCode[c.center_code] = c.center_name; });
+
+  const kw = issuesManagementSearch.trim().toLowerCase();
+  const filtered = workspaceIssuesCache.filter(function(i) {
+    if (issuesManagementCenterFilter && i.center_code !== issuesManagementCenterFilter) return false;
+    if (!kw) return true;
+    return (i.title || '').toLowerCase().includes(kw) || (i.content || '').toLowerCase().includes(kw);
+  });
+
+  const countLine = '<div style="font-size:12px;color:#86868b;margin-bottom:6px;">' + filtered.length + '건'
+    + (filtered.length > 200 ? ' · 최근 200건만 표시' : '') + '</div>';
+
+  if (filtered.length === 0) return countLine + '<div class="empty">' + (kw || issuesManagementCenterFilter ? '검색 결과가 없습니다.' : '등록된 이슈가 없습니다.') + '</div>';
+
+  const listHtml = filtered.slice(0, 200).map(function(item) {
+    const centerName = centerNameByCode[item.center_code] || item.center_code;
+    const reviewBtn = item.reviewed
+      ? '<button style="border:none;background:none;color:#86868b;font-size:12px;cursor:pointer;" onclick="setIssueReviewed(\'' + item.id + '\', false)">확인취소</button>'
+      : '<button style="border:none;background:none;color:#34c759;font-size:12px;cursor:pointer;font-weight:700;" onclick="setIssueReviewed(\'' + item.id + '\', true)">✓ 확인함</button>';
+    return '<div style="padding:10px 4px;border-top:1px solid #2c2c2e;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'
+      + '<div style="min-width:0;">'
+      + '<div>' + (item.reviewed ? '' : '<span title="미확인" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#FF6B70;margin-right:6px;"></span>')
+      + '<span style="font-weight:700;color:#5ac8fa;">' + escapeHtml(centerName) + '</span> '
+      + '<span style="font-weight:700;font-size:13px;">' + escapeHtml(item.title) + '</span>'
+      + '<span style="color:#86868b;font-size:12px;margin-left:8px;">' + item.issue_date + '</span></div>'
+      + (item.content ? '<div style="font-size:12px;color:#a1a1a6;margin-top:3px;">' + escapeHtml(truncateText(item.content, 120)) + '</div>' : '')
+      + '</div>'
+      + '<span style="display:flex;gap:10px;flex-shrink:0;">'
+      + reviewBtn
+      + '<button style="border:none;background:none;color:#a1a1a6;font-size:12px;cursor:pointer;" onclick="selectCenter(\'' + item.center_code + '\');switchMainTab(\'issues\')">센터로 이동</button>'
+      + '</span>'
+      + '</div>';
+  }).join('');
+
+  return countLine + listHtml;
 }
 
-function renderWorkspaceMessagesSummaryHtml() {
-  const sorted = visibleCentersMeta().slice().sort(function(a, b) { return (a.sort_order || 0) - (b.sort_order || 0); });
-  const totalUnread = sorted.reduce(function(sum, c) { const s = workspaceMessagesSummary[c.center_code]; return sum + (s ? s.unreadByAdmin : 0); }, 0);
-  return '<div class="panel" style="margin-bottom:16px;">'
-    + '<h3 style="margin:0 0 12px;font-size:15px;">💬 센터별 쪽지 현황' + (totalUnread > 0 ? ' <span style="color:#FF6B70;font-size:12px;">(안 읽은 답변 ' + totalUnread + '건)</span>' : '') + '</h3>'
-    + '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:10px;">'
-    + sorted.map(function(c) {
-        const s = workspaceMessagesSummary[c.center_code];
-        const unread = s ? s.unreadByAdmin : 0;
-        const lastText = s ? ((s.lastSender === 'admin' ? '(내가 보냄) ' : '(센터 답변) ') + s.lastMessage) : '주고받은 쪽지 없음';
-        const lastAt = s ? new Date(s.lastAt).toLocaleDateString('ko-KR') : '';
-        return '<div style="border:1px solid ' + (unread > 0 ? '#FF6B70' : '#2c2c2e') + ';border-radius:10px;padding:10px 12px;cursor:pointer;" onclick="selectCenter(\'' + c.center_code + '\');switchMainTab(\'messages\')">'
-          + '<div style="display:flex;justify-content:space-between;align-items:center;font-weight:700;font-size:13px;"><span>' + c.center_name + '</span>' + (unread > 0 ? '<span style="background:#FF6B70;color:#fff;font-size:11px;border-radius:10px;padding:1px 7px;">' + unread + '</span>' : '') + '</div>'
-          + '<div style="font-size:11px;color:#86868b;margin-top:4px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(lastText) + '</div>'
-          + (lastAt ? '<div style="font-size:10px;color:#5b6472;margin-top:2px;">' + lastAt + '</div>' : '')
-          + '</div>';
-      }).join('')
-    + '</div></div>';
+function filterIssuesManagement() {
+  const selectEl = document.getElementById('issuesManagementCenterSelect');
+  const searchEl = document.getElementById('issuesManagementSearchInput');
+  issuesManagementCenterFilter = selectEl ? selectEl.value : '';
+  issuesManagementSearch = searchEl ? searchEl.value : '';
+  const listEl = document.getElementById('issuesManagementList');
+  if (listEl) listEl.innerHTML = renderIssuesManagementListHtml();
 }
 
 // 센터별 카드 미니 추이그래프 구성 (월별 집계, mode: avg=일평균 / sum=월합계)
@@ -3758,9 +3810,6 @@ function renderIssueList(issues, keyword) {
   listEl.innerHTML = '<div style="font-size:12px;color:#86868b;margin-bottom:6px;">' + issues.length + '건' + (keyword ? ' (검색: "' + keyword + '")' : '') + '</div>'
     + issues.map(function(item) {
     // 목록에는 제목·날짜만 보이고, 클릭(펼치기)하면 상세 내용이 나타난다.
-    // 유형 태그는 작성자가 고르는 게 아니라 제목·내용을 보고 자동으로 분류해 붙여주는 것(classifyIssue).
-    const cat = classifyIssue(item);
-    const catBadge = '<span style="font-size:11px;font-weight:700;color:' + cat.color + ';border:1px solid ' + cat.color + ';border-radius:4px;padding:1px 5px;margin-right:6px;">' + cat.label + '</span>';
     // "확인함"은 관리자(워크스페이스 로그인) 전용 — 센터장 화면에는 아예 안 보인다(입력 부담 없음).
     const reviewBtn = workspaceUnlocked
       ? (item.reviewed
@@ -3770,7 +3819,7 @@ function renderIssueList(issues, keyword) {
     const unreviewedDot = (workspaceUnlocked && !item.reviewed) ? '<span title="미확인" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#FF6B70;margin-right:6px;"></span>' : '';
     return '<details class="issue-item" style="padding:0 4px;border-top:1px solid #2c2c2e;">'
       + '<summary style="padding:12px 0;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:baseline;gap:10px;">'
-      + '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + unreviewedDot + catBadge + '<span style="font-weight:700;font-size:13px;">' + item.title + '</span>'
+      + '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + unreviewedDot + '<span style="font-weight:700;font-size:13px;">' + item.title + '</span>'
       + '<span style="color:#86868b;font-size:12px;margin-left:8px;">' + item.issue_date + '</span></span>'
       + '<span style="display:flex;gap:10px;flex-shrink:0;" onclick="event.preventDefault();event.stopPropagation();">'
       + reviewBtn
