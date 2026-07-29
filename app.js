@@ -1616,9 +1616,7 @@ function renderWorkspaceOverview() {
     return Object.assign({ code: c.center_code, name: c.center_name, rows: rows }, h);
   });
 
-  const totalCenters = centerStats.length;
   const warnStats = centerStats.filter(function(s) { return s.status === 'warn'; });
-  const totalStaffAvg = centerStats.reduce(function(sum, s) { return sum + (s.staffAvg || 0); }, 0);
 
   function formatPlainNum(v, unit) {
     if (v === null || v === undefined) return '-';
@@ -1629,6 +1627,7 @@ function renderWorkspaceOverview() {
   }
 
   // 이슈감지내용: 어떤 센터의 어떤 지표가 기준 미달인지 구체적으로 나열 (월별 누적 일평균값 기준 판정, 이번달 값도 함께 표기)
+  // — 상세 문구는 화면에는 안 보이고, 아래 한 줄 요약의 title(마우스 오버)로만 제공한다.
   const issueLines = [];
   warnStats.forEach(function(s) {
     s.metrics.filter(function(m) { return m.isWarn; }).forEach(function(m) {
@@ -1637,13 +1636,10 @@ function renderWorkspaceOverview() {
     });
   });
 
-  const kpiHtml = '<div class="ws-kpi-strip">'
-    + '<div class="ws-kpi-card"><div class="l">전체 센터</div><div class="v">' + totalCenters + '개</div></div>'
-    + '<div class="ws-kpi-card"><div class="l">전체 월평균 재직인원</div><div class="v">' + totalStaffAvg.toFixed(1) + '명</div></div>'
-    + '<div class="ws-kpi-card' + (warnStats.length > 0 ? ' warn' : '') + '"><div class="l">주의 센터</div><div class="v">' + warnStats.length + '개</div>'
-    + (issueLines.length ? '<div style="font-size:11px;color:#FF6B70;margin-top:6px;line-height:1.5;">' + issueLines.join('<br>') + '</div>' : '')
-    + '</div>'
-    + '</div>';
+  // "주의 센터" 요약은 큰 카드 대신, 센터 핵심지표 표 바로 아래에 작은 한 줄로만 표기한다(상세 내용은 마우스 오버로).
+  const warnLineHtml = warnStats.length > 0
+    ? '<div style="font-size:12px;color:#FF6B70;margin:6px 2px 16px;" title="' + escapeHtml(issueLines.join(' / ')) + '">⚠ 주의 센터 ' + warnStats.length + '개: ' + warnStats.map(function(s) { return s.name; }).join(', ') + '</div>'
+    : '<div style="font-size:12px;color:#34c759;margin:6px 2px 16px;">✅ 주의 센터 없음</div>';
 
   // 상태 기준 자동정렬은 제거하고, 센터 목록과 동일한 고정 순서(sort_order)를 그대로 사용.
   // 순서를 바꾸고 싶으면 행의 ▲▼ 버튼(사이드바 순서와 동일하게 연동)으로 직접 변경한다.
@@ -1706,12 +1702,12 @@ function renderWorkspaceOverview() {
     + '<h2 style="margin:0;font-size:20px;">관리자화면 전체 현황</h2>'
     + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview(true)">새로고침</button>'
     + '</div>'
-    + kpiHtml
-    + uploadStatusHtml
-    + renderWorkspaceIssuesFeedHtml()
     + '<div class="panel"><div class="table-scroll"><table class="ws-table"><thead><tr><th>센터</th><th>재직(TO대비)</th><th>핵심지표(이번달/누적)</th><th>상태</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
     + (workspaceUnlocked ? '<div style="text-align:center;padding:14px;color:#86868b;font-size:12px;cursor:pointer;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
     + '</div>'
+    + warnLineHtml
+    + uploadStatusHtml
+    + renderWorkspaceIssuesFeedHtml()
     + trendSectionHtml
     + '</div>';
 
