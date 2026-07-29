@@ -15,6 +15,7 @@
 10. `schema_addendum_9_ai_provider.sql` — AI 보조기능(엑셀 매핑 override + 호출 로그) 테이블 신규
 11. `schema_addendum_10_notification_manual.sql` — 알림 로그에 즉시발송 여부(`is_manual`) 컬럼 추가
 12. `schema_addendum_11_lge_total_center.sql` — LG전자통합(`lge_total`) 신규 센터 등록 (실행 후 기본 비밀번호 000000 → 변경 필요)
+13. `schema_addendum_13_issues_reviewed_and_messages.sql` — 이슈에 "관리자 확인함"(`reviewed`) 컬럼 추가 + 관리자-센터 쪽지 테이블(`center_messages`) 신규
 
 ## 1-1. Edge Function 배포 (2026-07-13, index.ts 전체 병합 완료)
 - 이전엔 index.ts 원본이 없어 병합용 스니펫으로만 드렸지만, 이제 사용자가 제공한 실제 `index.ts`에 AI 보조기능 3개 액션 + "즉시 발송" 액션 + 캐싱 헬퍼가 전부 반영된 **완전한 파일**을 드립니다. 그대로 `supabase functions deploy center-report-upload`만 하면 됩니다(코드 수정 불필요).
@@ -45,6 +46,22 @@
 - **패치**: 사용자에게 index.ts 수정 코드 전달함(3곳 — 우회 판정 함수 삭제, 인증 함수에서 우회 분기 제거, 관련 action이 항상 "인증 안 됨"을 반환하도록 정리). 프론트엔드(`app.js`)는 이미 그 action이 실패를 반환하는 경우를 정상 처리하도록 짜여 있어 **수정 불필요**.
 - **배포**: `deno check index.ts` 통과 확인 → `supabase functions deploy center-report-upload`. **배포 전까지는 위 우회 경로가 계속 열려 있는 상태이니 가능한 한 빨리 배포 권장.**
 - **검증(배포 후)**: 그동안 비밀번호 없이 자동으로 들어가던 도메인에서도 정상적으로 비밀번호 입력창이 뜨는지, 입력 후에는 기존처럼 관리자 기능이 전부 정상 동작하는지 확인.
+
+## 1-5. 🟡 이슈 "확인함" + 관리자-센터 쪽지(Q&A) — SQL 실행 + index.ts 배포 필요 (2026-07-27)
+- **배경**: 관리자(전체 센터 총괄) 입장에서 이슈/히스토리를 더 효율적으로 관리하고 싶다는 요청 → 센터장이 작성하는 쪽(폼)은 전혀 안 건드리고, 등록 이후 관리자가 보는 쪽만 개선하기로 함. 추가로 관리자→센터 1:1 쪽지(질문/답변) 기능도 요청받음.
+- **구현(app.js, 백엔드 배포 전에도 코드는 이미 반영됨 — 배포 후에만 실제로 동작)**:
+  1. 전체현황에 "📋 전체 센터 이슈 피드"(전 센터 통합, 제목/내용/센터명 검색, 미확인 개수 표시) + "💬 센터별 쪽지 현황" 패널 추가.
+  2. 사이드바 센터 목록에 관리자 전용 배지 추가 — 확인 안 된 이슈 건수(📝), 안 읽은 쪽지 답변 건수(💬).
+  3. 이슈 목록(전체 피드 + 센터별 화면 공통)에 자동분류 태그(인원변동/실적이슈/시스템·장애/공지·안내/기타, 키워드 기반 — 작성자가 고르는 게 아니라 제목·내용을 보고 관리자 화면에서만 자동으로 붙음) + 관리자 전용 "확인함" 버튼(센터장 화면엔 안 보임).
+  4. 센터별 데이터 표(대시보드)의 날짜 셀에, 그 날짜에 등록된 이슈가 있으면 마커(📝) 표시 — 클릭하면 이슈 화면으로 이동해 그 날짜로 자동 검색(관리자 전용, `workspaceIssuesCache` 기반).
+  5. 신규 탭 "💬 관리자 메모" — 관리자가 센터별로 메모를 보내고 센터장이 답변하는 1:1 스레드. 양쪽 다 같은 화면을 쓰고(문구만 다름), 열면 상대방 메시지를 자동으로 읽음 처리.
+- **백엔드(index.ts, 3곳 수정 — `index_수정본3_이슈확인+쪽지.ts`로 전달)**:
+  - `issues-list` 응답에 `reviewed` 필드 추가.
+  - 신규 액션: `list-all-issues`(워크스페이스 전용, 전체 센터 이슈 통합 조회), `issues-mark-reviewed`(워크스페이스 전용, 확인함 처리).
+  - 신규 액션: `messages-list`/`messages-send`/`messages-mark-read`(토큰 또는 워크스페이스 비밀번호 중 하나로 인증 — 기존 `isCenterOrWorkspaceAuthorized` 재사용), `list-all-messages-summary`(워크스페이스 전용, 사이드바 배지·쪽지 현황 패널용 집계).
+- **SQL**: `schema_addendum_13_issues_reviewed_and_messages.sql` — `center_issues`에 `reviewed boolean default false` 컬럼 추가(기존 이슈는 전부 미확인 상태로 시작) + `center_messages` 테이블 신규(`id, center_code, sender('admin'|'center'), message, created_at, read_by_admin, read_by_center`).
+- **배포 순서**: SQL 먼저 실행 → `deno check index.ts` 통과 확인(이미 확인함) → `supabase functions deploy center-report-upload`. **SQL/index.ts 배포 전까지는 위 신규 기능(확인함 저장, 전체 피드의 미확인 표시, 쪽지 전체) 관련 요청이 전부 실패로 응답**하지만, 기존 이슈 등록/수정/삭제와 데이터입력·대시보드 등 나머지 전체 기능은 배포 여부와 무관하게 평소처럼 정상 동작함(자동분류 태그·이슈 마커는 프론트엔드만으로 되는 부분이라 배포 전에도 보임, 다만 "확인함"을 눌러도 저장은 안 됨).
+- **검증(배포 후)**: 전체현황에서 이슈 피드가 전 센터 통합으로 보이는지, "확인함"을 누르면 사이드바 배지 숫자가 즉시 줄어드는지, 관리자→센터 쪽지를 보내고 센터장 계정(토큰 로그인)으로 확인·답변하면 관리자 쪽 "센터별 쪽지 현황"에 반영되는지, 센터장 화면에는 "확인함" 버튼이나 분류 선택 UI가 전혀 안 보이는지(입력 부담 없음) 확인.
 
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |
