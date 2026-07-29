@@ -1636,9 +1636,12 @@ function renderWorkspaceOverview() {
     });
   });
 
-  // "주의 센터" 요약은 큰 카드 대신, 센터 핵심지표 표 바로 아래에 작은 한 줄로만 표기한다(상세 내용은 마우스 오버로).
+  // "주의 센터" 요약은 큰 카드 대신 작은 텍스트로만 표기하되, 왜 주의 센터인지(지표명/누적값/목표)는 바로 아래에 함께 보여준다.
   const warnLineHtml = warnStats.length > 0
-    ? '<div style="font-size:12px;color:#FF6B70;margin:6px 2px 16px;" title="' + escapeHtml(issueLines.join(' / ')) + '">⚠ 주의 센터 ' + warnStats.length + '개: ' + warnStats.map(function(s) { return s.name; }).join(', ') + '</div>'
+    ? '<div style="font-size:12px;color:#FF6B70;margin:6px 2px 16px;">'
+      + '⚠ 주의 센터 ' + warnStats.length + '개: ' + warnStats.map(function(s) { return s.name; }).join(', ')
+      + '<div style="font-size:11px;color:#FF6B70;opacity:.85;margin-top:3px;line-height:1.6;">' + issueLines.map(function(l) { return escapeHtml(l); }).join('<br>') + '</div>'
+      + '</div>'
     : '<div style="font-size:12px;color:#34c759;margin:6px 2px 16px;">✅ 주의 센터 없음</div>';
 
   // 상태 기준 자동정렬은 제거하고, 센터 목록과 동일한 고정 순서(sort_order)를 그대로 사용.
@@ -1694,7 +1697,6 @@ function renderWorkspaceOverview() {
           + '</div>';
       }).join('')
     + '</div>'
-    + '<p style="font-size:11px;color:#86868b;margin-top:10px;">🟢 3일 이내 업로드 · 🟠 3일째 미업로드(주의) · 🔴 7일째 미업로드(경고) — 알림 발송 조건은 좌측 "🔔 알림 설정"에서 관리합니다</p>'
     + '</div>';
 
   main.innerHTML = '<div style="--dash-accent:#FE2E36;--dash-accent-dark:#3a1518;">'
@@ -1702,11 +1704,11 @@ function renderWorkspaceOverview() {
     + '<h2 style="margin:0;font-size:20px;">관리자화면 전체 현황</h2>'
     + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="selectWorkspaceOverview(true)">새로고침</button>'
     + '</div>'
+    + uploadStatusHtml
     + '<div class="panel"><div class="table-scroll"><table class="ws-table"><thead><tr><th>센터</th><th>재직(TO대비)</th><th>핵심지표(이번달/누적)</th><th>상태</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>'
     + (workspaceUnlocked ? '<div style="text-align:center;padding:14px;color:#86868b;font-size:12px;cursor:pointer;" onclick="addCenterPrompt()">+ 센터 추가</div>' : '')
     + '</div>'
     + warnLineHtml
-    + uploadStatusHtml
     + renderWorkspaceIssuesFeedHtml()
     + trendSectionHtml
     + '</div>';
