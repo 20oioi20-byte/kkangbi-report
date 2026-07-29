@@ -6754,6 +6754,14 @@ async function saveAttPerfOnly() {
 
 let categorySchema = [];
 
+// 엑셀에서 복사하면 탭(Tab)으로 구분되지만, 직접 타이핑하거나 채팅에서 붙여넣으면
+// 공백으로 구분되는 경우가 많아 둘 다 지원한다.
+function splitLineTokens(line) {
+  return line.includes('\t')
+    ? line.split('\t').map(function(t) { return t.trim(); })
+    : line.trim().split(/\s+/);
+}
+
 function parseMultiPaste() {
   const raw = document.getElementById('pasteBox').value;
   const statusEl = document.getElementById('manualStatus');
