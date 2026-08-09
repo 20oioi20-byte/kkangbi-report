@@ -63,11 +63,20 @@
 - **배포 순서**: SQL 먼저 실행 → `deno check index.ts` 통과 확인(이미 확인함) → `supabase functions deploy center-report-upload`. **SQL/index.ts 배포 전까지는 위 신규 기능(확인함 저장, 전체 피드의 미확인 표시, 쪽지 전체) 관련 요청이 전부 실패로 응답**하지만, 기존 이슈 등록/수정/삭제와 데이터입력·대시보드 등 나머지 전체 기능은 배포 여부와 무관하게 평소처럼 정상 동작함(자동분류 태그·이슈 마커는 프론트엔드만으로 되는 부분이라 배포 전에도 보임, 다만 "확인함"을 눌러도 저장은 안 됨).
 - **검증(배포 후)**: 전체현황에서 이슈 피드가 전 센터 통합으로 보이는지, "확인함"을 누르면 사이드바 배지 숫자가 즉시 줄어드는지, 관리자→센터 쪽지를 보내고 센터장 계정(토큰 로그인)으로 확인·답변하면 관리자 쪽 "센터별 쪽지 현황"에 반영되는지, 센터장 화면에는 "확인함" 버튼이나 분류 선택 UI가 전혀 안 보이는지(입력 부담 없음) 확인.
 
+## 1-6. 🟡 업로드 알림 메일 발송을 SendGrid → Gmail SMTP로 교체 — Secrets 등록 + index.ts 배포 필요 (2026-07-30)
+- **배경**: SendGrid 발신자 인증 이슈(1-1/2 참고, `SENDGRID_FROM_EMAIL` 미등록 의심)로 실제 발송이 안 되고 있었음. 사용자가 이미 다른 프로젝트에서 쓰던 "Gmail SMTP + 앱 비밀번호" 방식을 그대로 재사용해 쉽게 적용하길 원함.
+- **구현(index.ts, `sendNotificationEmail()` 교체 — `index_수정본4_Gmail발송.ts`로 전달)**: SendGrid REST API 호출을 [denomailer](https://deno.land/x/denomailer)(순수 Deno SMTP 클라이언트, 별도 설치 불필요) 기반 Gmail SMTP 발송으로 교체. `smtp.gmail.com:465`(TLS)에 `GMAIL_USER`/`GMAIL_APP_PASSWORD`로 인증해 발송. 실패 사유(시크릿 미설정/SMTP 오류)를 기존과 동일하게 `notification_log.send_error`에 기록. `check-and-notify`/`send-notification-now`/`runNotificationCheck` 등 호출부는 전혀 안 건드림(발송 함수 내부 구현만 교체) — 프론트엔드(app.js)도 변경 없음.
+- **Secrets**: 사용자가 이미 보유한 Gmail 계정/앱 비밀번호를 그대로 재사용(신규 발급 안 함, 사용자 확인 완료) — `GMAIL_USER`(발신 Gmail 주소), `GMAIL_APP_PASSWORD`(16자리 앱 비밀번호) 2개를 Supabase Function Secrets에 등록. 기존 `SENDGRID_API_KEY`/`SENDGRID_FROM_EMAIL`은 더 이상 이 기능에서 안 쓰므로 삭제해도 무방(다른 기능이 참조하지 않음, 코드에서 검색 확인함).
+- **배포 순서**: (1) Supabase 대시보드 → Edge Functions → Secrets에서 `GMAIL_USER`/`GMAIL_APP_PASSWORD` 등록 → (2) `index.ts` 코드 교체 후 `deno check`(이미 통과 확인함) → (3) `supabase functions deploy center-report-upload`.
+- **검증(배포 후)**: 알림 설정 화면에서 "⚡ 즉시 발송"(이 센터만, 대상 조건에 걸리는 센터 대상)을 눌러 실제 수신함에 메일이 도착하는지, `notification_log`에 `send_ok:true`로 기록되는지 확인.
+
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |
 |---|---|---|
-| `SENDGRID_API_KEY` | 업로드 알림 메일 발송 — **이미 등록 확인됨(2026-07-13)** | 그래도 발송 안 되면 `SENDGRID_FROM_EMAIL` 또는 SendGrid 발신자 인증 문제일 가능성 |
-| `SENDGRID_FROM_EMAIL` | 발신자 주소 — **2026-07-13 시크릿 목록 확인 시 안 보였음, 미등록 의심** | 미등록이면 기본값(`noreply@example.com`)으로 시도하다 SendGrid가 미인증 발신자로 거부(403) 가능성 |
+| `GMAIL_USER` | (2026-07-30부터) 업로드 알림 메일 발신 Gmail 주소 — SendGrid를 대체 | 미등록이면 발송 자체가 스킵되고 `notification_log.send_error`에 "GMAIL_USER 시크릿이 설정되지 않았습니다" 기록 |
+| `GMAIL_APP_PASSWORD` | 위 Gmail 계정의 앱 비밀번호(2단계 인증 켠 뒤 구글 계정 → 보안 → 앱 비밀번호에서 발급, 16자리) — 로그인 비밀번호 아님 | 미등록/틀림이면 발송 실패, `send_error`에 "Gmail SMTP 오류: ..." 기록 |
+| ~~`SENDGRID_API_KEY`~~ | (2026-07-30부터 미사용) 업로드 알림 메일 발송에 더 이상 안 씀 — Gmail SMTP로 교체됨 | 삭제해도 무방(다른 기능에서 안 씀) |
+| ~~`SENDGRID_FROM_EMAIL`~~ | (2026-07-30부터 미사용) 위와 동일 | 삭제해도 무방 |
 | `GOOGLE_SERVICE_ACCOUNT_EMAIL` | Drive 폴더 접근 | `gdrive-poll-and-process`가 에러 반환 |
 | `GOOGLE_SERVICE_ACCOUNT_PRIVATE_KEY` | Drive 인증 서명 | 위와 동일 |
 | `GEMINI_API_KEY` | (다른 기능에서 사용중, 이 기능들과 무관) | - |

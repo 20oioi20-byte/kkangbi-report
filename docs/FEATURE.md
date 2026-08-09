@@ -96,9 +96,9 @@
 - ✅ 주의(4일째)/경고(8일째) 메일 제목·본문 편집(치환자: `{center_name}`,`{days}`,`{site_link}`), 발송정지/발송시각/반복주기 설정
 - ✅ (2026-07-13) "⚡ 즉시 발송" 버튼 추가 — 발송시각/반복주기/중복방지 조건을 모두 건너뛰고 지금 조건(며칠째 미업로드)에 맞는 센터에 바로 발송(`send-notification-now`). `check-and-notify`(매시 크론)와 핵심 로직(`runNotificationCheck`)을 공유해 이중 유지보수 부담 없음. 발송 로그에 즉시발송 여부 표시(`notification_log.is_manual`, `schema_addendum_10`).
 - ✅ (2026-07-13 8차) 즉시발송 결과를 센터별 표(성공/실패 + **실패 사유**)로 표시. `sendNotificationEmail()`이 실패 이유(시크릿 미설정/SendGrid HTTP 에러/네트워크 오류)를 구분해서 반환하고 `notification_log.send_ok`/`send_error`에도 기록됨(`schema_addendum_10`). "대상 N건"은 담당자 등록 건수가 아니라 **지금 주의/경고 조건에 걸린 센터 수**라는 점 문서화.
-- ✅ (2026-07-13 9차) 즉시발송을 "이 센터만"/"전체 센터"로 분리(`send-notification-now`가 `center_code` 선택적 파라미터 지원). SendGrid 관련해서는 `SENDGRID_API_KEY`는 이미 등록되어 있음을 확인 — 남은 의심 지점은 `SENDGRID_FROM_EMAIL` 미등록으로 인한 발신자 미인증.
-- 🟡 발송 로직(SendGrid) — **SENDGRID_API_KEY는 등록 확인됨.** `SENDGRID_FROM_EMAIL` 등록 여부와 SendGrid 발신자 인증 상태는 아직 미확인, 실제 발송 테스트 필요.
-- 검증: `notification_log` 테이블에 실제 발송 기록이 쌓이는지 확인 필요
+- ✅ (2026-07-13 9차) 즉시발송을 "이 센터만"/"전체 센터"로 분리(`send-notification-now`가 `center_code` 선택적 파라미터 지원).
+- 🟡 (2026-07-30) **발송 방식을 SendGrid → Gmail SMTP로 교체** — SendGrid 발신자 인증 문제(`SENDGRID_FROM_EMAIL` 미등록 의심)로 실제 발송이 안 되던 상태였는데, 사용자가 이미 다른 프로젝트에서 쓰던 Gmail 계정/앱 비밀번호를 그대로 재사용해 전환. `sendNotificationEmail()` 내부만 [denomailer](https://deno.land/x/denomailer) 기반 Gmail SMTP(`smtp.gmail.com:465`, `GMAIL_USER`/`GMAIL_APP_PASSWORD`)로 교체하고 호출부·프론트엔드는 무변경. **Secrets 등록 + index.ts 배포 필요**(SQL 없음), 상세는 `docs/DEPLOY-CHECKLIST.md` 1-6 참고.
+- 검증: `notification_log` 테이블에 실제 발송 기록(`send_ok:true`)이 쌓이는지 배포 후 "즉시 발송"으로 확인 필요
 
 ## 9. 스마트업로드 (관리자 전용)
 - ✅ 파일 하나 넣으면 센터+실적/근태 유형을 내용/파일명으로 자동 판별
@@ -214,7 +214,7 @@
 - 검증: `node --check`/`deno check` 통과. 로컬에서 "이슈 관리" 화면의 센터 필터·검색이 확인됨 이슈까지 포함해 정확히 걸러지는지, 미니 피드는 미확인만 보이고 확인함 클릭 시 목록·카운트가 즉시 갱신되는지, 분류 태그가 어디에도 안 뜨는지, 쪽지 현황 패널은 사라졌지만 사이드바 배지는 유지되는지, 데이터 표 이슈 마커의 센터별 정확한 스코핑, 쪽지 스레드 로드/읽음처리/전송(관리자·센터 두 인증 방식 모두), 센터장 화면에 확인함 버튼이 전혀 안 보이는지 확인.
 
 ## 다음 세션에서 우선 확인할 것
-1. SendGrid 실제 발송 테스트 (섹션 8)
+1. Gmail SMTP 전환(섹션 8) — `GMAIL_USER`/`GMAIL_APP_PASSWORD` Secrets 등록 + index.ts 배포 + 실제 발송 테스트
 2. Google Drive 완전자동 실사용 테스트 (섹션 10)
 3. KB손보부천/정비/평택시청 서버측 파서 포팅 (실제 파일 필요)
 4. AI 보조기능(섹션 13) 백엔드 배포 및 실동작 검증 — 현재 프론트엔드만 완성된 상태

@@ -2,6 +2,12 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-07-30 — 업로드 알림 메일 발송을 SendGrid → Gmail SMTP로 교체 [백엔드 배포 필요, SQL 없음]
+- **요청 배경**: "알림설정이 있는데 발신 하는 메일방법을 변경해서 적용하고 싶어 / 메일 발송시 발신은 구글메일로 보내는걸로 쉽게 적용하려고해" — SendGrid 발신자 인증 문제로 실제 발송이 안 되던 상태(`docs/DEPLOY-CHECKLIST.md` 1-1/2 참고)였고, 사용자가 다른 프로젝트에서 이미 쓰고 있던 "Gmail SMTP + 앱 비밀번호" 방식을 그대로 재사용해 쉽게 적용하고 싶어함. 이미 보유한 Gmail 계정/앱 비밀번호를 그대로 재사용하기로 확정(신규 앱 비밀번호 발급 안 함).
+- **수정(index.ts, `sendNotificationEmail()` 내부 구현만 교체)**: SendGrid REST API 호출을 [denomailer](https://deno.land/x/denomailer)(순수 Deno SMTP 클라이언트) 기반 Gmail SMTP 발송으로 교체 — `smtp.gmail.com:465`(TLS)에 `GMAIL_USER`/`GMAIL_APP_PASSWORD`로 인증. 실패 사유를 기존과 동일하게 `notification_log.send_error`에 기록(시크릿 미설정/SMTP 오류 구분). 호출부(`check-and-notify`/`send-notification-now`/`runNotificationCheck`)와 프론트엔드(app.js)는 전혀 안 건드림 — 발송 방식이 바뀌어도 "즉시 발송" 버튼 등 UI/동작은 그대로.
+- **Secrets**: `GMAIL_USER`(발신 Gmail 주소)/`GMAIL_APP_PASSWORD`(앱 비밀번호) 신규 등록 필요. 기존 `SENDGRID_API_KEY`/`SENDGRID_FROM_EMAIL`은 다른 기능에서 참조하지 않음을 코드 검색으로 확인 — 삭제해도 무방.
+- **검증**: `deno check` 통과. 실제 발송 테스트(수신함 도착 + `notification_log.send_ok:true`)는 배포 후 사용자가 "즉시 발송"으로 확인 예정. 상세 배포 절차는 `docs/DEPLOY-CHECKLIST.md` 1-6 참고.
+
 ## 2026-07-27 (8차) — 전체현황 세부 조정: 업로드현황 맨 위로, 주의 센터 사유 표시, 안내문구 제거
 - **요청 배경**: 7차 개편에 대한 후속 조정 3건. (1) 업로드현황 카드 하단의 "🟢 3일 이내 업로드 · 🟠 3일째 미업로드(주의) · 🔴 7일째 미업로드(경고) — 알림 발송 조건은..." 안내 문구 제거. (2) 주의 센터 한 줄 요약에 센터명만 있고 왜 주의 센터인지 안 보여서, 이유(지표명/누적값/목표)도 같이 보이게 해달라. (3) "센터 실적 업데이트현황" 카드를 맨 위로 옮겨달라.
 - **수정**(`renderWorkspaceOverview`): (1) `uploadStatusHtml`에서 안내 문구 `<p>` 제거. (2) `warnLineHtml`이 이제 센터명 목록 아래에 `issueLines`(지표별 상세 사유)를 작은 글씨로 바로 보여줌 — 이전엔 `title` 속성(마우스오버)에만 있어서 안 보였음. (3) `main.innerHTML` 조립 순서를 "🚦 업데이트현황 → 센터 핵심지표 표 → 주의 센터 한 줄 → 미확인 이슈 → 추이그래프"로 재배치(업데이트현황이 맨 위).
