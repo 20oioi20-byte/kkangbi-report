@@ -16,6 +16,7 @@
 11. `schema_addendum_10_notification_manual.sql` — 알림 로그에 즉시발송 여부(`is_manual`) 컬럼 추가
 12. `schema_addendum_11_lge_total_center.sql` — LG전자통합(`lge_total`) 신규 센터 등록 (실행 후 기본 비밀번호 000000 → 변경 필요)
 13. `schema_addendum_13_issues_reviewed_and_messages.sql` — 이슈에 "관리자 확인함"(`reviewed`) 컬럼 추가 + 관리자-센터 쪽지 테이블(`center_messages`) 신규
+14. `schema_addendum_14_notification_split_perf_issue.sql` — 알림 설정의 `danger_*` 컬럼을 `issue_*`로 이름 변경(이슈/히스토리 미등록 알림용으로 재사용) + `notification_log.days_since_upload`를 `days_since`로 이름 정리
 
 ## 1-1. Edge Function 배포 (2026-07-13, index.ts 전체 병합 완료)
 - 이전엔 index.ts 원본이 없어 병합용 스니펫으로만 드렸지만, 이제 사용자가 제공한 실제 `index.ts`에 AI 보조기능 3개 액션 + "즉시 발송" 액션 + 캐싱 헬퍼가 전부 반영된 **완전한 파일**을 드립니다. 그대로 `supabase functions deploy center-report-upload`만 하면 됩니다(코드 수정 불필요).
@@ -69,6 +70,14 @@
 - **Secrets**: 사용자가 이미 보유한 Gmail 계정/앱 비밀번호를 그대로 재사용(신규 발급 안 함, 사용자 확인 완료) — `GMAIL_USER`(발신 Gmail 주소), `GMAIL_APP_PASSWORD`(16자리 앱 비밀번호) 2개를 Supabase Function Secrets에 등록. 기존 `SENDGRID_API_KEY`/`SENDGRID_FROM_EMAIL`은 더 이상 이 기능에서 안 쓰므로 삭제해도 무방(다른 기능이 참조하지 않음, 코드에서 검색 확인함).
 - **배포 순서**: (1) Supabase 대시보드 → Edge Functions → Secrets에서 `GMAIL_USER`/`GMAIL_APP_PASSWORD` 등록 → (2) `index.ts` 코드 교체 후 `deno check`(이미 통과 확인함) → (3) `supabase functions deploy center-report-upload`.
 - **검증(배포 후)**: 알림 설정 화면에서 "⚡ 즉시 발송"(이 센터만, 대상 조건에 걸리는 센터 대상)을 눌러 실제 수신함에 메일이 도착하는지, `notification_log`에 `send_ok:true`로 기록되는지 확인.
+
+## 1-7. 🟡 알림을 "실적 미업로드"/"이슈 미등록" 2개의 독립 알림으로 재구성 — SQL + index.ts 배포 필요 (2026-08-10)
+- **배경**: 기존엔 "실적 미업로드"라는 하나의 주제를 주의(4일째)/경고(8일째) 2단계로 escalation해서 보냈는데, 대신 서로 다른 주제 2개(실적 미업로드 / 이슈·히스토리 미등록)를 각각 독립된 단일 알림으로 보내도록 재구성.
+- **구현(index.ts, `runNotificationCheck` 재작성 — `index_수정본5_실적이슈알림분리.ts`로 전달)**: 센터마다 실적(`center_daily_performance`)과 이슈(`center_issues`)의 최근 저장/등록일을 각각 조회해 `checkAndSendOne()` 공용 헬퍼로 독립 판정·발송. `notification_log.level`은 실적='warn'(기존과 동일), 이슈='issue'(예전 'danger' 자리 대체)로 기록.
+- **SQL**: `schema_addendum_14_notification_split_perf_issue.sql` — `notification_settings.danger_*` → `issue_*` 컬럼명 변경(재사용, 데이터 손실 없음) + 새 용도에 맞는 기본 제목/본문으로 갱신, `notification_log.days_since_upload` → `days_since` 이름 정리.
+- **프론트엔드(app.js)**: 알림 설정 화면 "주의/경고 메일" 2단 구성 → "📊 실적 미업로드 알림"/"📝 이슈·히스토리 미등록 알림" 독립 2섹션으로 교체(이미 커밋·배포됨). 즉시발송 결과표 배지도 심각도(주의/경고)가 아니라 종류(실적/이슈) 표기로 변경.
+- **배포 순서**: (1) SQL 실행 → (2) `deno check`(이미 통과 확인함) → (3) `supabase functions deploy center-report-upload`. **SQL을 먼저 실행해야** `issue_send_on_day`/`issue_subject`/`issue_body` 컬럼이 생겨서 새 index.ts가 정상 동작함(순서 바뀌면 컬럼 없음 오류).
+- **검증(배포 후)**: 알림 설정 화면에서 "📝 이슈/히스토리 미등록 알림" 섹션에 새 기본 문구가 보이는지, 최근 N일간 이슈를 등록 안 한 센터를 대상으로 "⚡ 즉시 발송"을 눌렀을 때 이슈 알림이 정상 발송되고 결과표에 "📝 이슈"로 표시되는지 확인.
 
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |

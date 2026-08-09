@@ -93,12 +93,13 @@
 ## 8. 센터별 업로드 신호등 + 이메일 알림
 - ✅ 사이드바 센터명 옆 신호등: 🟢 3일 이내 / 🟠 3일째 미업로드 / 🔴 7일째 미업로드
 - ✅ 담당자 다중 등록(센터당 여러 명), 발송대상 on/off
-- ✅ 주의(4일째)/경고(8일째) 메일 제목·본문 편집(치환자: `{center_name}`,`{days}`,`{site_link}`), 발송정지/발송시각/반복주기 설정
+- ✅ (2026-08-10부터) **독립된 알림 2개**: "📊 실적 미업로드 알림"(기본 4일째)과 "📝 이슈/히스토리 미등록 알림"(기본 4일째, 각자 발송일 지정 가능) — 제목·본문 각각 편집(치환자: `{center_name}`,`{days}`,`{site_link}`), 발송정지/발송시각/반복주기는 공통 설정. (예전엔 "실적 미업로드"라는 한 주제를 주의(4일째)→경고(8일째)로 격상시키는 2단계 구조였는데, 서로 다른 두 주제의 독립 알림으로 재구성함 — 아래 참고)
 - ✅ (2026-07-13) "⚡ 즉시 발송" 버튼 추가 — 발송시각/반복주기/중복방지 조건을 모두 건너뛰고 지금 조건(며칠째 미업로드)에 맞는 센터에 바로 발송(`send-notification-now`). `check-and-notify`(매시 크론)와 핵심 로직(`runNotificationCheck`)을 공유해 이중 유지보수 부담 없음. 발송 로그에 즉시발송 여부 표시(`notification_log.is_manual`, `schema_addendum_10`).
 - ✅ (2026-07-13 8차) 즉시발송 결과를 센터별 표(성공/실패 + **실패 사유**)로 표시. `sendNotificationEmail()`이 실패 이유(시크릿 미설정/SendGrid HTTP 에러/네트워크 오류)를 구분해서 반환하고 `notification_log.send_ok`/`send_error`에도 기록됨(`schema_addendum_10`). "대상 N건"은 담당자 등록 건수가 아니라 **지금 주의/경고 조건에 걸린 센터 수**라는 점 문서화.
 - ✅ (2026-07-13 9차) 즉시발송을 "이 센터만"/"전체 센터"로 분리(`send-notification-now`가 `center_code` 선택적 파라미터 지원).
 - 🟡 (2026-07-30) **발송 방식을 SendGrid → Gmail SMTP로 교체** — SendGrid 발신자 인증 문제(`SENDGRID_FROM_EMAIL` 미등록 의심)로 실제 발송이 안 되던 상태였는데, 사용자가 이미 다른 프로젝트에서 쓰던 Gmail 계정/앱 비밀번호를 그대로 재사용해 전환. `sendNotificationEmail()` 내부만 [denomailer](https://deno.land/x/denomailer) 기반 Gmail SMTP(`smtp.gmail.com:465`, `GMAIL_USER`/`GMAIL_APP_PASSWORD`)로 교체하고 호출부·프론트엔드는 무변경. **Secrets 등록 + index.ts 배포 필요**(SQL 없음), 상세는 `docs/DEPLOY-CHECKLIST.md` 1-6 참고.
-- 검증: `notification_log` 테이블에 실제 발송 기록(`send_ok:true`)이 쌓이는지 배포 후 "즉시 발송"으로 확인 필요
+- 🟡 (2026-08-10) **알림을 실적/이슈 2개의 독립 알림으로 재구성** — 판정 기준: 실적 알림은 `center_daily_performance` 최근 저장일, 이슈 알림은 `center_issues` 최근 등록일. 각각 독립적으로 조건 판정·발송·기록(`notification_log.level`이 실적='warn', 이슈='issue'). **SQL(`schema_addendum_14`) + index.ts 배포 필요**(SQL 먼저, 순서 중요), 상세는 `docs/DEPLOY-CHECKLIST.md` 1-7 참고.
+- 검증: `notification_log` 테이블에 실제 발송 기록(`send_ok:true`, `level`이 `warn`/`issue` 둘 다)이 쌓이는지 배포 후 "즉시 발송"으로 확인 필요
 
 ## 9. 스마트업로드 (관리자 전용)
 - ✅ 파일 하나 넣으면 센터+실적/근태 유형을 내용/파일명으로 자동 판별
@@ -215,7 +216,7 @@
 
 ## 다음 세션에서 우선 확인할 것
 1. Gmail SMTP 전환(섹션 8) — `GMAIL_USER`/`GMAIL_APP_PASSWORD` Secrets 등록 + index.ts 배포 + 실제 발송 테스트
-2. Google Drive 완전자동 실사용 테스트 (섹션 10)
-3. KB손보부천/정비/평택시청 서버측 파서 포팅 (실제 파일 필요)
-4. AI 보조기능(섹션 13) 백엔드 배포 및 실동작 검증 — 현재 프론트엔드만 완성된 상태
-5. **평택시청 `재직인원` DB 마이그레이션 SQL 실행 확인** (섹션 18) — 실행 전까지는 재직인원 관련 입력칸/자동추출이 화면에 나타나지 않음
+2. 알림 실적/이슈 분리(섹션 8) — `schema_addendum_14` 실행 + index.ts 배포(1-6과 함께 최신 index.ts로 한 번에 반영 가능) + 이슈 알림 실제 발송 테스트
+3. Google Drive 완전자동 실사용 테스트 (섹션 10)
+4. KB손보부천/정비/평택시청 서버측 파서 포팅 (실제 파일 필요)
+5. AI 보조기능(섹션 13) 백엔드 배포 및 실동작 검증 — 현재 프론트엔드만 완성된 상태

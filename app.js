@@ -4102,7 +4102,7 @@ async function loadUploadArchive() {
 }
 
 // ============================================
-// 알림 설정 페이지: 담당자 연락처 관리 + 주의/경고 메일 템플릿·발송조건 관리
+// 알림 설정 페이지: 담당자 연락처 관리 + 실적 미업로드/이슈 미등록 알림 템플릿·발송조건 관리
 // ============================================
 let notificationSettingsCache = null;
 let allContactsCache = [];
@@ -4168,15 +4168,15 @@ function renderNotificationSettings() {
     + '<div class="entry-row"><label>반복 발송</label><input type="checkbox" id="notifRepeat" ' + (s.repeat_enabled !== false ? 'checked' : '') + '> <span style="font-size:12px;color:#86868b;">해결 전까지 계속 재발송</span></div>'
     + '<div class="entry-row"><label>반복 주기(일)</label><input type="number" id="notifRepeatInterval" value="' + (s.repeat_interval_days || 1) + '" style="width:70px;"></div>'
 
-    + '<h4 style="margin:18px 0 6px;font-size:13px;color:#f5a623;">🟠 주의 메일 (미업로드 ' + (s.warn_send_on_day || 4) + '일째 발송)</h4>'
+    + '<h4 style="margin:18px 0 6px;font-size:13px;color:#f5a623;">📊 실적 미업로드 알림 (' + (s.warn_send_on_day || 4) + '일째 발송)</h4>'
     + '<div class="entry-row"><label>발송 시점(며칠째)</label><input type="number" id="notifWarnDay" value="' + (s.warn_send_on_day || 4) + '" style="width:70px;"></div>'
     + '<div class="entry-row" style="align-items:flex-start;"><label>제목</label><input type="text" id="notifWarnSubject" value="' + (s.warn_subject || '').replace(/"/g, '&quot;') + '" style="flex:1;"></div>'
     + '<textarea id="notifWarnBody" rows="4" style="width:100%;padding:8px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;">' + (s.warn_body || '') + '</textarea>'
 
-    + '<h4 style="margin:18px 0 6px;font-size:13px;color:#FF6B70;">🔴 경고 메일 (미업로드 ' + (s.danger_send_on_day || 8) + '일째 발송)</h4>'
-    + '<div class="entry-row"><label>발송 시점(며칠째)</label><input type="number" id="notifDangerDay" value="' + (s.danger_send_on_day || 8) + '" style="width:70px;"></div>'
-    + '<div class="entry-row" style="align-items:flex-start;"><label>제목</label><input type="text" id="notifDangerSubject" value="' + (s.danger_subject || '').replace(/"/g, '&quot;') + '" style="flex:1;"></div>'
-    + '<textarea id="notifDangerBody" rows="4" style="width:100%;padding:8px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;">' + (s.danger_body || '') + '</textarea>'
+    + '<h4 style="margin:18px 0 6px;font-size:13px;color:#5ac8fa;">📝 이슈/히스토리 미등록 알림 (' + (s.issue_send_on_day || 4) + '일째 발송)</h4>'
+    + '<div class="entry-row"><label>발송 시점(며칠째)</label><input type="number" id="notifIssueDay" value="' + (s.issue_send_on_day || 4) + '" style="width:70px;"></div>'
+    + '<div class="entry-row" style="align-items:flex-start;"><label>제목</label><input type="text" id="notifIssueSubject" value="' + (s.issue_subject || '').replace(/"/g, '&quot;') + '" style="flex:1;"></div>'
+    + '<textarea id="notifIssueBody" rows="4" style="width:100%;padding:8px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;">' + (s.issue_body || '') + '</textarea>'
 
     + '<button class="btn-primary" style="margin-top:14px;" onclick="saveNotificationSettings()">설정 저장</button>'
     + '<button class="btn-secondary" style="margin-top:14px;margin-left:8px;color:#f5a623;border-color:#f5a623;" onclick="sendNotificationNow(false)">⚡ 이 센터만 즉시발송</button>'
@@ -4238,9 +4238,9 @@ async function saveNotificationSettings() {
     warn_send_on_day: Number(document.getElementById('notifWarnDay').value) || 4,
     warn_subject: document.getElementById('notifWarnSubject').value,
     warn_body: document.getElementById('notifWarnBody').value,
-    danger_send_on_day: Number(document.getElementById('notifDangerDay').value) || 8,
-    danger_subject: document.getElementById('notifDangerSubject').value,
-    danger_body: document.getElementById('notifDangerBody').value,
+    issue_send_on_day: Number(document.getElementById('notifIssueDay').value) || 4,
+    issue_subject: document.getElementById('notifIssueSubject').value,
+    issue_body: document.getElementById('notifIssueBody').value,
   };
   statusEl.className = 'status-msg';
   statusEl.textContent = '저장 중...';
@@ -4282,14 +4282,14 @@ async function sendNotificationNow(allCenters) {
 
     if (results.length === 0) {
       statusEl.className = 'status-msg ok';
-      statusEl.textContent = targetLabel + ' 중 지금 조건(주의/경고 며칠째)에 해당하는 센터가 없습니다.';
+      statusEl.textContent = targetLabel + ' 중 지금 조건(실적/이슈 며칠째)에 해당하는 센터가 없습니다.';
       await loadNotificationData();
       return;
     }
 
     // "센터 수(대상 N건)"와 "담당자 등록 건수"는 서로 다른 숫자라 헷갈릴 수 있어, 센터별로 결과와 실패 사유를 상세히 보여준다.
     const rowsHtml = results.map(function(r) {
-      const levelBadge = r.level === 'danger' ? '🔴 경고' : '🟠 주의';
+      const levelBadge = r.level === 'issue' ? '📝 이슈' : '📊 실적';
       if (r.skipped === 'no-contacts') {
         return '<tr><td>' + (r.center_name || r.center) + '</td><td>' + levelBadge + '(' + r.daysSince + '일째)</td><td colspan="2" style="color:#86868b;">담당자 미등록으로 건너뜀</td></tr>';
       }
@@ -4300,7 +4300,7 @@ async function sendNotificationNow(allCenters) {
     statusEl.className = sentCount > 0 ? 'status-msg ok' : 'status-msg err';
     statusEl.innerHTML = '<div style="margin-bottom:6px;">즉시 발송 완료(' + targetLabel + '): 대상 센터 ' + results.length + '건 중 발송 성공 ' + sentCount + '건'
       + (noContact ? ' · 담당자 미등록 ' + noContact + '건' : '') + '</div>'
-      + '<div class="table-scroll"><table style="width:100%;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 6px;">센터</th><th style="text-align:left;padding:4px 6px;">단계</th><th style="text-align:left;padding:4px 6px;">결과</th><th style="text-align:left;padding:4px 6px;">실패 사유</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
+      + '<div class="table-scroll"><table style="width:100%;font-size:12px;"><thead><tr><th style="text-align:left;padding:4px 6px;">센터</th><th style="text-align:left;padding:4px 6px;">구분</th><th style="text-align:left;padding:4px 6px;">결과</th><th style="text-align:left;padding:4px 6px;">실패 사유</th></tr></thead><tbody>' + rowsHtml + '</tbody></table></div>';
     await loadNotificationData();
   } catch (e) { statusEl.className = 'status-msg err'; statusEl.textContent = '오류: ' + e.message; }
 }

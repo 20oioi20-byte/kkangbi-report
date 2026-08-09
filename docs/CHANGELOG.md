@@ -2,6 +2,13 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-08-10 — 알림을 "실적 미업로드"/"이슈 미등록" 2개의 독립된 단일 알림으로 재구성 [SQL+백엔드 배포 필요]
+- **요청 배경**: "지금은 실적 미업로드 경과일에 따라서 주의 메일과 경고메일로 나눠져있는데 주의 메일 하나로만 적용하고, 아래 경고메일은 실적 미업로드 경과일이 아니라 이슈 및 히스토리 미업로드 경과일에 따라서 주의메일 보내는걸로 수정해줘" — 기존 "같은 주제(실적 미업로드)를 주의(4일째)/경고(8일째) 2단계로 escalation"하던 구조를 없애고, "실적 미업로드 알림" 1개 + "이슈/히스토리 미등록 알림" 1개, 서로 다른 주제의 독립된 단일 알림 2개로 재구성.
+- **백엔드(index.ts, `runNotificationCheck` 재작성 — `index_수정본5_실적이슈알림분리.ts`로 전달)**: 센터마다 (1) `center_daily_performance` 최근 저장일 기준 실적 알림 (2) `center_issues` 최근 등록일 기준 이슈 알림을 **각각 독립적으로** 판정·발송하도록 `checkAndSendOne()` 공용 헬퍼로 분리. 기존 2단계 escalation(경과일이 늘어나면 주의→경고로 격상) 로직 제거. `notification_log.level`은 실적 알림은 기존처럼 `'warn'`, 이슈 알림은 `'issue'`로 기록(예전 `'danger'`가 있던 자리를 대체 — 더 이상 "심각도 단계"가 아니라 "알림 종류" 구분으로 의미가 바뀜).
+- **SQL**: `schema_addendum_14_notification_split_perf_issue.sql` — `notification_settings`의 `danger_send_on_day`/`danger_subject`/`danger_body` 컬럼을 `issue_send_on_day`/`issue_subject`/`issue_body`로 이름 변경(데이터 손실 없이 재사용) 후, 새 용도(이슈/히스토리 미등록)에 맞는 기본 제목·본문으로 갱신. `notification_log.days_since_upload`도 `days_since`로 이름 정리("업로드"에 한정되지 않는 범용 컬럼이 됐으므로).
+- **프론트엔드(app.js)**: 알림 설정 화면의 "🟠 주의 메일(미업로드 N일째)"/"🔴 경고 메일(미업로드 N일째)" 2단 구성을 "📊 실적 미업로드 알림"/"📝 이슈/히스토리 미등록 알림" 2개의 독립 섹션으로 교체(입력칸 id: `notifDangerDay/Subject/Body` → `notifIssueDay/Subject/Body`). 저장 payload도 `danger_*` → `issue_*`로 변경. "즉시발송" 결과표의 단계 배지를 "🔴 경고/🟠 주의"(심각도)에서 "📊 실적/📝 이슈"(종류)로, 컬럼명도 "단계"→"구분"으로 변경.
+- **검증**: `node --check`/`deno check` 통과. 로컬에서 설정 화면이 새 라벨·필드로 정상 렌더링되는지, 저장 payload에 `issue_*` 필드가 정확히 담기고 `danger_*`는 더 이상 없는지(가짜 fetch로 확인), 즉시발송 결과표에 `level:'warn'`/`level:'issue'` 항목이 각각 "📊 실적"/"📝 이슈"로 표시되는지 확인. 실제 이슈 미등록 판정 로직(백엔드)은 배포 후 사용자가 "즉시 발송"으로 직접 검증 예정. 상세 배포 절차는 `docs/DEPLOY-CHECKLIST.md` 1-7 참고.
+
 ## 2026-07-30 — 업로드 알림 메일 발송을 SendGrid → Gmail SMTP로 교체 [백엔드 배포 필요, SQL 없음]
 - **요청 배경**: "알림설정이 있는데 발신 하는 메일방법을 변경해서 적용하고 싶어 / 메일 발송시 발신은 구글메일로 보내는걸로 쉽게 적용하려고해" — SendGrid 발신자 인증 문제로 실제 발송이 안 되던 상태(`docs/DEPLOY-CHECKLIST.md` 1-1/2 참고)였고, 사용자가 다른 프로젝트에서 이미 쓰고 있던 "Gmail SMTP + 앱 비밀번호" 방식을 그대로 재사용해 쉽게 적용하고 싶어함. 이미 보유한 Gmail 계정/앱 비밀번호를 그대로 재사용하기로 확정(신규 앱 비밀번호 발급 안 함).
 - **수정(index.ts, `sendNotificationEmail()` 내부 구현만 교체)**: SendGrid REST API 호출을 [denomailer](https://deno.land/x/denomailer)(순수 Deno SMTP 클라이언트) 기반 Gmail SMTP 발송으로 교체 — `smtp.gmail.com:465`(TLS)에 `GMAIL_USER`/`GMAIL_APP_PASSWORD`로 인증. 실패 사유를 기존과 동일하게 `notification_log.send_error`에 기록(시크릿 미설정/SMTP 오류 구분). 호출부(`check-and-notify`/`send-notification-now`/`runNotificationCheck`)와 프론트엔드(app.js)는 전혀 안 건드림 — 발송 방식이 바뀌어도 "즉시 발송" 버튼 등 UI/동작은 그대로.
