@@ -4109,9 +4109,13 @@ let allContactsCache = [];
 let notifSelectedCenter = '';
 
 async function loadNotificationData() {
+  // 문구(제목/본문)는 센터별로 다르게 저장되므로, 어느 센터 기준으로 불러올지 먼저 정해야 한다.
+  if (!notifSelectedCenter && allCentersMeta.length) notifSelectedCenter = allCentersMeta[0].center_code;
   try {
+    const settingsUrl = SB_FUNCTION_URL + '?action=get-notification-settings&_ts=' + Date.now()
+      + (notifSelectedCenter ? '&center_code=' + encodeURIComponent(notifSelectedCenter) : '');
     const [settingsRes, contactsRes] = await Promise.all([
-      fetch(SB_FUNCTION_URL + '?action=get-notification-settings&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' }),
+      fetch(settingsUrl, { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' }),
       fetch(SB_FUNCTION_URL + '?action=list-contacts&workspace_password=' + encodeURIComponent(workspacePasswordCache) + '&_ts=' + Date.now(), { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' })
     ]);
     const settingsData = await settingsRes.json();
@@ -4161,22 +4165,26 @@ function renderNotificationSettings() {
 
     + '<div class="panel">'
     + '<h3 style="margin-bottom:6px;">발송 조건 및 메일 문구</h3>'
-    + '<p style="font-size:12px;color:#86868b;margin:0 0 10px;">제목/본문에 {center_name}, {days}, {site_link}를 넣으면 발송 시 자동으로 치환됩니다. 저장한 내용은 매시 정각 자동 점검에서 계속 재사용됩니다.</p>'
+    + '<p style="font-size:12px;color:#86868b;margin:0 0 10px;">발송 정지/시각/반복주기는 전체 센터 공통이고, <b>제목·본문은 지금 선택된 "' + (notifSelectedCenterName || notifSelectedCenter || '') + '" 센터에만 저장</b>됩니다(센터마다 다른 문구 가능). 제목/본문에 {center_name}, {days}, {site_link}를 넣으면 발송 시 자동으로 치환됩니다.</p>'
 
     + '<div class="entry-row"><label>전체 발송 정지</label><input type="checkbox" id="notifPaused" ' + (s.is_paused ? 'checked' : '') + '> <span style="font-size:12px;color:#86868b;">체크하면 모든 알림 발송이 즉시 중단됩니다</span></div>'
     + '<div class="entry-row"><label>발송 시각</label><input type="time" id="notifSendTime" value="' + (s.send_time || '09:00') + '"><span style="font-size:12px;color:#86868b;">매시 정각 점검 중 이 시각에만 실제 발송</span></div>'
     + '<div class="entry-row"><label>반복 발송</label><input type="checkbox" id="notifRepeat" ' + (s.repeat_enabled !== false ? 'checked' : '') + '> <span style="font-size:12px;color:#86868b;">해결 전까지 계속 재발송</span></div>'
     + '<div class="entry-row"><label>반복 주기(일)</label><input type="number" id="notifRepeatInterval" value="' + (s.repeat_interval_days || 1) + '" style="width:70px;"></div>'
 
-    + '<h4 style="margin:18px 0 6px;font-size:13px;color:#f5a623;">📊 실적 미업로드 알림 (' + (s.warn_send_on_day || 4) + '일째 발송)</h4>'
+    + '<h4 style="margin:18px 0 6px;font-size:13px;color:#f5a623;">📊 실적 미업로드 알림 (' + (s.warn_send_on_day || 4) + '일째 발송) · "' + (notifSelectedCenterName || notifSelectedCenter || '') + '" 전용 문구</h4>'
     + '<div class="entry-row"><label>발송 시점(며칠째)</label><input type="number" id="notifWarnDay" value="' + (s.warn_send_on_day || 4) + '" style="width:70px;"></div>'
     + '<div class="entry-row" style="align-items:flex-start;"><label>제목</label><input type="text" id="notifWarnSubject" value="' + (s.warn_subject || '').replace(/"/g, '&quot;') + '" style="flex:1;"></div>'
     + '<textarea id="notifWarnBody" rows="4" style="width:100%;padding:8px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;">' + (s.warn_body || '') + '</textarea>'
 
-    + '<h4 style="margin:18px 0 6px;font-size:13px;color:#5ac8fa;">📝 이슈/히스토리 미등록 알림 (' + (s.issue_send_on_day || 4) + '일째 발송)</h4>'
+    + '<h4 style="margin:18px 0 6px;font-size:13px;color:#5ac8fa;">📝 이슈/히스토리 미등록 알림 (' + (s.issue_send_on_day || 4) + '일째 발송) · "' + (notifSelectedCenterName || notifSelectedCenter || '') + '" 전용 문구</h4>'
     + '<div class="entry-row"><label>발송 시점(며칠째)</label><input type="number" id="notifIssueDay" value="' + (s.issue_send_on_day || 4) + '" style="width:70px;"></div>'
     + '<div class="entry-row" style="align-items:flex-start;"><label>제목</label><input type="text" id="notifIssueSubject" value="' + (s.issue_subject || '').replace(/"/g, '&quot;') + '" style="flex:1;"></div>'
     + '<textarea id="notifIssueBody" rows="4" style="width:100%;padding:8px;border:1px solid #2c2c2e;border-radius:6px;font-size:13px;">' + (s.issue_body || '') + '</textarea>'
+
+    + (s.has_center_override
+        ? '<div style="font-size:11px;color:#5ac8fa;margin-top:6px;">✓ 이 센터는 전용 문구를 사용 중입니다. <button style="border:none;background:none;color:#86868b;text-decoration:underline;cursor:pointer;font-size:11px;padding:0;" onclick="resetCenterNotificationOverride()">전체 공통 기본 문구로 되돌리기</button></div>'
+        : '<div style="font-size:11px;color:#86868b;margin-top:6px;">현재 전체 공통 기본 문구를 쓰고 있습니다. 위 내용을 고쳐서 저장하면 이 센터에만 적용됩니다.</div>')
 
     + '<button class="btn-primary" style="margin-top:14px;" onclick="saveNotificationSettings()">설정 저장</button>'
     + '<button class="btn-secondary" style="margin-top:14px;margin-left:8px;color:#f5a623;border-color:#f5a623;" onclick="sendNotificationNow(false)">⚡ 이 센터만 즉시발송</button>'
@@ -4187,8 +4195,9 @@ function renderNotificationSettings() {
     + '</div>';
 }
 
-function changeNotifCenter(code) {
+async function changeNotifCenter(code) {
   notifSelectedCenter = code;
+  await loadNotificationData(); // 문구가 센터별로 다르므로, 센터를 바꾸면 그 센터의 문구를 다시 불러온다
   renderNotificationSettings();
 }
 
@@ -4229,8 +4238,10 @@ async function deleteContact(id) {
 
 async function saveNotificationSettings() {
   const statusEl = document.getElementById('notifSettingsStatus');
+  // 운영설정(정지/시각/반복)은 전체 공통으로, 문구(제목/본문)는 center_code로 지금 선택된 센터에만 저장된다.
   const payload = {
     workspace_password: workspacePasswordCache,
+    center_code: notifSelectedCenter,
     is_paused: document.getElementById('notifPaused').checked,
     send_time: document.getElementById('notifSendTime').value || '09:00',
     repeat_enabled: document.getElementById('notifRepeat').checked,
@@ -4252,8 +4263,30 @@ async function saveNotificationSettings() {
     const data = await res.json();
     if (!data.success) { statusEl.className = 'status-msg err'; statusEl.textContent = '저장 실패: ' + data.error; return; }
     statusEl.className = 'status-msg ok';
-    statusEl.textContent = '저장되었습니다. 다음 발송부터 이 설정이 적용됩니다.';
+    statusEl.textContent = '저장되었습니다(문구는 "' + (allCentersMeta.find(function(c) { return c.center_code === notifSelectedCenter; }) || {}).center_name + '" 센터 전용). 다음 발송부터 이 설정이 적용됩니다.';
     await loadNotificationData();
+    renderNotificationSettings();
+  } catch (e) { statusEl.className = 'status-msg err'; statusEl.textContent = '오류: ' + e.message; }
+}
+
+// 지금 선택된 센터의 전용 문구를 삭제하고, 다시 전체 공통 기본 문구를 쓰도록 되돌린다.
+async function resetCenterNotificationOverride() {
+  const targetMeta = allCentersMeta.find(function(c) { return c.center_code === notifSelectedCenter; });
+  if (!confirm('"' + (targetMeta ? targetMeta.center_name : notifSelectedCenter) + '" 센터의 전용 문구를 지우고 전체 공통 기본 문구로 되돌리시겠습니까?')) return;
+  const statusEl = document.getElementById('notifSettingsStatus');
+  statusEl.className = 'status-msg';
+  statusEl.textContent = '되돌리는 중...';
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=reset-center-notification-override', {
+      method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, center_code: notifSelectedCenter })
+    });
+    const data = await res.json();
+    if (!data.success) { statusEl.className = 'status-msg err'; statusEl.textContent = '실패: ' + data.error; return; }
+    statusEl.className = 'status-msg ok';
+    statusEl.textContent = '전체 공통 기본 문구로 되돌렸습니다.';
+    await loadNotificationData();
+    renderNotificationSettings();
   } catch (e) { statusEl.className = 'status-msg err'; statusEl.textContent = '오류: ' + e.message; }
 }
 
