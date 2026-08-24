@@ -3747,7 +3747,7 @@ async function summarizeIssuesWithAI() {
     const issuesPayload = allIssuesCache.slice(0, 50).map(function(i) { return { date: i.issue_date, title: i.title, content: i.content || '' }; });
     const res = await fetch(SB_FUNCTION_URL + '?action=ai-summarize-issues', {
       method: 'POST', headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
-      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], issues: issuesPayload })
+      body: JSON.stringify({ workspace_password: workspacePasswordCache, token: centerTokenMap[currentCenter], center_code: currentCenter, issues: issuesPayload })
     });
     const data = await res.json();
     if (!data.success) throw new Error(data.error || 'AI 요약 실패');
