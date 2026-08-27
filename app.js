@@ -4192,7 +4192,69 @@ function renderNotificationSettings() {
     + '<div style="font-size:11px;color:#86868b;margin-top:4px;">발송 시각·반복주기·중복방지를 무시하고, 지금 조건(며칠째)에 맞는 센터에 바로 발송합니다. "이 센터만"은 위에서 선택한 센터(' + (notifSelectedCenterName || notifSelectedCenter || '') + ') 기준입니다.</div>'
     + '<div class="status-msg" id="notifSettingsStatus"></div>'
     + '</div>'
+
+    + '<div class="panel" style="margin-top:16px;">'
+    + '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">'
+    + '<h3 style="margin:0;">📨 발송 이력</h3>'
+    + '<button class="btn-outline" style="padding:6px 12px;font-size:12px;" onclick="loadAndRenderNotificationLog()">새로고침</button>'
+    + '</div>'
+    + '<div id="notificationLogBox"><div class="loading">불러오는 중...</div></div>'
+    + '</div>'
     + '</div>';
+
+  loadAndRenderNotificationLog();
+}
+
+// 실제로 담당자에게 알림이 잘 나가고 있는지 한눈에 확인할 수 있는 최근 발송 이력.
+// notification_log 테이블은 매시 정각 자동 점검·즉시발송 둘 다 매 건 기록한다.
+let notificationLogCache = [];
+async function loadAndRenderNotificationLog() {
+  const box = document.getElementById('notificationLogBox');
+  if (!box) return;
+  box.innerHTML = '<div class="loading">불러오는 중...</div>';
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=list-notification-log&workspace_password=' + encodeURIComponent(workspacePasswordCache) + '&_ts=' + Date.now(), {
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store'
+    });
+    const data = await res.json();
+    if (!data.success) { box.innerHTML = '<div class="empty">불러오기 실패: ' + (data.error || '') + '</div>'; return; }
+    notificationLogCache = data.logs || [];
+    renderNotificationLogBox();
+  } catch (e) {
+    box.innerHTML = '<div class="empty">불러오기 오류: ' + e.message + '</div>';
+  }
+}
+
+function renderNotificationLogBox() {
+  const box = document.getElementById('notificationLogBox');
+  if (!box) return;
+  const logs = notificationLogCache;
+  if (logs.length === 0) { box.innerHTML = '<div class="empty">발송 이력이 없습니다.</div>'; return; }
+
+  const okCount = logs.filter(function(l) { return l.send_ok; }).length;
+  const failCount = logs.length - okCount;
+  const lastSentAt = logs[0] && logs[0].sent_at ? new Date(logs[0].sent_at).toLocaleString('ko-KR') : '-';
+
+  const rows = logs.map(function(l) {
+    const meta = allCentersMeta.find(function(c) { return c.center_code === l.center_code; });
+    const levelBadge = l.level === 'issue' ? '📝 이슈' : '📊 실적';
+    const statusText = l.send_ok ? '<span style="color:#34c759;">✅ 성공</span>' : '<span style="color:#FF6B70;">❌ 실패</span>';
+    const sentAt = l.sent_at ? new Date(l.sent_at).toLocaleString('ko-KR') : '-';
+    return '<tr>'
+      + '<td style="padding:4px 6px;">' + (meta ? meta.center_name : l.center_code) + '</td>'
+      + '<td style="padding:4px 6px;">' + levelBadge + (l.is_manual ? ' (즉시발송)' : '') + '</td>'
+      + '<td style="padding:4px 6px;">' + l.days_since + '일째</td>'
+      + '<td style="padding:4px 6px;">' + statusText + '</td>'
+      + '<td style="padding:4px 6px;font-size:11px;color:#86868b;">' + escapeHtml(l.send_error || '') + '</td>'
+      + '<td style="padding:4px 6px;font-size:11px;">' + ((l.recipients || []).join(', ')) + '</td>'
+      + '<td style="padding:4px 6px;font-size:11px;color:#86868b;white-space:nowrap;">' + sentAt + '</td>'
+      + '</tr>';
+  }).join('');
+
+  box.innerHTML = '<div style="font-size:13px;margin-bottom:8px;">최근 ' + logs.length + '건 중 성공 <b style="color:#34c759;">' + okCount + '</b>건 · 실패 <b style="color:#FF6B70;">' + failCount + '</b>건 · 마지막 발송 ' + lastSentAt + '</div>'
+    + '<div class="table-scroll"><table style="width:100%;font-size:12px;"><thead><tr>'
+    + '<th style="text-align:left;padding:4px 6px;">센터</th><th style="text-align:left;padding:4px 6px;">구분</th><th style="text-align:left;padding:4px 6px;">경과</th><th style="text-align:left;padding:4px 6px;">결과</th><th style="text-align:left;padding:4px 6px;">실패사유</th><th style="text-align:left;padding:4px 6px;">수신자</th><th style="text-align:left;padding:4px 6px;">발송시각</th>'
+    + '</tr></thead><tbody>' + rows + '</tbody></table></div>';
 }
 
 async function changeNotifCenter(code) {
