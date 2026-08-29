@@ -1024,15 +1024,23 @@ Deno.serve(async (req) => {
     // ============================================
 
     // ---------- 센터별 최근 업로드 시각 조회 (사이드바 신호등용, 읽기 전용) ----------
+    // 2026-08-28: "최근 업로드"를 DB에 쓰여진 시각(created_at)이 아니라, 실제 실적 날짜(report_date)
+    // 기준으로 바꿨다. 엑셀 자동추출로 한 달치를 한 번에 일괄반영하는 센터(예: LG전자통합)는
+    // 그 한 번의 반영 이후로 며칠이 지났든 모든 날짜 행의 created_at이 그 반영 시각에 고정돼 있어서,
+    // 실제로는 최신 날짜까지 실적이 다 들어있는데도 사이드바엔 "그 반영일로부터 N일 전"으로
+    // (오래전 업로드처럼) 잘못 표시되는 문제가 있었다. 오늘 이전 날짜만 보고, 그중 가장 최근 report_date를
+    // 기준으로 판단하면 "실제로 며칠치까지 실적이 채워져 있는지"를 정확히 반영한다.
     if (action === 'list-last-upload' && req.method === 'GET') {
+      const todayStr = new Date(Date.now() + 9 * 60 * 60 * 1000).toISOString().slice(0, 10);
       const { data, error } = await supabase
         .from('center_daily_performance')
-        .select('center_code, created_at')
-        .order('created_at', { ascending: false });
+        .select('center_code, report_date')
+        .lte('report_date', todayStr)
+        .order('report_date', { ascending: false });
       if (error) return json({ success: false, error: error.message }, 500);
       const lastByCenter: Record<string, string> = {};
       for (const row of data || []) {
-        if (!lastByCenter[row.center_code]) lastByCenter[row.center_code] = row.created_at;
+        if (!lastByCenter[row.center_code]) lastByCenter[row.center_code] = row.report_date;
       }
       return json({ success: true, lastUpload: lastByCenter }, 200);
     }
@@ -1422,13 +1430,16 @@ async function runNotificationCheck(settings: any, forceSend: boolean, centerCod
   const overrideByCenter: Record<string, any> = {};
   for (const row of overrideRows || []) overrideByCenter[row.center_code] = row;
 
-  const { data: lastPerfRows } = await supabase.from('center_daily_performance').select('center_code, created_at').order('created_at', { ascending: false });
+  // 2026-08-28: list-last-upload와 동일한 이유로 created_at 대신 report_date/issue_date를 쓴다 -
+  // 한 달치를 한 번에 일괄반영하는 센터는 created_at이 그 반영 시각에 고정돼 있어서, 실제로는 최신
+  // 날짜까지 다 등록돼 있는데도 "N일째 미업로드" 알림이 잘못 나갈 수 있었다.
+  const { data: lastPerfRows } = await supabase.from('center_daily_performance').select('center_code, report_date').lte('report_date', todayStr).order('report_date', { ascending: false });
   const lastPerfByCenter: Record<string, string> = {};
-  for (const row of lastPerfRows || []) { if (!lastPerfByCenter[row.center_code]) lastPerfByCenter[row.center_code] = row.created_at; }
+  for (const row of lastPerfRows || []) { if (!lastPerfByCenter[row.center_code]) lastPerfByCenter[row.center_code] = row.report_date; }
 
-  const { data: lastIssueRows } = await supabase.from('center_issues').select('center_code, created_at').order('created_at', { ascending: false });
+  const { data: lastIssueRows } = await supabase.from('center_issues').select('center_code, issue_date').lte('issue_date', todayStr).order('issue_date', { ascending: false });
   const lastIssueByCenter: Record<string, string> = {};
-  for (const row of lastIssueRows || []) { if (!lastIssueByCenter[row.center_code]) lastIssueByCenter[row.center_code] = row.created_at; }
+  for (const row of lastIssueRows || []) { if (!lastIssueByCenter[row.center_code]) lastIssueByCenter[row.center_code] = row.issue_date; }
 
   const results: Array<Record<string, unknown>> = [];
   for (const center of centers || []) {
