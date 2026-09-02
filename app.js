@@ -1810,19 +1810,27 @@ function renderIssuesManagementListHtml() {
     const reviewBtn = item.reviewed
       ? '<button style="border:none;background:none;color:#86868b;font-size:12px;cursor:pointer;" onclick="setIssueReviewed(\'' + item.id + '\', false)">확인취소</button>'
       : '<button style="border:none;background:none;color:#34c759;font-size:12px;cursor:pointer;font-weight:700;" onclick="setIssueReviewed(\'' + item.id + '\', true)">✓ 확인함</button>';
-    return '<div style="padding:10px 4px;border-top:1px solid #2c2c2e;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'
+    // 목록에서 바로 펼쳐볼 수 있도록 <details>로 감싸고(펼치기/접기 라벨은 ontoggle로 동기화),
+    // 확인함·센터로 이동 버튼 클릭은 stopPropagation으로 아코디언 토글과 분리한다(이슈 및 히스토리 화면과 동일 패턴).
+    return '<details class="issue-item" ontoggle="this.querySelector(\'.issue-mgmt-toggle-label\').textContent = this.open ? \'접기 ▲\' : \'펼치기 ▾\';" style="padding:0 4px;border-top:1px solid #2c2c2e;">'
+      + '<summary style="padding:10px 0;cursor:pointer;list-style:none;display:flex;justify-content:space-between;align-items:flex-start;gap:10px;">'
       + '<div style="min-width:0;">'
-      + '<div>' + (item.reviewed ? '' : '<span title="미확인" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#FF6B70;margin-right:6px;"></span>')
+      + '<div style="overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (item.reviewed ? '' : '<span title="미확인" style="display:inline-block;width:7px;height:7px;border-radius:50%;background:#FF6B70;margin-right:6px;"></span>')
       + '<span style="font-weight:700;color:#5ac8fa;">' + escapeHtml(centerName) + '</span> '
       + '<span style="font-weight:700;font-size:13px;">' + escapeHtml(item.title) + '</span>'
       + '<span style="color:#86868b;font-size:12px;margin-left:8px;">' + item.issue_date + '</span></div>'
-      + (item.content ? '<div style="font-size:12px;color:#a1a1a6;margin-top:3px;">' + escapeHtml(truncateText(item.content, 120)) + '</div>' : '')
+      + (item.content ? '<div style="font-size:12px;color:#a1a1a6;margin-top:3px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + escapeHtml(truncateText(item.content, 120)) + '</div>' : '')
       + '</div>'
-      + '<span style="display:flex;gap:10px;flex-shrink:0;">'
+      + '<span style="display:flex;gap:12px;flex-shrink:0;align-items:center;">'
+      + '<span class="issue-mgmt-toggle-label" style="color:#5ac8fa;font-size:12px;">펼치기 ▾</span>'
+      + '<span style="display:flex;gap:10px;" onclick="event.preventDefault();event.stopPropagation();">'
       + reviewBtn
       + '<button style="border:none;background:none;color:#a1a1a6;font-size:12px;cursor:pointer;" onclick="selectCenter(\'' + item.center_code + '\');switchMainTab(\'issues\')">센터로 이동</button>'
       + '</span>'
-      + '</div>';
+      + '</span>'
+      + '</summary>'
+      + '<div style="font-size:13px;color:#f5f5f7;margin:0 0 12px;white-space:pre-wrap;">' + (item.content ? escapeHtml(item.content) : '<span style="color:#86868b;">상세 내용 없음</span>') + '</div>'
+      + '</details>';
   }).join('');
 
   return countLine + listHtml;
