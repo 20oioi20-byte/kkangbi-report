@@ -5734,11 +5734,26 @@ const CenterDocs = (function () {
         if ($('docQ')) $('docQ').value = '';
         closePrev();
         backToList();
+      },
+
+      // tests/docs-selftest.js 가 쓰는 창구. 화면 없이 규칙만 따로 확인하기 위한 것이라
+      // 앱 코드에서는 부르지 않는다. 여기 있는 것이 곧 «조용히 깨지면 제일 위험한» 자리다.
+      _test: {
+        textReplaceAll: textReplaceAll, textReplaceOnce: textReplaceOnce,
+        findVars: findVars, diffVars: diffVars, trimCommon: trimCommon,
+        widen: widen, coreOf: coreOf, textParts: textParts,
+        computeAuto: computeAuto, sumKeys: sumKeys, prevSave: prevSave,
+        isBlank: isBlank, num: num, comma: comma, XE: XE,
+        state: { DOCS: DOCS, saves: saves, OPTS: OPTS },
+        setCenter: function (cc, nm) { pickedCenter = cc; CENTER_CODE = cc; CENTER_NAME = nm; }
       }
     };
   }
 
   return {
+    // tests/docs-selftest.js 전용 — 화면을 만들지 않고 규칙만 꺼내 본다
+    _boot: function () { return boot(); },
+
     render: async function (code, name) {
       const main = document.getElementById('main');
       const first = !root;
