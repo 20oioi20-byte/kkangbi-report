@@ -925,7 +925,7 @@ const MAIN_TABS = [
   { key: 'dashboard', label: '📊 대시보드' },
   { key: 'entry', label: '✏️ 데이터입력' },
   { key: 'issues', label: '📝 이슈 및 히스토리' },
-  { key: 'messages', label: '💬 관리자 메모' },
+  { key: 'docs', label: '📋 문서결재 요청' },
   { key: 'settings', label: '🎯 TO 및 목표값설정' }
 ];
 
@@ -989,13 +989,12 @@ function renderSidebar() {
     const activeCls = (!viewingWorkspaceOverview && c.center_code === currentCenter) ? 'active' : '';
     const signal = getCenterUploadSignal(c.center_code);
     const signalDot = '<span class="signal-dot signal-' + signal.color + '" title="' + signal.label + '"></span>';
-    // 관리자에게만: 확인 안 된 이슈/안 읽은 쪽지 답변이 있으면 작은 배지로 표시(센터장 화면엔 안 보임)
+    // 관리자에게만: 확인 안 된 이슈가 있으면 작은 배지로 표시(센터장 화면엔 안 보임)
     const unreviewedIssues = workspaceUnlocked ? getCenterUnreviewedIssueCount(c.center_code) : 0;
-    const msgSummary = workspaceUnlocked ? workspaceMessagesSummary[c.center_code] : null;
-    const unreadMsgs = msgSummary ? msgSummary.unreadByAdmin : 0;
     const badgeStyle = 'display:inline-flex;align-items:center;font-size:10px;font-weight:700;color:#fff;border-radius:9px;padding:1px 6px;margin-left:4px;';
-    const extraBadges = (unreviewedIssues > 0 ? '<span style="' + badgeStyle + 'background:#FF6B70;" title="확인 안 된 이슈 ' + unreviewedIssues + '건">📝' + unreviewedIssues + '</span>' : '')
-      + (unreadMsgs > 0 ? '<span style="' + badgeStyle + 'background:#5ac8fa;" title="안 읽은 쪽지 답변 ' + unreadMsgs + '건">💬' + unreadMsgs + '</span>' : '');
+    // 💬 안 읽은 쪽지 배지는 감춰둔다 — MAIN_TABS에서 '관리자 메모' 탭을 내려 눌러 들어갈 곳이 없기 때문.
+    // 조회(list-all-messages-summary)와 workspaceMessagesSummary는 그대로 두었으니, 탭을 되살리면 이 한 줄만 되돌리면 된다.
+    const extraBadges = (unreviewedIssues > 0 ? '<span style="' + badgeStyle + 'background:#FF6B70;" title="확인 안 된 이슈 ' + unreviewedIssues + '건">📝' + unreviewedIssues + '</span>' : '');
     const adminControls = workspaceUnlocked
       ? '<span class="center-admin-controls" onclick="event.stopPropagation();">'
         + '<button class="mv" onclick="moveCenterOrder(\'' + c.center_code + '\',-1)" title="위로" ' + (idx === 0 ? 'disabled' : '') + '>▲</button>'
@@ -1291,7 +1290,7 @@ function renderMain() {
   }
   if (currentMainTab === 'dashboard') renderDashboard();
   else if (currentMainTab === 'issues') renderIssues();
-  else if (currentMainTab === 'messages') renderMessages();
+  else if (currentMainTab === 'docs') renderCenterDocs();
   else if (currentMainTab === 'settings') renderCenterSettingsTab();
   else renderEntry();
 }
@@ -3904,7 +3903,36 @@ async function deleteIssue(id) {
 }
 
 // ============================================
+// 문서결재 요청 — 결재 문서를 서식 그대로 두고 값만 갈아끼워 붙여넣게 해주는 화면.
+// MAIN_TABS의 "docs" 탭에서 호출됨. 센터 안에서 열리므로 센터 목록·담당자 관리는 두지 않는다
+// (센터는 currentCenter가 이미 정했고, 담당자는 center_contacts를 그대로 쓴다).
+//
+// 1단계 = 탭이 센터마다 보이고 눌리는지만 확인하는 빈 화면.
+//   2단계  문서 목록 + 상세(왼쪽 값 / 오른쪽 초안) — 자료는 코드에 박아둔 채로
+//   3단계  자동 계산(전월값·차이·부가세·합계)
+//   4단계  center_documents · center_document_saves + Edge Function action
+// ============================================
+
+async function renderCenterDocs() {
+  const main = document.getElementById('main');
+  if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
+
+  const centerInfo = allCenters.find(function(c) { return c.center_code === currentCenter; });
+  const centerName = centerInfo ? centerInfo.center_name : '';
+
+  main.innerHTML = '<div class="panel" style="max-width:680px;">'
+    + '<h3>' + centerName + ' · 문서결재 요청</h3>'
+    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">'
+    + '결재 문서를 서식 그대로 다시 만들고, 값만 갈아끼워 결재 화면에 붙여넣습니다.</p>'
+    + '<div class="empty">아직 등록된 문서가 없습니다.<br>'
+    + '다음 단계에서 문서 목록과 값 입력 화면이 여기에 들어갑니다.</div>'
+    + '</div>';
+}
+
+// ============================================
 // 관리자-센터 쪽지(질문/답변) — 관리자가 센터별로 메모를 보내고, 센터장이 확인 후 답변을 남기는 1:1 스레드.
+// ⚠ 이 아래 코드와 center_messages 테이블은 지우지 않았다. MAIN_TABS에서만 내렸다(2026-09-07).
+//    쪽지가 이미 쌓여 있고 되돌려야 할 수 있으므로, 한 달쯤 써 보고 지울지 결정한다.
 // MAIN_TABS의 "messages" 탭에서 호출됨. 관리자(workspaceUnlocked)로 볼 때와 센터장(token)으로 볼 때
 // 화면 문구만 조금 다르고, 나머지 로직(조회/전송/읽음처리)은 동일하다.
 // ============================================

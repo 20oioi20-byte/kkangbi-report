@@ -214,9 +214,25 @@
 - 배포: `schema_addendum_13_issues_reviewed_and_messages.sql` + `index.ts`(`list-all-issues`/`issues-mark-reviewed`/`messages-list`/`messages-send`/`messages-mark-read`/`list-all-messages-summary` 신규, `issues-list`에 `reviewed` 필드 추가) 배포 완료(2026-07-27). 상세는 `docs/DEPLOY-CHECKLIST.md` 1-5 참고.
 - 검증: `node --check`/`deno check` 통과. 로컬에서 "이슈 관리" 화면의 센터 필터·검색이 확인됨 이슈까지 포함해 정확히 걸러지는지, 미니 피드는 미확인만 보이고 확인함 클릭 시 목록·카운트가 즉시 갱신되는지, 분류 태그가 어디에도 안 뜨는지, 쪽지 현황 패널은 사라졌지만 사이드바 배지는 유지되는지, 데이터 표 이슈 마커의 센터별 정확한 스코핑, 쪽지 스레드 로드/읽음처리/전송(관리자·센터 두 인증 방식 모두), 센터장 화면에 확인함 버튼이 전혀 안 보이는지 확인.
 
+## 20. 문서결재 요청 (2026-09-07, 🟡 1단계만 반영 — 빈 화면)
+
+자매 저장소 `kkangbi-calendar` 의 `sandbox/manager-web/doc-list.sample.html`(약 2,000줄)을 이 앱의 **센터별 화면**으로 옮기는 작업. 결재 문서를 **서식 그대로** 두고 값만 갈아끼워 결재 화면에 붙여넣게 해준다. 인수인계서(`HANDOFF-TO-REPORT.md`)·설계도(`WEB-INPUT-DESIGN.md`)는 사용자 로컬 보관.
+
+- ✅ **1단계 (2026-09-07)**: `MAIN_TABS` 의 `{ key:'messages', label:'💬 관리자 메모' }` → `{ key:'docs', label:'📋 문서결재 요청' }` 교체, `renderMain()` 분기 교체, `renderCenterDocs()` 빈 화면 추가.
+- ✅ **사이드바 💬 배지 감춤**: 탭을 내려 눌러 들어갈 곳이 없어졌으므로 `renderSidebar()` 의 `extraBadges` 에서 💬(안 읽은 쪽지 답변) 배지만 제거. 📝(미확인 이슈) 배지는 유지. 조회(`list-all-messages-summary`)와 `workspaceMessagesSummary` 는 그대로 두었으므로 되돌릴 때 한 줄만 고치면 된다.
+- ⚠ **`renderMessages()` · `loadMessageThread()` · `sendCenterMessage()` · `center_messages` 테이블은 지우지 않았다.** `MAIN_TABS` 에서만 내렸다 — 쪽지가 이미 쌓여 있고 되돌려야 할 수 있다. 지울지는 한 달쯤 써 보고 결정.
+- 🔒 되돌리기: `git checkout before-docs-tab -- app.js style.css admin.html` (태그 `before-docs-tab` = 커밋 `7ed965c`).
+- ⬜ **2단계** 문서 목록 + 상세(왼쪽 값 / 오른쪽 초안, 자료는 코드에 박아둔 채로) · **3단계** 자동 계산(전월값·차이·부가세·합계) · **4단계** `center_documents`/`center_document_saves` + Edge Function action(`docs-list`·`doc-create`·`doc-update`·`doc-delete`·`doc-saves-list`·`doc-save`·`doc-save-delete`) · **5단계** `.mht` 가져오기·양식 고치기 · **6단계** 담당자 링크·메일. 1~3단계는 테이블 없이 된다.
+- ⚠ **옮길 때 지켜야 하는 규칙** (어기면 기능 전체가 쓸모없어짐): (1) 서식 보존 — 본문은 `/(<[^>]+>)/` 로 쪼갠 **짝수 자리(글자)만** 바꾸고 태그는 한 글자도 안 건드린다. `contenteditable` 로 본문 통째 편집 금지. (2) `0` 은 값이다 — `if(!v)` 로 빈칸 판단 금지, 숫자칸 `placeholder="0"` 금지. (3) 값 자리 이름은 **네 곳**(본문 `{{키}}` · 다른 칸의 `of` · 지난 회차 저장 · 엑셀 추출 규칙)에 동시에 박혀 있어 함께 고쳐야 한다. (4) 합계는 **부가세를 매긴 칸만** 더한다(안 그러면 청구인원이 금액에 섞인다). (5) 지난 회차가 없으면 전월값·차이는 **빈칸**(0으로 채우면 거짓말). (6) 응대율 같은 비율은 일별 평균이 아니라 `Σ응대호 ÷ Σ인입호`. (7) 담당자 링크에는 토큰만 — Supabase 키·앱 세션·담당자 명단 금지.
+- ⚠ **다시 만들지 말 것** (`app.js` 에 이미 있음): `xlsxParseSheet`(시트 읽기) · 병합 셀 풀기 · `xlsxExtractDaily`(키워드로 열 찾기) · `xlsxDateScore`(날짜 열 고르기) · `allCenters`/`centerTokenMap`(센터·토큰) · `center_contacts`(담당자) · `archive-*`(파일 보관함).
+- ⚠ **저장소가 PUBLIC**: 실제 공문(`.mht`)·회사 엑셀·메일 본문을 커밋하지 않는다. 샘플 숫자·날짜·문장은 전부 지어낸다. 커밋 전 유출 검사 습관화.
+- ⚠ **`selftest.js`(268건)는 현재 이 저장소에서 돌지 않는다** — `mgr-token.sample.js`/`mgr-api.mock.js`/`mgr-extract.mock.js`/`../../api/_session.js` 넷을 `require` 하는데 넷 다 없고(`api/_session.js` 는 kkangbi-calendar 파일), 이 저장소엔 `package.json`·`tests/` 자체가 없다. 3단계 진입 시 서식 보존(22·24장)·엑셀 접기(13장)·값 자리 잡기(18·19장) 갈래만 뽑아 `tests/docs-selftest.js` 로 심고 `node` 로 직접 돌릴 예정.
+- 검증(1단계): `node --check` 통과. 로컬 서버로 실제 앱을 띄워 4개 센터가 뜨고 Supabase 연결된 상태에서 서브메뉴에 `📋 문서결재 요청` 이 보이고 눌리는지, 5개 탭(대시보드/데이터입력/이슈/문서결재/TO목표값) 전환이 모두 오류 없이 렌더되는지, 사이드바에 💬 배지가 더는 안 뜨는지, `renderMessages`/`loadMessageThread` 가 함수로 살아있는지 확인. **콘솔 오류 0**.
+
 ## 다음 세션에서 우선 확인할 것
 1. Gmail SMTP 전환(섹션 8) — `GMAIL_USER`/`GMAIL_APP_PASSWORD` Secrets 등록 + index.ts 배포 + 실제 발송 테스트
 2. 알림 실적/이슈 분리(섹션 8) — `schema_addendum_14` 실행 + index.ts 배포(1-6과 함께 최신 index.ts로 한 번에 반영 가능) + 이슈 알림 실제 발송 테스트
 3. Google Drive 완전자동 실사용 테스트 (섹션 10)
 4. KB손보부천/정비/평택시청 서버측 파서 포팅 (실제 파일 필요)
 5. AI 보조기능(섹션 13) 백엔드 배포 및 실동작 검증 — 현재 프론트엔드만 완성된 상태
+6. 문서결재 요청 2단계(섹션 20) — 문서 목록 + 상세(왼쪽 값 / 오른쪽 초안). 샘플 CSS 82개 클래스를 `.doc-` 로 앞가지 붙여 옮겨야 함(`.layout`·`.empty` 가 기존 `style.css` 와 충돌). 샘플은 밝은 화면·파란 강조(`#2f6feb`), 이 앱은 검은 화면·빨간 강조(`#FE2E36`) 라 색도 갈아입혀야 한다.

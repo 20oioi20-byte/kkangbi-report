@@ -2,6 +2,14 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-09-07 — 센터별 서브메뉴 「💬 관리자 메모」를 내리고 「📋 문서결재 요청」 신설 (1단계: 빈 화면) [프론트엔드만, SQL·백엔드 없음]
+- **요청 배경**: 자매 저장소 `kkangbi-calendar` 의 `sandbox/manager-web/doc-list.sample.html`(약 2,000줄)에서 만들어 둔 "문서 양식" 화면을 이 앱의 센터별 화면으로 옮기는 작업. 결재 문서를 **서식 그대로** 두고 값만 갈아끼워 결재 화면에 붙여넣는 것이 목적. 한 번에 옮기지 않고 6단계로 나눠 단계마다 눌러보며 진행하기로 함 — 이번은 **1단계(탭만 갈아끼우고 빈 화면)**.
+- **수정(app.js, 4곳)**: (1) `MAIN_TABS` 의 `{ key:'messages', label:'💬 관리자 메모' }` → `{ key:'docs', label:'📋 문서결재 요청' }`. (2) `renderMain()` 의 `else if (currentMainTab === 'messages') renderMessages()` → `else if (currentMainTab === 'docs') renderCenterDocs()`. (3) `renderCenterDocs()` 신규 — 센터명 + 안내 + "아직 등록된 문서가 없습니다" 빈 화면(다음 단계 표시를 주석으로 남김). (4) `renderSidebar()` 의 `extraBadges` 에서 💬(안 읽은 쪽지 답변) 배지 제거 — 탭을 내려 **눌러 들어갈 곳이 없어졌기 때문**. 📝(미확인 이슈) 배지는 유지.
+- ⚠ **지우지 않은 것**: `renderMessages()`·`loadMessageThread()`·`renderMessageThread()`·`sendCenterMessage()`·`markMessagesRead()`·`centerMessagesCache`·`workspaceMessagesSummary` 와 `center_messages` 테이블, Edge Function 의 `messages-*`/`list-all-messages-summary` action **전부 그대로**다. `MAIN_TABS` 에서만 내렸으므로 사람은 못 들어가지만 데이터와 코드는 남아 있다. 쪽지가 이미 쌓여 있어 되돌려야 할 수 있으므로, 지울지는 한 달쯤 써 보고 결정한다.
+- **안전장치**: 작업 직전 커밋 `7ed965c` 에 태그 `before-docs-tab` 을 붙였다. 되돌리기 → `git checkout before-docs-tab -- app.js style.css admin.html` (되돌린 뒤 **세 파일을 두 배포처에 다시 올려야** 함 — `AGENTS.md` 3장).
+- **SQL**: 없음. **백엔드**: 없음(`index.ts` 무변경). **배포**: `app.js` 만 바뀌었지만 `AGENTS.md` 3장에 따라 `admin.html`+`style.css`+`app.js` **3개 세트를 두 곳(`kkangbi-report.vercel.app` · `report.xn--2l0b841ao7b.kr`)에 함께** 올린다.
+- **검증**: `node --check app.js` 통과. 로컬 정적 서버로 실제 앱을 띄워 Supabase 연결·센터 4개 로드된 상태에서 확인 — 서브메뉴에 `📋 문서결재 요청` 이 보이고 활성화되며 센터명이 화면에 정확히 찍히고(`평택시청 · 문서결재 요청`), 5개 탭 전환이 모두 오류 없이 렌더되고(회귀 없음), 사이드바 HTML 에 💬 가 더는 없고, `renderMessages`/`loadMessageThread` 가 여전히 `function` 인 것을 확인. **콘솔 오류 0**. 2·3단계 화면은 샘플 로직을 그대로 두고 색만 앱에 맞춘 미리보기(`docs-preview.html`, 저장소 밖)로 먼저 확인받음 — 부가세·합계(청구인원이 금액에 안 섞임), 전월값·증감(▲▼), `0` 이 값으로 처리되는 것, 빈 칸이 이름으로 표시되는 것까지 실제로 눌러 확인.
+
 ## 2026-08-10 — 알림을 "실적 미업로드"/"이슈 미등록" 2개의 독립된 단일 알림으로 재구성 [SQL+백엔드 배포 필요]
 - **요청 배경**: "지금은 실적 미업로드 경과일에 따라서 주의 메일과 경고메일로 나눠져있는데 주의 메일 하나로만 적용하고, 아래 경고메일은 실적 미업로드 경과일이 아니라 이슈 및 히스토리 미업로드 경과일에 따라서 주의메일 보내는걸로 수정해줘" — 기존 "같은 주제(실적 미업로드)를 주의(4일째)/경고(8일째) 2단계로 escalation"하던 구조를 없애고, "실적 미업로드 알림" 1개 + "이슈/히스토리 미등록 알림" 1개, 서로 다른 주제의 독립된 단일 알림 2개로 재구성.
 - **백엔드(index.ts, `runNotificationCheck` 재작성 — `index_수정본5_실적이슈알림분리.ts`로 전달)**: 센터마다 (1) `center_daily_performance` 최근 저장일 기준 실적 알림 (2) `center_issues` 최근 등록일 기준 이슈 알림을 **각각 독립적으로** 판정·발송하도록 `checkAndSendOne()` 공용 헬퍼로 분리. 기존 2단계 escalation(경과일이 늘어나면 주의→경고로 격상) 로직 제거. `notification_log.level`은 실적 알림은 기존처럼 `'warn'`, 이슈 알림은 `'issue'`로 기록(예전 `'danger'`가 있던 자리를 대체 — 더 이상 "심각도 단계"가 아니라 "알림 종류" 구분으로 의미가 바뀜).
