@@ -3904,29 +3904,1879 @@ async function deleteIssue(id) {
 
 // ============================================
 // 문서결재 요청 — 결재 문서를 서식 그대로 두고 값만 갈아끼워 붙여넣게 해주는 화면.
-// MAIN_TABS의 "docs" 탭에서 호출됨. 센터 안에서 열리므로 센터 목록·담당자 관리는 두지 않는다
-// (센터는 currentCenter가 이미 정했고, 담당자는 center_contacts를 그대로 쓴다).
+// MAIN_TABS의 "docs" 탭에서 호출됨.
 //
-// 1단계 = 탭이 센터마다 보이고 눌리는지만 확인하는 빈 화면.
-//   2단계  문서 목록 + 상세(왼쪽 값 / 오른쪽 초안) — 자료는 코드에 박아둔 채로
-//   3단계  자동 계산(전월값·차이·부가세·합계)
-//   4단계  center_documents · center_document_saves + Edge Function action
+// 알맹이는 자매 저장소 kkangbi-calendar 의 sandbox/manager-web/doc-list.sample.html
+// 을 그대로 옮겨온 것이다(자체 검증 268건 + 브라우저 실동작 189건을 통과한 코드).
+// **화면만 보고 다시 만들지 말 것** — 아래 규칙은 전부 한 번씩 사고가 났던 자리다.
+//
+//  1. 서식 보존(제일 중요): 본문은 /(<[^>]+>)/ 로 쪼갠 **짝수 자리(글자)만** 바꾼다.
+//     태그는 한 글자도 건드리지 않는다. contenteditable 로 본문을 통째로 편집하게
+//     만들지 말 것 — 지우다 태그가 함께 지워진다. 이게 깨지면 기능 전체가 무의미하다
+//     (붙여넣었을 때 서식이 그대로인 것이 이 기능의 존재 이유다).
+//  2. `0` 은 값이다. if(!v) 로 빈칸을 판단하지 말고 isBlank() 를 쓴다.
+//     숫자 칸에 placeholder="0" 을 두지 말 것 — 회색 0 이 «이미 넣은 값» 처럼 보인다.
+//  3. 값 자리 이름은 **네 곳**(본문 {{키}} · 다른 칸의 of · 지난 회차 저장 ·
+//     엑셀 추출 규칙)에 동시에 박혀 있다. 그래서 값 자리마다 이름을 둘 든다 —
+//     orig(원래 이름, 끝까지 안 바뀜) / key0(지금 본문의 이름).
+//  4. 합계는 «부가세를 매긴 칸» 만 더한다. 안 그러면 청구인원 190명이 금액에 섞인다.
+//  5. 지난 회차가 없으면 전월값·차이는 **빈칸**. 0 으로 채우면 «지난달이 0» 이라는
+//     거짓말이 된다.
+//  6. 응대율 같은 비율은 일별 평균이 아니라 Σ응대호 ÷ Σ인입호 (agg:'ratio').
+//
+// 「전체관리」였던 샘플에서 이 앱(센터별)으로 옮기며 달라진 것:
+//   - 왼쪽 «센터 목록»·«＋ 센터 관리» 제거 — 이미 currentCenter 안이다
+//   - 왼쪽 «담당자 관리» 제거 — center_contacts 를 그대로 쓴다
+//   - 문서마다 cc(센터코드)를 들려 그 센터 것만 거른다
+//
+// 전역 오염을 막으려고 통째로 IIFE 안에 둔다. 샘플의 전역 123개가 app.js 의
+// 전역 486개와 부딪히지 않는다(옮길 때 확인함 — 충돌 0건).
 // ============================================
+
+const CenterDocs = (function () {
+  let CENTER_CODE = '';     // 지금 센터 코드 — 아래 원본 코드가 이 값을 그대로 읽는다
+  let CENTER_NAME = '';     // 지금 센터 이름
+  let root = null;          // 문서결재 화면 통째. **버리지 않고 떼었다 붙인다**
+  let api = null;
+
+  // 화면을 innerHTML 로 갈아끼우면 리스너가 죽고 넣던 값도 사라진다.
+  // 그래서 한 번만 만들어 두고, 탭을 오갈 때는 같은 노드를 다시 붙인다.
+  const MARKUP =
+      '<div class="tools">'
+    +   '<label class="search"><span class="ic">🔍</span>'
+    +     '<input id="docQ" placeholder="문서 이름 · 종류로 찾기" autocomplete="off"></label>'
+    +   '<button class="btn" id="docAdd">+ .mht 가져오기</button>'
+    + '</div>'
+    + '<div class="chips" id="docKinds"></div>'
+    + '<div class="mht" id="docMht">'
+    +   '<b>결재 화면에서 저장한 <code>.mht</code> 파일을 끌어다 놓으세요</b>'
+    +   '본문 표를 뽑고 매달 바뀌는 칸을 자동으로 잡아 새 문서를 만듭니다'
+    + '</div>'
+    + '<div class="prev" id="docPrev" hidden>'
+    +   '<div class="ph"><b id="pvTitle"></b><button class="x" id="pvClose">×</button></div>'
+    +   '<div class="pb">'
+    +     '<div class="files2" id="pvFiles"></div>'
+    +     '<div class="hint" id="pvEditNote" hidden></div>'
+    +     '<div class="pnote" id="pvNote"></div>'
+    +     '<div class="pf"><span class="k">문서 이름</span><input id="pvName"></div>'
+    +     '<div class="pf"><span class="k">센터</span><select id="pvCenter"></select></div>'
+    +     '<div class="pf"><span class="k">종류</span><select id="pvKind"></select></div>'
+    +     '<div class="vhead"><b>매달 바뀌는 칸</b><span id="pvCount"></span>'
+    +       '<button class="btn g sm" id="pvAddVar">+ 직접 더하기</button></div>'
+    +     '<div class="vlist" id="pvVars"></div>'
+    +     '<div class="vhead"><b>문서 본문</b>'
+    +       '<span id="pvBodyNote">값 자리는 노랗게 칠했습니다</span>'
+    +       '<button class="btn g sm" id="pvEditBody">본문 고치기</button></div>'
+    +     '<div class="pdoc" id="pvBody"></div>'
+    +     '<div class="bedit" id="pvBodyEdit" hidden></div>'
+    +   '</div>'
+    +   '<div class="pa"><button class="btn g" id="pvDrop" hidden>이 문서 지우기</button>'
+    +     '<span style="flex:1"></span>'
+    +     '<button class="btn g" id="pvCancel">취소</button>'
+    +     '<button class="btn" id="pvAdd">이대로 문서 만들기</button></div>'
+    + '</div>'
+    + '<div id="docList"></div>'
+    + '<div id="docDetail" hidden></div>';
+
+  function boot() {
+
+    /* 실제로는 ktis_v11__doctpl__* 와 mgrsub__* 를 읽어 만든다.
+       ⚠ 아래 값은 전부 지어낸 것이다. */
+    const KINDS = [
+      { id:'all', label:'전체' },
+      { id:'rep', label:'운영보고', cls:'rep' },
+      { id:'bil', label:'청구·정산', cls:'bil' },
+      { id:'gon', label:'공문·점검', cls:'gon' },
+      { id:'etc', label:'기타', cls:'etc' },
+    ];
+    /* 문서마다 **값 자리(fields)** 와 **본문(body)** 을 지녀야 눌렀을 때 값을 넣고 미리볼 수 있다.
+       실제로는 ktis_v11__doctpl__<문서id> 에 들어 있는 것이다(bodyHtml · slots).
+       ⚠ 아래 본문·숫자는 전부 지어냈다. */
+    const PTK_BODY = `<table>
+    <tr><th colspan="2">구분</th><th>전월 실적</th><th>{{회차월}} 실적</th><th>증감</th></tr>
+    <tr><td rowspan="4">응대현황</td><td>인입호</td><td>{{인입호_전월}}건</td><td>{{인입호}}건</td><td>{{인입호_증감}}</td></tr>
+    <tr><td>응대호</td><td>{{응대호_전월}}건</td><td>{{응대호}}건</td><td>{{응대호_증감}}</td></tr>
+    <tr><td>포기호</td><td>{{포기호_전월}}건</td><td>{{포기호}}건</td><td>{{포기호_증감}}</td></tr>
+    <tr><td>응대율</td><td>{{응대율_전월}}%</td><td>{{응대율}}%</td><td>{{응대율_증감}}</td></tr>
+    <tr><td colspan="2">1일 평균 상담건수</td><td>{{1일평균_전월}}건</td><td>{{1일평균}}건</td><td>{{1일평균_증감}}</td></tr>
+    <tr><td colspan="2">인당CPD</td><td>{{인당CPD_전월}}건</td><td>{{인당CPD}}건</td><td>{{인당CPD_증감}}</td></tr>
+    </table>
+    <p>나. 세부내역 : 붙임자료 참조</p>
+    <p>다. 운영협의 : 매월 1회 시행(일정협의)</p>`;
+
+    const BILL_BODY = `<table>
+    <tr><th>구분</th><th>항목</th><th>공급가액</th><th>부가세</th></tr>
+    <tr><td>수수료</td><td>교육비</td><td>{{교육비}}</td><td>{{교육비_부가세}}</td></tr>
+    <tr><td>수수료</td><td>상담료</td><td>{{상담료}}</td><td>{{상담료_부가세}}</td></tr>
+    <tr><td colspan="2">합계</td><td>{{공급가합계}}</td><td>{{부가세합계}}</td></tr>
+    <tr><td colspan="3">총 청구액</td><td>{{총합계}}</td></tr>
+    </table>
+    <p>청구인원 {{청구인원}}명 (지난달 {{청구인원_전월}}명) · 취약계층 {{취약인원}}명</p>`;
+
+    const KB_BODY = `<p>가. 점검 대상 : KB손해보험 고객센터</p>
+    <p>나. 점검 일시 : {{점검일시}}</p>
+    <p>다. 점검 방법</p>
+    <p>&nbsp;&nbsp;ㅇ 보안점검 총 {{보안점검인원}}명</p>
+    <p>&nbsp;&nbsp;ㅇ 정보보안 개인생활 체크리스트 수기 작성</p>
+    <p>라. 점검 결과 : {{점검결과}}</p>
+    <p>&nbsp;&nbsp;ㅇ {{휴무자문구}}</p>`;
+
+    const DOCS = [
+      { id:'t1', name:'민원상담콜센터 운영보고', center:'평택시청', cc:'pyeongtaek', kind:'rep',
+        state:'done', stateTxt:'7월 반영됨', body:PTK_BODY,
+        fields:[
+          { key:'회차월',   label:'회차(월)',   type:'text',   from:'', unit:'' },
+          { key:'인입호',   label:'인입호',     type:'number', from:'perf', unit:'건' },
+          { key:'응대호',   label:'응대호',     type:'number', from:'perf', unit:'건' },
+          { key:'포기호',   label:'포기호',     type:'number', from:'perf', unit:'건' },
+          { key:'응대율',   label:'응대율',     type:'number', from:'perf', unit:'%'  },
+          { key:'1일평균',  label:'1일 평균 상담건수', type:'number', from:'perf', unit:'건' },
+          { key:'인당CPD',  label:'인당CPD',    type:'number', from:'perf', unit:'건' },
+        ],
+        /* 전월값·증감은 **묻지 않는다.** 전월값은 지난 회차 저장에서 그대로 가져오고,
+           증감은 당월 − 전월로 만든다. 예전에는 전월 실적을 본문에 못 박아 두어
+           달이 바뀌면 손으로 고쳐야 했고, 잊으면 틀린 문서가 그대로 나갔다. */
+        autoFields:[
+          { key:'인입호_전월',  kind:'prev', of:'인입호'  }, { key:'인입호_증감',  kind:'diff', of:'인입호'  },
+          { key:'응대호_전월',  kind:'prev', of:'응대호'  }, { key:'응대호_증감',  kind:'diff', of:'응대호'  },
+          { key:'포기호_전월',  kind:'prev', of:'포기호'  }, { key:'포기호_증감',  kind:'diff', of:'포기호'  },
+          { key:'응대율_전월',  kind:'prev', of:'응대율'  }, { key:'응대율_증감',  kind:'diff', of:'응대율'  },
+          { key:'1일평균_전월', kind:'prev', of:'1일평균' }, { key:'1일평균_증감', kind:'diff', of:'1일평균' },
+          { key:'인당CPD_전월', kind:'prev', of:'인당CPD' }, { key:'인당CPD_증감', kind:'diff', of:'인당CPD' },
+        ],
+        slot:{ id:'perf', label:'일별 실적 엑셀', sample:'sample-pyeongtaek-2607.xlsx',
+          spec:{ mode:'daily', headerHints:['일자','콜'], headerDepth:2, dateTokens:['일자'],
+            columns:[{key:'요청호',tokens:['콜현황','요청호'],type:'int'},
+                     {key:'응답호',tokens:['콜현황','응답호'],type:'int'},
+                     {key:'포기',tokens:['콜현황','포기호'],type:'int'},
+                     {key:'cpd',tokens:['콜현황','CPD'],type:'num'}],
+            agg:[{key:'인입호',agg:'sum',from:'요청호'},{key:'응대호',agg:'sum',from:'응답호'},
+                 {key:'포기호',agg:'sum',from:'포기'},
+                 {key:'응대율',agg:'ratio',num:'응답호',den:'요청호'},
+                 {key:'1일평균',agg:'perday',from:'응답호'},{key:'인당CPD',agg:'avg',from:'cpd'}] } },
+        hist:[
+          { ym:'2026-07', st:'반영됨', vals:'인입호 42,180 · 응대율 97.7%', files:1 },
+          { ym:'2026-06', st:'반영됨', vals:'인입호 41,500 · 응대율 98.6%', files:1 },
+          { ym:'2026-05', st:'반영됨', vals:'인입호 40,800 · 응대율 99.0%', files:1 },
+        ] },
+
+      { id:'t2', name:'개인정보 점검 결과 제출', center:'평택시청', cc:'pyeongtaek', kind:'gon',
+        state:'wait', stateTxt:'7월 대기중', body:KB_BODY,
+        fields:[
+          { key:'점검일시',     label:'점검 일시',   type:'date',   from:'', unit:'' },
+          { key:'보안점검인원', label:'보안점검 인원', type:'number', from:'', unit:'명' },
+          // 직접 넣는 칸은 **고르게** 한다. opts 는 양식에 딸린 항목이고,
+          // 여기에 지난 저장에서 쓴 값이 저절로 더해진다(autoOpts).
+          // 저절로 잡은 것이 틀리면 화면의 «항목설정» 에서 고친다 — 고치면 그 문서에 남는다.
+          { key:'점검결과',     label:'점검 결과',   type:'text',   from:'', unit:'',
+            opts:['이상 없음','일부 보완 후 조치 완료','재점검 필요'] },
+          { key:'휴무자문구',   label:'휴무자 문구', type:'text',   from:'', unit:'',
+            opts:['휴무자 없음','휴무자는 복귀 후 점검 예정'] },
+        ],
+        slot:null,
+        hist:[
+          { ym:'2026-07', st:'담당자 대기', vals:'—', files:0 },
+          { ym:'2026-06', st:'반영됨', vals:'점검 6/10 · 보안점검 11명', files:1 },
+        ] },
+
+      { id:'t3', name:'청구수수료 명세', center:'이니텍', cc:'이니텍', kind:'bil',
+        state:'done', stateTxt:'7월 반영됨', body:BILL_BODY,
+        fields:[
+          { key:'교육비',   label:'교육비 공급가액', type:'number', from:'bill', unit:'원' },
+          { key:'상담료',   label:'상담료 공급가액', type:'number', from:'bill', unit:'원' },
+          { key:'청구인원', label:'청구인원',       type:'number', from:'bill', unit:'명' },
+          { key:'취약인원', label:'취약계층 인원',   type:'number', from:'',     unit:'명' },
+        ],
+        // 부가세·합계는 계산이다 — 담당자에게 묻지 않는다
+        autoFields:[
+          { key:'교육비_부가세', kind:'vat', of:'교육비' },
+          { key:'상담료_부가세', kind:'vat', of:'상담료' },
+          { key:'공급가합계',    kind:'sum'    },   // 부가세를 매긴 칸을 더한다
+          { key:'부가세합계',    kind:'sumvat' },
+          { key:'총합계',        kind:'total'  },   // 공급가 합계 + 부가세 합계
+          { key:'청구인원_전월', kind:'prev', of:'청구인원' },
+        ],
+        slot:{ id:'bill', label:'청구 명세 엑셀', sample:'sample-initech-2607.xlsx',
+          spec:{ mode:'labeled',
+            columns:[{key:'교육비',tokens:['교육비'],type:'int'},
+                     {key:'상담료',tokens:['상담료'],type:'int'},
+                     {key:'청구인원',tokens:['청구인원'],type:'int'}] } },
+        hist:[
+          { ym:'2026-07', st:'반영됨', vals:'교육비 3,380,000 · 청구인원 186', files:2 },
+          { ym:'2026-06', st:'반영됨', vals:'교육비 3,200,000 · 청구인원 182', files:1 },
+        ] },
+
+      { id:'t4', name:'개인정보처리 수탁자 자체점검 결과', center:'KB손보정비', cc:'kbjeongbi', kind:'gon',
+        state:'wait', stateTxt:'7월 대기중', body:KB_BODY,
+        fields:[
+          { key:'점검일시',     label:'점검 일시',   type:'date',   from:'', unit:'' },
+          { key:'보안점검인원', label:'보안점검 인원', type:'number', from:'', unit:'명' },
+          // 직접 넣는 칸은 **고르게** 한다. opts 는 양식에 딸린 항목이고,
+          // 여기에 지난 저장에서 쓴 값이 저절로 더해진다(autoOpts).
+          // 저절로 잡은 것이 틀리면 화면의 «항목설정» 에서 고친다 — 고치면 그 문서에 남는다.
+          { key:'점검결과',     label:'점검 결과',   type:'text',   from:'', unit:'',
+            opts:['이상 없음','일부 보완 후 조치 완료','재점검 필요'] },
+          { key:'휴무자문구',   label:'휴무자 문구', type:'text',   from:'', unit:'',
+            opts:['휴무자 없음','휴무자는 복귀 후 점검 예정'] },
+        ],
+        slot:null,
+        hist:[ { ym:'2026-07', st:'담당자 대기', vals:'—', files:0 } ] },
+
+      { id:'t5', name:'이미지 파일 모니터링 점검', center:'KB손보정비', cc:'kbjeongbi', kind:'gon',
+        state:'done', stateTxt:'7월 반영됨', body:null, fields:[], slot:null,
+        hist:[ { ym:'2026-07', st:'반영됨', vals:'점검팀 4명 · 표 5줄', files:0 } ] },
+
+    ];
+    DOCS.forEach(d=>{ d.slots=(d.fields||[]).length; });
+
+    const $=(id)=>document.getElementById(id);
+    const esc=(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
+    const kindOf=(id)=>KINDS.find(k=>k.id===id)||KINDS[4];
+    let kind='all', q='', pickedCenter='';   // 이미 센터 안이다 — 열 때 currentCenter 로 채운다
+    let view='list';                         // 'list' | 'doc' | 'mgr' | 'ctr'
+
+    /* 화면을 갈아끼우는 곳은 여기 하나뿐이다.
+       문서를 열어둔 채 왼쪽 센터나 위쪽 종류를 눌러도 눌리지 않던 까닭은,
+       목록만 감춰두고 그 위에 계속 draw() 를 하고 있었기 때문이다.
+       이제 무엇을 누르든 showView('list') 로 돌아온 뒤에 다시 그린다.
+       검색칸과 종류 칩은 어느 화면에서든 그대로 둔다 — 감추면 눌리지 않는 것처럼 보인다. */
+    function showView(v){
+      view=v;
+      $('docMht').hidden   = v!=='list';
+      $('docList').hidden  = v!=='list';
+      if(v!=='list') $('docPrev').hidden=true;
+      $('docDetail').hidden  = v!=='doc';
+      if(v!=='doc') cur=null;
+    }
+    /** 목록으로 돌아와 다시 그린다 — 사이드바·칩·검색이 공통으로 부른다 */
+    function backToList(){ showView('list'); draw(); }
+
+    function draw(){
+
+      // 종류 칩 — 지금 고른 센터 안에서 센 개수를 보여준다(전체 개수를 보여주면 눌렀을 때 빈 목록이 나온다)
+      const inCenter=DOCS.filter(d=>centerMatch(d));
+      $('docKinds').innerHTML=KINDS.map(k=>{
+        const n= k.id==='all'? inCenter.length : inCenter.filter(d=>d.kind===k.id).length;
+        return '<button class="chip'+(kind===k.id?' on':'')+'" data-k="'+k.id+'">'
+          +esc(k.label)+'<span class="n">'+n+'</span></button>';
+      }).join('');
+      $('docKinds').querySelectorAll('button').forEach(b=>
+        b.addEventListener('click',()=>{ kind=b.dataset.k; backToList(); }));
+
+      const t=q.trim().toLowerCase();
+      const hit=DOCS.filter(d=>{
+        if(!centerMatch(d)) return false;
+        if(kind!=='all'&&d.kind!==kind) return false;
+        if(!t) return true;
+        return (d.name+' '+d.center+' '+kindOf(d.kind).label).toLowerCase().includes(t);
+      });
+
+      if(!hit.length){
+        $('docList').innerHTML='<div class="grp"><div class="empty">'
+          +(q.trim()?'찾는 문서가 없습니다.':'이 센터에는 아직 문서가 없습니다.')+'</div></div>';
+        return;
+      }
+
+      // 센터를 하나 골랐으면 묶음 없이 그 센터 문서만 편다 — 이미 어느 센터인지 왼쪽에서 골랐다
+      if(pickedCenter!=='*'){
+        const nm = CENTER_NAME;   // pickedCenter 는 센터코드다 — 사람에게는 이름을 보인다
+        $('docList').innerHTML='<div class="grp open'+(pickedCenter===''?' alert':'')+'">'
+          +'<div class="gh" style="cursor:default"><span class="nm">'+esc(nm)+'</span>'
+          +'<span class="ct">'+hit.length+'건</span></div>'
+          +'<div class="gb">'+hit.map(docHtml).join('')+'</div></div>';
+        bindList();
+        return;
+      }
+
+      // 전체를 골랐을 때만 센터별로 묶는다. 센터를 안 정한 문서는 맨 위에 붉게 — 메일이 안 나간다.
+      const groups=new Map();
+      for(const d of hit){ const k=d.center||''; if(!groups.has(k)) groups.set(k,[]); groups.get(k).push(d); }
+      const names=[...groups.keys()].sort((a,b)=> a===''?-1 : b===''?1 : a.localeCompare(b,'ko'));
+      $('docList').innerHTML=names.map(name=>{
+        const ds=groups.get(name), alert=name==='';
+        return '<div class="grp open'+(alert?' alert':'')+'">'
+          +'<div class="gh"><span class="ar">▶</span>'
+          +'<span class="nm">'+(alert?'⚠ 센터를 안 정한 문서':esc(name))+'</span>'
+          +'<span class="ct">'+ds.length+'건</span></div>'
+          +'<div class="gb">'+ds.map(docHtml).join('')+'</div></div>';
+      }).join('');
+      bindList();
+    }
+
+    /** 지금 고른 센터에 드는가 */
+    function centerMatch(d){ return d.cc===pickedCenter; }   // 센터코드로 거른다
+
+
+    function bindList(){
+      $('docList').querySelectorAll('.gh .ar').forEach(a=>a.parentElement.addEventListener('click',()=>
+        a.parentElement.parentElement.classList.toggle('open')));
+      // 문서를 누르면 **상세가 열린다.** 이력만 보고 싶으면 오른쪽 '회차 N' 을 누른다.
+      $('docList').querySelectorAll('.doc').forEach(d=>d.addEventListener('click',(e)=>{
+        // 순서가 중요하다 — 두 고리 다 <a> 라, 앞에서 걸러버리면 눌러도 아무 일이 없다
+        const op=e.target.closest('[data-open]');
+        if(op){ openDoc(op.dataset.open); return; }
+        if(e.target.closest('[data-hist]')){ d.classList.toggle('open'); return; }
+        if(e.target.closest('a')) return;
+        openDoc(d.dataset.d);
+      }));
+    }
+
+    function docHtml(d){
+      const k=kindOf(d.kind), sv=saves[d.id]||[];
+      return '<div class="doc" data-d="'+d.id+'">'
+        +'<div class="dl"><span class="nm">'+esc(d.name)+'</span>'
+        +'<span class="tags"><span class="kind '+k.cls+'">'+esc(k.label)+'</span>'
+        +'<span class="st '+d.state+'">'+esc(d.stateTxt)+'</span></span></div>'
+        +'<div class="dsub">'
+          +(d.slots?'값 자리 '+d.slots+'개':'값 자리 아직 없음')
+          +(sv.length?' · <a href="#" data-hist="1" onclick="return false" style="color:var(--accent);text-decoration:none;font-weight:600">저장 목록 '+sv.length+'개 ▾</a>'
+                     :' · 저장한 것 없음')
+          +(d.center?'':' · <b style="color:var(--err)">센터를 정해야 메일이 나갑니다</b>')
+        +'</div>'
+        +(sv.length
+          ? '<div class="hist"><div class="hnote">저장은 지우지 않고 쌓입니다. 문서를 열면 그때 초안을 그대로 다시 볼 수 있습니다.</div>'
+            + sv.map(h=>'<div class="hr"><span class="ym">'+esc(h.ym)+'</span>'
+              +'<span class="st '+(h.miss?'wait':'done')+'">'+(h.miss? h.miss+'칸 빔':'다 채움')+'</span>'
+              +'<span class="vals">'+esc(h.by)+' · '+esc(h.at)+'</span>'
+              +'<a class="lnk" href="#" data-open="'+d.id+'" onclick="return false">문서 열기</a></div>').join('')
+            +'</div>'
+          : '')
+        +'</div>';
+    }
+
+    $('docQ').addEventListener('input',e=>{ q=e.target.value; backToList(); });
+    /* ══════════════════════════════════════════════════════════════
+       .mht 를 **진짜로 읽는다.**
+
+       실제 앱(js/doctpl.js)이 하는 일을 흉내낸 것이다 —
+         dtMhtToHtml   MIME 파트에서 본문 HTML 을 꺼낸다
+         dtFindTables  표를 찾는다        dtGuessBody 가장 큰 표를 본문으로
+         docFindVars   매달 바뀌는 칸을 찾는다(아래 정규식은 doctpl.js:2405 와 같은 규칙)
+       여기서는 무엇이 만들어지는지 **보여주기만** 한다. 저장하지 않는다.
+       ══════════════════════════════════════════════════════════════ */
+
+    /** MHT 한 덩이에서 본문 HTML 을 꺼낸다. base64 · quoted-printable 둘 다. */
+    function mhtToHtml(raw){
+      // Text/HTML 파트를 찾는다. 경계는 파일마다 다르므로 헤더로 자른다.
+      const re=/Content-Type:\s*text\/html[^]*?(?:\r?\n\r?\n)([^]*?)(?=\r?\n--|$)/i;
+      const m=re.exec(raw);
+      if(!m) throw new Error('MHT 안에서 본문(HTML) 부분을 찾지 못했습니다.');
+      const head=raw.slice(m.index, m.index+m[0].length-m[1].length);
+      const body=m[1];
+      if(/base64/i.test(head)){
+        const bin=atob(body.replace(/\s/g,''));
+        const bytes=new Uint8Array(bin.length);
+        for(let i=0;i<bin.length;i++) bytes[i]=bin.charCodeAt(i);
+        return new TextDecoder(/euc-kr|ks_c_5601/i.test(head)?'euc-kr':'utf-8').decode(bytes);
+      }
+      if(/quoted-printable/i.test(head)){
+        const t=body.replace(/=\r?\n/g,'').replace(/=([0-9A-F]{2})/gi,(_,h)=>String.fromCharCode(parseInt(h,16)));
+        const bytes=new Uint8Array(t.length);
+        for(let i=0;i<t.length;i++) bytes[i]=t.charCodeAt(i);
+        return new TextDecoder(/euc-kr|ks_c_5601/i.test(head)?'euc-kr':'utf-8').decode(bytes);
+      }
+      return body;
+    }
+
+    /** 가장 큰 표를 본문으로 본다 — 결재 문서는 표 하나에 다 들어 있다 */
+    function guessBody(html){
+      const tables=[...html.matchAll(/<table[^]*?<\/table>/gi)].map(m=>m[0]);
+      if(!tables.length) return null;
+      return tables.sort((a,b)=>b.length-a.length)[0];
+    }
+
+    /** 매달 바뀌는 칸. js/doctpl.js:2405 docFindVars 와 같은 규칙. */
+    const VAR_RULES=[
+      [/\d{4}\s*[.년]\s*\d{1,2}\s*[.월]\s*\d{1,2}\s*[.일]?\s*~\s*\d{4}\s*[.년]\s*\d{1,2}\s*[.월]\s*\d{1,2}\s*[.일]?/g,'기간'],
+      [/\d{4}\s*년\s*\d{1,2}\s*월\s*\d{1,2}\s*일/g,'날짜'],
+      [/\d{4}\s*년\s*\d{1,2}\s*월\s*분?/g,'월'],
+      [/\d{1,7}(?=\s*(?:명|건))/g,'인원·건수'],
+      [/[+-]?\d{1,3}(?:,\d{3})+/g,'금액'],
+    ];
+    function findVars(text){
+      const out=[];
+      for(const [re,kind] of VAR_RULES){
+        re.lastIndex=0; let m;
+        while((m=re.exec(text))){ if(!m[0].length){re.lastIndex++;continue;}
+          out.push({i:m.index,t:m[0],kind});
+        }
+      }
+      // 겹치면 넓은 쪽을 남긴다 — doctpl.js:2453 과 같은 방식.
+      // 순서를 잘못 두면 '45,120건' 에서 금액(45,120) 대신 '120' 만 잡혀 값이 잘린다.
+      out.sort((a,b)=> a.i-b.i || b.t.length-a.t.length);
+      const kept=[]; let end=-1;
+      for(const v of out){ if(v.i<end) continue; kept.push(v); end=v.i+v.t.length; }
+      return kept;
+    }
+
+    /** 제목 낱말로 종류를 짐작한다. 짐작일 뿐이라 사람이 고칠 수 있게 둔다. */
+    function guessKind(title){
+      const t=String(title||'');
+      if(/운영보고|실적|월간/.test(t)) return 'rep';
+      if(/청구|수수료|정산|세금계산서|명세/.test(t)) return 'bil';
+      if(/점검|공문|결과\s*제출|감독|보안/.test(t)) return 'gon';
+      return 'etc';
+    }
+    /** 제목 — '제 목 :' 뒤나, 가장 긴 굵은 줄 */
+    function guessTitle(text){
+      const m=/제\s*목\s*[:：]\s*([^\n]{4,80})/.exec(text);
+      if(m) return m[1].trim();
+      const line=text.split('\n').map(x=>x.trim()).filter(x=>x.length>8&&x.length<80)[0];
+      return line||'이름 없는 문서';
+    }
+    /** 받는 곳 — 아는 센터 이름이 본문에 있으면 그것 */
+    function guessCenter(text){
+      const names=[...new Set(DOCS.map(d=>d.center).filter(Boolean))];
+      for(const n of names){ if(text.includes(n)) return n; }
+      for(const n of names){ const head=n.replace(/\s*(민원상담콜센터|장기계약정비센터|고객센터)$/,'');
+        if(head&&text.includes(head)) return n; }
+      return '';
+    }
+    const stripTags=(h)=>h.replace(/<(script|style)[^]*?<\/\1>/gi,'')
+      .replace(/<br[^>]*>|<\/(tr|p|div|table)>/gi,'\n').replace(/<[^>]+>/g,' ')
+      .replace(/&nbsp;/g,' ').replace(/&amp;/g,'&').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+      .replace(/[ \t]+/g,' ');
+
+    /* ── 엑셀에서 값 끌어오기 (담당자 화면과 같은 엔진) ──────────────
+       실제로 만들 때는 js/mgrextract.js 한 파일에 두고 화면·서버가 같이 읽는다. */
+    let _xlsxP=null;
+    function ensureXlsx(){
+      if(window.XLSX) return Promise.resolve(window.XLSX);
+      if(_xlsxP) return _xlsxP;
+      _xlsxP=new Promise((res,rej)=>{
+        const sc=document.createElement('script');
+        sc.src='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+        sc.onload=()=>res(window.XLSX);
+        sc.onerror=()=>rej(new Error('엑셀 읽기 도구를 불러오지 못했습니다.'));
+        document.head.appendChild(sc);
+      });
+      return _xlsxP;
+    }
+    const XE=(()=>{
+      const isB=(v)=>v===null||v===undefined||String(v).trim()==='';
+      const cl=(v)=>String(v===null||v===undefined?'':v).replace(/[\s\n\r]/g,'');
+      const gg=(g,r,c)=>{const v=g.get(r+','+c);return v===undefined?null:v;};
+      function applyMerges(g,ms){ for(const m of (ms||[])){
+        const r1=m.s.r+1,c1=m.s.c+1,r2=m.e.r+1,c2=m.e.c+1; const v=gg(g,r1,c1); if(isB(v))continue;
+        for(let r=r1;r<=r2;r++)for(let c=c1;c<=c2;c++) if(isB(gg(g,r,c))) g.set(r+','+c,v);} return g; }
+      function bounds(g){let mr=0,mc=0;g.forEach((v,k)=>{const [r,c]=k.split(',').map(Number);
+        if(r>mr)mr=r;if(c>mc)mc=c;});return{maxRow:mr,maxCol:mc};}
+      function findHeaderRow(g,h,lim){const{maxRow,maxCol}=bounds(g);const top=Math.min(maxRow,lim||12);
+        for(let r=1;r<=top;r++){let t='';for(let c=1;c<=maxCol;c++)t+=cl(gg(g,r,c));
+          if((h||[]).every(x=>t.includes(cl(x))))return r;}return -1;}
+      function columnPaths(g,hdr,dep){const{maxCol}=bounds(g);const o={};
+        for(let c=1;c<=maxCol;c++){const a=[];for(let r=hdr;r<hdr+(dep||3);r++){const v=gg(g,r,c);
+          if(!isB(v)){const t=cl(v);if(!a.includes(t))a.push(t);}} if(a.length)o[c]=a;} return o;}
+      function findCols(p,tk){const r=[];for(const c of Object.keys(p))
+        if((tk||[]).every(t=>p[c].join('|').includes(cl(t))))r.push(Number(c));return r.sort((a,b)=>a-b);}
+      function parseDay(v){ if(isB(v))return null;
+        if(typeof v==='number'){ if(v<20000||v>60000)return null; const d=new Date(Date.UTC(1899,11,30)+v*86400000);
+          return{m:d.getUTCMonth()+1,d:d.getUTCDate()}; }
+        const s=String(v).trim(); let m=/^(\d{1,2})\s*[/.\-월]\s*(\d{1,2})/.exec(s); if(m)return{m:+m[1],d:+m[2]};
+        m=/^\d{4}[-.](\d{1,2})[-.](\d{1,2})/.exec(s); if(m)return{m:+m[1],d:+m[2]}; return null; }
+      function readValue(v,t){ if(isB(v))return null;
+        const n=typeof v==='number'?v:Number(String(v).replace(/[,\s%원건명]/g,''));
+        if(!isFinite(n))return null;
+        if(t==='pct')return Math.round((n<=1.5?n*100:n)*10)/10;
+        if(t==='int')return Math.round(n); return Math.round(n*10)/10; }
+      function dateScore(g,c,f,t){let n=0;for(let r=f;r<=t;r++)if(parseDay(gg(g,r,c))!==null)n++;return n;}
+      function extractDaily(sh,sp){
+        const g=applyMerges(new Map(sh.grid),sh.merges); const{maxRow}=bounds(g);
+        const hdr=findHeaderRow(g,sp.headerHints); if(hdr<0)return{ok:false,reason:'header',rows:[],cols:{}};
+        const p=columnPaths(g,hdr,sp.headerDepth||3); const from=hdr+(sp.headerDepth||3);
+        const cand=findCols(p,sp.dateTokens||['일자']);
+        const dc=cand.slice().sort((a,b)=>dateScore(g,b,from,maxRow)-dateScore(g,a,from,maxRow))[0]||null;
+        if(!dc)return{ok:false,reason:'datecol',rows:[],cols:{}};
+        const cols={};
+        for(const c of sp.columns){const h=findCols(p,c.tokens);const cc=h[c.nth||0]||null;
+          cols[c.key]=cc?{col:cc,path:p[cc].join(' > ')}:null;}
+        const stop=(sp.stopWords||['합계','평균','소계','누계','총계']).map(cl);
+        const rows=[];
+        for(let r=from;r<=maxRow;r++){ const dv=gg(g,r,dc);
+          if(stop.some(w=>cl(dv).includes(w)))continue; if(!parseDay(dv))continue;
+          const o={};let any=false;
+          for(const c of sp.columns){const cc=cols[c.key];const v=cc?readValue(gg(g,r,cc.col),c.type):null;
+            o[c.key]=v;if(v!==null)any=true;}
+          if(any)rows.push(o);}
+        return{ok:rows.length>0,rows,cols,headerRow:hdr};
+      }
+      function aggregate(rows,ag){ const out={},how={};
+        const nums=(k)=>rows.map(r=>r[k]).filter(v=>v!==null&&v!==undefined);
+        for(const a of ag){ let v=null; const xs=nums(a.from||a.key);
+          if(a.agg==='sum')v=xs.length?xs.reduce((p,q)=>p+q,0):null;
+          else if(a.agg==='avg')v=xs.length?Math.round((xs.reduce((p,q)=>p+q,0)/xs.length)*10)/10:null;
+          else if(a.agg==='last')v=xs.length?xs[xs.length-1]:null;
+          else if(a.agg==='ratio'){const n=nums(a.num).reduce((p,q)=>p+q,0),d=nums(a.den).reduce((p,q)=>p+q,0);
+            v=d?Math.round((n/d)*1000)/10:null;}
+          else if(a.agg==='perday'){const n=nums(a.from||a.key).reduce((p,q)=>p+q,0);
+            v=rows.length?Math.round(n/rows.length):null;}
+          if(v!==null){out[a.key]=String(v);how[a.key]=a.agg;} }
+        return{values:out,how,days:rows.length}; }
+      function extractLabeled(sh,sp){
+        const g=applyMerges(new Map(sh.grid),sh.merges); const{maxRow,maxCol}=bounds(g);
+        const values={},cols={};
+        for(const c of sp.columns){ let found=null;
+          for(let r=1;r<=maxRow&&!found;r++){ let line='';
+            for(let x=1;x<=maxCol;x++)line+=cl(gg(g,r,x))+'|';
+            if(!c.tokens.every(t=>line.includes(cl(t))))continue;
+            let from=1; for(let x=1;x<=maxCol;x++) if(c.tokens.some(t=>cl(gg(g,r,x)).includes(cl(t))))from=x+1;
+            for(let x=from;x<=maxCol;x++){const v=readValue(gg(g,r,x),c.type);
+              if(v!==null){found={r,c:x,v};break;}} }
+          if(found){values[c.key]=String(found.v);cols[c.key]={col:found.c,row:found.r,path:c.tokens.join(' > ')};}
+          else cols[c.key]=null; }
+        return{ok:Object.keys(values).length>0,values,cols}; }
+      function suggestSheet(sheets,sp){
+        const sc=sheets.map(s=>{
+          if(sp.mode==='labeled'){ const g=applyMerges(new Map(s.grid),s.merges);const{maxRow,maxCol}=bounds(g);
+            let h=0; for(const c of sp.columns){ let got=false;
+              for(let r=1;r<=maxRow&&!got;r++){let line='';for(let x=1;x<=maxCol;x++)line+=cl(gg(g,r,x))+'|';
+                if(c.tokens.every(t=>line.includes(cl(t))))got=true;} if(got)h++; }
+            return{name:s.name,ok:h>0,hits:h}; }
+          const g=applyMerges(new Map(s.grid),s.merges); const hdr=findHeaderRow(g,sp.headerHints); let h=0;
+          if(hdr>0){const p=columnPaths(g,hdr,sp.headerDepth||3);
+            for(const c of sp.columns) if(findCols(p,c.tokens).length)h++;}
+          return{name:s.name,ok:hdr>0,hits:h}; });
+        const use=sc.filter(x=>x.ok).sort((a,b)=>b.hits-a.hits);
+        return{sheets:sc,pick:use[0]?use[0].name:null,usableCount:use.length}; }
+      return{extractDaily,aggregate,extractLabeled,suggestSheet};
+    })();
+
+    /* ── 두 달치를 견주어 **실제로 바뀐 곳**을 찾는다 ────────────────
+       정규식 추측(금액·날짜 모양)은 짐작이다. 같은 문서의 두 달치를 견주면
+       **정말로 달라진 조각**만 남는다 — 훨씬 정확하다.
+       한 달치만 넣으면 지금까지처럼 추측한다. 어느 쪽이든 사람이 고칠 수 있다. */
+
+    /** 태그를 건드리지 않고 텍스트 조각만 뽑는다 (doctpl 의 dtTokens 와 같은 방식) */
+    function textParts(html){
+      const parts=html.split(/(<[^>]+>)/);
+      const out=[];
+      for(let i=0;i<parts.length;i+=2){
+        const t=(parts[i]||'').replace(/&nbsp;/g,' ');
+        out.push({ i, raw:parts[i]||'', norm:t.replace(/\s+/g,' ').trim() });
+      }
+      return out;
+    }
+
+    /** 가장 긴 공통 부분수열 — 조각이 밀려도 짝을 맞춘다(표 줄 수가 다를 때) */
+    function pairUp(A,B){
+      const n=A.length, m=B.length;
+      const L=Array.from({length:n+1},()=>new Uint16Array(m+1));
+      for(let i=n-1;i>=0;i--) for(let j=m-1;j>=0;j--)
+        L[i][j] = (A[i].norm===B[j].norm && A[i].norm!=='') ? L[i+1][j+1]+1
+                : Math.max(L[i+1][j], L[i][j+1]);
+      const pairs=[]; let i=0,j=0;
+      while(i<n&&j<m){
+        if(A[i].norm===B[j].norm && A[i].norm!==''){ pairs.push([i,j]); i++; j++; }
+        else if(L[i+1][j]>=L[i][j+1]) i++; else j++;
+      }
+      return pairs;
+    }
+
+    /**
+     * 두 문서에서 달라진 조각을 찾는다.
+     * 같은 자리(공통 조각 사이)에 든 서로 다른 텍스트가 곧 '매달 바뀌는 칸'이다.
+     */
+    function diffVars(htmlA, htmlB){
+      const A=textParts(htmlA).filter(x=>x.norm!==''), B=textParts(htmlB).filter(x=>x.norm!=='');
+      if(!A.length||!B.length) return { vars:[], sameShape:false };
+      const pairs=pairUp(A,B);
+      const vars=[];
+      let ai=0, bi=0;
+      const push=(as,bs)=>{
+        if(!as.length&&!bs.length) return;
+        // 짝이 안 맞은 구간에서 조각 수가 같으면 **한 줄씩 마주 놓는다**.
+        // 그래야 '2026년 4월 …보고드립니다' 통째가 아니라 바뀐 글자만 남는다.
+        if(as.length===bs.length){
+          for(let k=0;k<as.length;k++) addPair(as[k].norm, bs[k].norm);
+          return;
+        }
+        addPair(as.map(x=>x.norm).join(' ').trim(), bs.map(x=>x.norm).join(' ').trim());
+      };
+      const addPair=(a,b)=>{
+        if(!a&&!b) return;
+        const t=trimCommon(a,b);            // 앞뒤로 같은 글자는 벗겨낸다
+        if(!t.a&&!t.b) return;              // 벗기고 나니 같으면 바뀐 곳이 아니다
+        vars.push({ a:t.a, b:t.b, pre:t.pre, post:t.post });
+      };
+      for(const [pa,pb] of pairs){
+        if(pa>ai||pb>bi) push(A.slice(ai,pa), B.slice(bi,pb));
+        ai=pa+1; bi=pb+1;
+      }
+      if(ai<A.length||bi<B.length) push(A.slice(ai), B.slice(bi));
+      return { vars, sameShape: pairs.length>0 };
+    }
+
+    /**
+     * 두 글자를 앞뒤로 견주어 **같은 부분을 벗겨낸다.**
+     * '2026년 4월 평택시…' 와 '2026년 5월 평택시…' 를 견주면 '4' 와 '5' 만 남는다.
+     * 문장 전체를 값 자리로 잡으면 매달 그 문장이 통째로 갈리므로 반드시 좁혀야 한다.
+     */
+    function trimCommon(a,b){
+      a=String(a||''); b=String(b||'');
+      let s=0; const n=Math.min(a.length,b.length);
+      while(s<n && a[s]===b[s]) s++;
+      let e=0;
+      while(e<a.length-s && e<b.length-s && a[a.length-1-e]===b[b.length-1-e]) e++;
+      // 글자 단위로만 벗기면 숫자 한가운데가 잘린다 — '41,500' 와 '41,720' 에서
+      // 앞의 '41,' 이 같다고 벗겨 '500' → '720' 이 되어버린다.
+      // 그래서 벗긴 자리를 **값 경계까지 다시 넓힌다.**
+      const ra=widen(a,s,a.length-e), rb=widen(b,s,b.length-e);
+      return { a:a.slice(ra.s,ra.e), b:b.slice(rb.s,rb.e),
+               pre:a.slice(0,ra.s), post:a.slice(ra.e) };
+    }
+
+    /** [s,e) 를 그 자리에 걸친 값(금액·날짜·인원) 전체로, 값이 아니면 낱말 끝까지 넓힌다 */
+    function widen(full,s,e){
+      if(s>=e) return { s, e };
+      for(const v of findVars(full)){
+        const vs=v.i, ve=v.i+v.t.length;
+        if(vs<e && s<ve) return { s:Math.min(s,vs), e:Math.max(e,ve) };
+      }
+      let a=s, b=e;
+      while(a>0 && !/[\s\u00A0]/.test(full[a-1])) a--;
+      while(b<full.length && !/[\s\u00A0]/.test(full[b])) b++;
+      return { s:a, e:b };
+    }
+
+    /**
+     * 조각이 무엇으로 보이는지. 견주기로 이미 좁혀진 뒤라 값만 남아 있을 때가 많다.
+     * 이름을 '문장' 으로만 두면 스무 줄이 다 '문장' 이 되어 알아볼 수 없다.
+     */
+    function coreOf(t){
+      const s=String(t||'').trim();
+      const v=findVars(s);
+      if(v.length===1) return { text:v[0].t, kind:v[0].kind };
+      if(v.length>1)  return { text:s, kind:'여러 값' };
+      if(/^[▲▼△▽+\-]$/.test(s))                 return { text:s, kind:'증감 부호' };
+      if(/^[▲▼△▽+\-]?\s*[\d,]+(\.\d+)?%$/.test(s)) return { text:s, kind:'비율' };
+      if(/^[▲▼△▽+\-]?\s*\d{1,3}(,\d{3})+$/.test(s))  return { text:s, kind:'금액' };
+      if(/^[▲▼△▽+\-]?\s*\d+(\.\d+)?$/.test(s))      return { text:s, kind:'숫자' };
+      if(/\d{4}\s*년/.test(s))                   return { text:s, kind:'날짜' };
+      if(/^\d{1,2}\s*월/.test(s))                return { text:s, kind:'월' };
+      return { text:s, kind:'문장' };
+    }
+
+    let pending=null;                 // { name, kind, center, vars[], bodyA }
+    const slotFiles={ a:null, b:null };   // a=이번 달(본), b=지난 달(견줄 것)
+
+    function drawFiles(){
+      const box=(id,label,hint)=>{
+        const f=slotFiles[id];
+        return '<div class="f2'+(f?' has':'')+'" data-f="'+id+'">'
+          +'<div class="lb">'+esc(label)+'</div>'
+          +(f? '<div class="fn">'+esc(f.name)+'</div><button class="rm" data-rm="'+id+'">빼기</button>'
+             : '<div class="hint2">'+esc(hint)+'</div>')
+          +'</div>';
+      };
+      $('pvFiles').innerHTML =
+          box('a','이번 달 문서 (필요)','.mht 를 끌어다 놓거나 눌러 고르세요')
+        + box('b','지난 달 문서 (선택)','같은 양식 한 장을 더 넣으면 **달라진 곳만** 정확히 잡습니다');
+      $('pvFiles').querySelectorAll('.f2').forEach(el=>{
+        const id=el.dataset.f;
+        el.addEventListener('click',(e)=>{ if(e.target.closest('.rm')) return; pickInto(id); });
+        ['dragenter','dragover'].forEach(x=>el.addEventListener(x,ev=>{ev.preventDefault();el.classList.add('over');}));
+        ['dragleave','drop'].forEach(x=>el.addEventListener(x,ev=>{ev.preventDefault();el.classList.remove('over');}));
+        el.addEventListener('drop',ev=>{ ev.preventDefault();
+          const f=ev.dataTransfer.files[0]; if(f) putFile(id,f); });
+      });
+      $('pvFiles').querySelectorAll('.rm').forEach(b=>b.addEventListener('click',(e)=>{
+        e.stopPropagation(); slotFiles[b.dataset.rm]=null; analyze(); }));
+    }
+
+    const picker2=document.createElement('input');
+    picker2.type='file'; picker2.accept='.mht,.mhtml';
+    let pickTarget='a';
+    picker2.addEventListener('change',()=>{ if(picker2.files[0]) putFile(pickTarget,picker2.files[0]); picker2.value=''; });
+    function pickInto(id){ pickTarget=id; picker2.click(); }
+    async function putFile(id,file){ slotFiles[id]={ name:file.name, file }; await analyze(); }
+
+    /** 넣은 파일로 다시 분석한다. a 만 있으면 추측, a+b 면 견주기. */
+    async function analyze(){
+      $('docPrev').hidden=false;
+      drawFiles();
+      const A=slotFiles.a;
+      if(!A){ note('','이번 달 문서를 넣어주세요.'); $('pvVars').innerHTML=''; $('pvBody').innerHTML='';
+        $('pvCount').textContent=''; pending=null; return; }
+      $('pvTitle').textContent=A.name+(slotFiles.b?'  ↔  '+slotFiles.b.name:'');
+      note('','읽는 중…');
+      try{
+        const htmlA=mhtToHtml(await A.file.text());
+        const bodyA=guessBody(htmlA);
+        if(!bodyA) throw new Error('본문 표를 찾지 못했습니다. 결재 화면에서 저장한 .mht 가 맞는지 확인해 주세요.');
+        const textA=stripTags(htmlA);
+
+        let vars=[], how='guess', extra='';
+        if(slotFiles.b){
+          const htmlB=mhtToHtml(await slotFiles.b.file.text());
+          const bodyB=guessBody(htmlB);
+          if(!bodyB) throw new Error('지난 달 문서에서 본문 표를 찾지 못했습니다.');
+          const d=diffVars(bodyB,bodyA);       // B(지난달) → A(이번달) 순으로 견준다
+          if(!d.sameShape) throw new Error('두 문서의 짜임이 너무 달라 견줄 수 없습니다. 같은 양식인지 확인해 주세요.');
+          vars=d.vars.map(v=>{
+            const c=coreOf(v.b);
+            return { on:true, name:'', kind:c.kind, cur:c.text, prev:v.a, src:'cmp',
+                     pre:v.pre||'', post:v.post||'' };
+          }).filter(v=>v.cur);
+          how='cmp';
+          extra=' 두 달을 견주었습니다 — <b>정말로 달라진 곳</b>입니다.';
+        } else {
+          vars=findVars(stripTags(bodyA)).map(v=>
+            ({ on:true, name:'', kind:v.kind, cur:v.t, prev:'', src:'guess' }));
+          extra=' 한 장만 보고 <b>모양으로 짐작</b>했습니다. 지난 달 문서를 더 넣으면 정확해집니다.';
+        }
+        // 이름은 나중에 사람이 붙인다. 우선 비슷한 것끼리 번호를 매겨 알아보게.
+        const seen={};
+        vars.forEach(v=>{ const k=v.kind; seen[k]=(seen[k]||0)+1; v.name=v.name||(k+(seen[k]>1?' '+seen[k]:'')); });
+
+        const title=guessTitle(stripTags(htmlA));
+        $('pvName').value=title;
+        $('pvKind').innerHTML=KINDS.filter(k=>k.id!=='all').map(k=>
+          '<option value="'+k.id+'"'+(k.id===guessKind(title)?' selected':'')+'>'+esc(k.label)+'</option>').join('');
+        fillCenterPick(guessCenter(textA));
+
+        pending={ vars, bodyA, how };
+        picking=null; bodyEditing=false;
+        $('pvEditBody').textContent='본문 고치기'; $('pvBodyNote').textContent='값 자리는 노랗게 칠했습니다';
+        $('pvBody').hidden=false; $('pvBodyEdit').hidden=true;
+        note('','✓ 표를 찾았습니다.'+extra);
+        drawVars();
+        drawBody();
+      }catch(e){
+        note('err','읽지 못했습니다 — '+(e.message||e));
+        pending=null; $('pvVars').innerHTML=''; $('pvBody').innerHTML=''; $('pvCount').textContent='';
+      }
+    }
+    /* 센터 고르기는 두지 않는다 — 이미 그 센터 안이고, 문서는 이 센터에만 속한다.
+       고를 것이 없는 칸을 고르기 상자로 두면 «왜 안 눌리지» 하고 헤매게 된다. */
+    function fillCenterPick(){
+      $('pvCenter').innerHTML='<option>'+esc(CENTER_NAME)+'</option>';
+      $('pvCenter').disabled=true;
+    }
+
+    /* ── 값이 아닌 «고정된 본문» 도 고친다 ────────────────────────
+       본문을 통째로 편집하게 두면 태그가 틀어져 결재 화면에 붙였을 때 서식이 깨진다.
+       그래서 HANDOFF 2장과 같은 방식으로 **글자 토막만** 고치게 한다 —
+       /(<[^>]+>)/ 로 쪼개면 짝수 자리가 글자, 홀수 자리가 태그다. 태그는 건드리지 않는다. */
+    let bodyEditing=false;
+
+    const bodyParts=()=>pending.bodyA.split(/(<[^>]+>)/);
+
+    /* &nbsp; 같은 것을 그대로 보여주면 고치다가 깨뜨리기 쉽다.
+       보여줄 때는 글자로 풀고, 되돌려 넣을 때 다시 감싼다. 손댄 줄만 되돌려 넣으므로
+       건드리지 않은 줄은 한 글자도 바뀌지 않는다. */
+    const deEnt=(t)=>String(t).replace(/&nbsp;/g,'\u00A0').replace(/&lt;/g,'<').replace(/&gt;/g,'>')
+      .replace(/&quot;/g,'"').replace(/&amp;/g,'&');
+    const enEnt=(t)=>String(t).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+      .replace(/\u00A0/g,'&nbsp;');
+
+    function drawBodyEdit(){
+      const parts=bodyParts();
+      const want=new Set(pending.vars.filter(v=>v.on&&v.cur).map(v=>v.cur));
+      let rows='';
+      for(let i=0;i<parts.length;i+=2){
+        const t=deEnt(parts[i]);
+        if(!t||!t.trim()) continue;                       // 빈 칸·줄바꿈만 있는 토막은 건너뛴다
+        const hasVar=[...want].some(w=>t.indexOf(w)>=0);
+        rows+='<div class="ber"><span class="no">'+(i/2+1)+'</span>'
+          +'<input data-bp="'+i+'" class="'+(hasVar?'hasvar':'')+'" value="'+esc(t)+'"'
+          +(hasVar?' title="이 줄에는 값 자리가 들어 있습니다 — 값은 위 표에서 고치세요"':'')+'></div>';
+      }
+      $('pvBodyEdit').innerHTML= rows
+        ? rows+'<div class="hint">태그(&lt;td&gt; · &lt;tr&gt; 같은 것)는 건드리지 않습니다 — '
+          +'<b>글자만</b> 바꿉니다. 그래서 결재 화면에 붙여넣어도 서식이 그대로입니다.<br>'
+          +'노란 줄에는 매달 바뀌는 값이 들어 있습니다. 그 값은 위 표에서 고치세요.</div>'
+        : '<div class="vempty">고칠 글자가 없습니다.</div>';
+      $('pvBodyEdit').querySelectorAll('input[data-bp]').forEach(el=>el.addEventListener('change',()=>{
+        const parts=bodyParts();
+        parts[+el.dataset.bp]=enEnt(el.value);            // 짝수 자리만 갈아끼운다
+        pending.bodyA=parts.join('');                     // 태그는 그대로라 도로 붙이면 원래 문서다
+      }));
+    }
+
+    $('pvEditBody').addEventListener('click',()=>{
+      if(!pending) return alert('먼저 문서를 넣어주세요.');
+      bodyEditing=!bodyEditing;
+      if(bodyEditing) picking=null;
+      $('pvEditBody').textContent = bodyEditing? '다 고쳤습니다' : '본문 고치기';
+      $('pvBodyNote').textContent = bodyEditing
+        ? '글자만 고칩니다 — 태그는 그대로 둡니다'
+        : '값 자리는 노랗게 칠했습니다';
+      $('pvBody').hidden=bodyEditing;
+      $('pvBodyEdit').hidden=!bodyEditing;
+      drawVars(); drawBody(); drawPickNote();
+    });
+
+    /* ══════════════════════════════════════════════════════════════
+       이미 만든 양식 고치기 — `.mht` 를 넣을 때 쓰던 그 편집기를 그대로 쓴다.
+       화면을 새로 만들면 두 곳이 따로 놀아 한쪽만 고쳐지는 사고가 난다.
+
+       다른 점은 하나다. 새 양식은 본문에 **값 글자**가 그대로 있지만,
+       이미 만든 양식은 그 자리가 이미 `{{키}}` 로 바뀌어 있다.
+       그래서 `v.cur` 에 `{{키}}` 를 담고, 이름을 고치면 본문의 `{{키}}` 도 그 자리에서 바꾼다.
+       ══════════════════════════════════════════════════════════════ */
+
+    /** 글자 토막에서만 바꾼다 — 태그 안은 건드리지 않는다(서식 보존) */
+    function textReplaceAll(html,find,repl){
+      if(!find) return html;
+      const parts=html.split(/(<[^>]+>)/);
+      for(let i=0;i<parts.length;i+=2) parts[i]=parts[i].split(find).join(repl);
+      return parts.join('');
+    }
+    function textReplaceOnce(html,find,repl){
+      if(!find) return html;
+      const parts=html.split(/(<[^>]+>)/);
+      for(let i=0;i<parts.length;i+=2){
+        const at=parts[i].indexOf(find);
+        if(at>=0){ parts[i]=parts[i].slice(0,at)+repl+parts[i].slice(at+find.length); break; }
+      }
+      return parts.join('');
+    }
+
+    function openEditTpl(id){
+      const d=DOCS.find(x=>x.id===id); if(!d) return;
+      if(!d.body){
+        alert('이 문서는 아직 양식이 없습니다.\n문서 목록에서 «.mht 가져오기» 로 양식을 먼저 넣어주세요.');
+        return;
+      }
+      // 넣는 칸과 저절로 채우는 칸을 한 표로 모은다 — 고칠 때는 나란히 봐야 한다
+      /* orig  문서에 들어 있던 원래 이름 — 끝까지 안 바뀐다. 무엇을 무엇으로 고쳤는지 알아야
+                지난 회차 값·엑셀 규칙을 함께 옮길 수 있다.
+         key0  지금 본문에 박혀 있는 이름 — 이름을 고치면 따라 바뀐다. */
+      const vars=(d.fields||[]).map(f=>({
+          on:true, name:f.key, orig:f.key, key0:f.key, kind:'넣는 칸', cur:'{{'+f.key+'}}', prev:'',
+          src:'hand', role:'cur', of:'' }))
+        .concat((d.autoFields||[]).map(a=>({
+          on:true, name:a.key, orig:a.key, key0:a.key, kind:'저절로', cur:'{{'+a.key+'}}', prev:'',
+          src:'hand', role:a.kind, of:a.of||'' })));
+
+      showView('list');
+      $('docMht').hidden=true;          // 지금은 새 양식을 넣을 때가 아니다
+      $('docPrev').hidden=false;
+      pending={ vars, bodyA:d.body, how:'edit', mode:'edit', docId:d.id };
+      picking=null; bodyEditing=false;
+      $('pvEditBody').textContent='본문 고치기'; $('pvBodyNote').textContent='값 자리는 노랗게 칠했습니다';
+      $('pvBody').hidden=false; $('pvBodyEdit').hidden=true;
+      $('pvTitle').textContent='양식 고치기 — '+d.name;
+      $('pvFiles').hidden=true;
+      $('pvEditNote').hidden=false;
+      $('pvEditNote').innerHTML='이미 만든 양식을 고칩니다. <b>이름을 고치면 지난 회차에 저장해 둔 값도 함께 따라갑니다</b> — '
+        +'안 그러면 전월값을 못 찾습니다. 자리를 다시 고르면 예전 자리는 비워집니다.';
+      $('pvAdd').textContent='고친 것 적용';
+      $('pvDrop').hidden=false;
+      $('pvName').value=d.name;
+      fillCenterPick(d.center||'');
+      $('pvKind').innerHTML=KINDS.filter(k=>k.id!=='all').map(k=>
+        '<option value="'+k.id+'"'+(k.id===d.kind?' selected':'')+'>'+esc(k.label)+'</option>').join('');
+      note('','이 문서의 값 자리 '+vars.length+'개입니다. 고치고 «고친 것 적용» 을 누르세요.');
+      drawVars(); drawBody();
+      window.scrollTo({top:0});
+    }
+
+    /** 편집 모드에서 이름을 고치면 본문의 자리와 다른 칸의 «기준 칸» 도 함께 고친다 */
+    function renameVar(v,now){
+      const was=v.key0;
+      if(!now||now===was) return;
+      pending.bodyA=textReplaceAll(pending.bodyA,'{{'+was+'}}','{{'+now+'}}');
+      pending.vars.forEach(x=>{ if(x.of===was) x.of=now; });
+      v.key0=now; v.cur='{{'+now+'}}';
+    }
+
+    /** 고친 것을 문서에 적용한다 */
+    function applyTplEdit(){
+      const d=DOCS.find(x=>x.id===pending.docId); if(!d) return false;
+      const on=pending.vars.filter(v=>v.on&&v.name.trim());
+      const curKeys=on.filter(v=>(v.role||'cur')==='cur').map(v=>v.name.trim());
+      const badOf=on.filter(v=>['prev','diff','vat'].indexOf(v.role||'cur')>=0 && curKeys.indexOf(v.of||'')<0);
+      if(badOf.length){
+        alert('기준 칸을 고르지 않은 자리가 있습니다: '
+          +badOf.map(v=>v.name+' ('+(ROLES.find(r=>r[0]===v.role)||['',''])[1]+')').join(' · ')
+          +'\n\n무엇의 전월값인지 · 무엇의 차이인지 정해야 계산할 수 있습니다.');
+        return false;
+      }
+      const gone=pending.vars.filter(v=>!v.on||!v.name.trim());
+      if(gone.length && !confirm('빼는 값 자리가 '+gone.length+'개 있습니다.\n'
+        +'그 자리는 문서에서 빈칸이 됩니다. 지난 회차에 저장해 둔 값은 그대로 남습니다.\n\n계속할까요?')) return false;
+
+      // 뺀 자리의 {{키}} 는 본문에서 지운다 — 안 지우면 «{{인입호}}» 가 그대로 결재로 올라간다
+      let body=pending.bodyA;
+      for(const v of gone) body=textReplaceAll(body,'{{'+(v.key0||v.orig)+'}}','');
+
+      // 이름이 바뀐 칸은 **지난 회차 값과 항목설정도 따라간다** — 안 그러면 전월값을 못 찾는다
+      const renames=on.filter(v=>v.orig&&v.orig!==v.name.trim()).map(v=>[v.orig,v.name.trim()]);
+      for(const [was,now] of renames){
+        (saves[d.id]||[]).forEach(sv=>{
+          if(Object.prototype.hasOwnProperty.call(sv.vals,was)){ sv.vals[now]=sv.vals[was]; delete sv.vals[was]; }
+          if(sv.srcs&&Object.prototype.hasOwnProperty.call(sv.srcs,was)){ sv.srcs[now]=sv.srcs[was]; delete sv.srcs[was]; }
+        });
+        if(OPTS[d.id]&&OPTS[d.id][was]){ OPTS[d.id][now]=OPTS[d.id][was]; delete OPTS[d.id][was]; }
+        if(vals[d.id]&&Object.prototype.hasOwnProperty.call(vals[d.id],was)){
+          vals[d.id][now]=vals[d.id][was]; delete vals[d.id][was]; }
+        // 엑셀에서 읽어오는 칸이면 추출 규칙의 이름도 같이 고쳐야 파일이 계속 채운다
+        if(d.slot&&d.slot.spec&&d.slot.spec.agg) d.slot.spec.agg.forEach(a=>{ if(a.key===was) a.key=now; });
+        if(d.slot&&d.slot.spec&&d.slot.spec.columns&&d.slot.spec.mode==='labeled')
+          d.slot.spec.columns.forEach(c=>{ if(c.key===was) c.key=now; });
+      }
+      if(renames.length) saveOptSet();
+
+      // 파일에서 채우던 칸인지(from) · 단위 · 자릿수는 이름이 바뀌어도 이어받는다
+      const oldF=(k)=>(d.fields||[]).find(f=>f.key===k)||{};   // 원래 이름으로 찾는다
+      d.name=$('pvName').value.trim()||d.name;
+      d.center=CENTER_NAME; d.cc=CENTER_CODE;   // 센터는 안 바뀐다 — 이 센터 문서다
+      d.kind=$('pvKind').value;
+      d.body=body;
+      d.fields=on.filter(v=>(v.role||'cur')==='cur').map(v=>{
+        const o=oldF(v.orig);
+        return { key:v.name.trim(), label:v.name.trim(),
+          type:o.type||'text', from:o.from||'', unit:o.unit||'' };
+      });
+      d.autoFields=on.filter(v=>(v.role||'cur')!=='cur').map(v=>{
+        const a={ key:v.name.trim(), kind:v.role };
+        if(['prev','diff','vat'].indexOf(v.role)>=0) a.of=v.of;
+        return a;
+      });
+      d.slots=d.fields.length;
+      return true;
+    }
+
+    function note(cls,html){ $('pvNote').className='pnote '+(cls||''); $('pvNote').innerHTML=html; }
+
+    /** 값 자리 표 — 켜고 끄고, 이름을 고치고, 지우고, 더한다 */
+    function drawVars(){
+      if(!pending){ $('pvVars').innerHTML=''; return; }
+      const on=pending.vars.filter(v=>v.on).length;
+      $('pvCount').innerHTML=on+'개 씁니다'+(pending.vars.length>on?' (끈 것 '+(pending.vars.length-on)+')':'');
+      if(!pending.vars.length){
+        $('pvVars').innerHTML='<div class="vempty">잡힌 자리가 없습니다. <b>+ 직접 더하기</b> 로 넣어주세요.</div>';
+        return;
+      }
+      const SRC={cmp:['견줌','cmp'],guess:['짐작','guess'],hand:['직접','hand']};
+      // 기준 칸으로 고를 수 있는 것 = 당월값 칸들. 전월값·차이·부가세는 이 중 하나를 가리킨다.
+      const curNames=pending.vars.filter(v=>v.on&&(v.role||'cur')==='cur'&&v.name.trim()).map(v=>v.name.trim());
+      $('pvVars').innerHTML=
+        '<div class="vr h"><span></span><span>이름</span><span>'
+        +(pending.how==='cmp'?'지난달 → 이번달':pending.how==='edit'?'문서의 자리':'이번 달 값')
+        +'</span><span>역할</span><span>위치</span><span></span></div>'
+        + pending.vars.map((v,i)=>{
+          const [lb,cls]=SRC[v.src]||SRC.hand;
+          const has=!!(v.cur||'').trim();
+          const role=v.role||'cur';
+          const needOf=(role==='prev'||role==='diff'||role==='vat');
+          return '<div class="vr'+(v.on?'':' off')+'" data-i="'+i+'">'
+            +'<input type="checkbox" data-on="'+i+'"'+(v.on?' checked':'')+' title="이 자리를 쓸까요">'
+            +'<span class="nmcell"><input type="text" data-nm="'+i+'" value="'+esc(v.name)+'" placeholder="이 칸의 이름">'
+              +'<span class="who2">'
+              + (pending.mode==='edit'? esc(v.kind)
+                 : '<span class="vsrc '+cls+'">'+lb+'</span> '+esc(v.kind))
+              +'</span></span>'
+            +'<span class="val">'+(v.prev?'<span class="a">'+esc(cut(v.prev))+'</span><span class="arr">→</span>':'')
+              +'<span class="b">'+esc(cut(v.cur))+'</span></span>'
+            +'<span class="role"><select data-role="'+i+'">'
+              + ROLES.map(([id,ko])=>'<option value="'+id+'"'+(role===id?' selected':'')+'>'+esc(ko)+'</option>').join('')
+              +'</select>'
+              + (needOf
+                  ? '<select data-of="'+i+'" class="'+(v.of&&curNames.indexOf(v.of)>=0?'':'need')+'">'
+                    +'<option value="">— 기준 칸 —</option>'
+                    + curNames.map(n=>'<option'+(v.of===n?' selected':'')+'>'+esc(n)+'</option>').join('')
+                    +'</select>'
+                  : '')
+            +'</span>'
+            +'<span class="pos"><span class="pv'+(has?' set':'')+'" title="'+esc(has?v.cur:'아직 위치를 안 골랐습니다')+'">'
+              +(has?'✓ 잡음':'없음')+'</span>'
+              +'<button class="pick'+(picking===i?' on':'')+'" data-pick="'+i+'">'
+              +(picking===i?'고르는 중':'고르기')+'</button></span>'
+            +'<button class="del" data-del="'+i+'" title="지우기">×</button></div>';
+        }).join('')
+        + '<div class="hint" style="padding:8px 10px">'
+        + '<b>당월값</b>만 담당자가 넣습니다. <b>전월값</b>은 지난 회차 저장에서 가져오고, '
+        + '<b>차이 · 부가세 · 합계</b>는 저절로 계산합니다 — 아무에게도 묻지 않습니다.<br>'
+        + '합계는 <b>부가세를 매긴 칸</b>을 더합니다(청구인원 같은 칸이 섞이지 않게).'
+        + '</div>';
+      $('pvVars').querySelectorAll('[data-role]').forEach(el=>el.addEventListener('change',()=>{
+        const v=pending.vars[+el.dataset.role];
+        v.role=el.value;
+        if(v.role==='cur'||v.role==='sum'||v.role==='sumvat'||v.role==='total') v.of='';
+        drawVars(); drawBody();
+      }));
+      $('pvVars').querySelectorAll('[data-of]').forEach(el=>el.addEventListener('change',()=>{
+        pending.vars[+el.dataset.of].of=el.value; drawVars();
+      }));
+      $('pvVars').querySelectorAll('[data-pick]').forEach(el=>el.addEventListener('click',()=>{
+        const i=+el.dataset.pick;
+        picking = (picking===i)? null : i;
+        drawVars(); drawBody(); drawPickNote();
+      }));
+      $('pvVars').querySelectorAll('[data-on]').forEach(el=>el.addEventListener('change',()=>{
+        pending.vars[+el.dataset.on].on=el.checked; drawVars(); drawBody(); }));
+      $('pvVars').querySelectorAll('[data-nm]').forEach(el=>{
+        el.addEventListener('input',()=>{
+          pending.vars[+el.dataset.nm].name=el.value;
+          if(picking===+el.dataset.nm) drawPickNote();   // 안내 문구의 이름도 따라간다
+        });
+        // 편집 모드에서는 칸을 떠날 때 본문의 {{키}} 와 다른 칸의 «기준 칸» 도 함께 고친다
+        el.addEventListener('change',()=>{
+          if(pending.mode!=='edit') return;
+          renameVar(pending.vars[+el.dataset.nm], el.value.trim());
+          drawVars(); drawBody();
+        });
+      });
+      $('pvVars').querySelectorAll('[data-del]').forEach(el=>el.addEventListener('click',()=>{
+        const v=pending.vars[+el.dataset.del];
+        // 이미 만든 양식에서는 본문의 {{키}} 도 함께 지운다 —
+        // 표에서만 지우면 «{{인당CPD_증감}}» 이 그대로 결재 화면에 붙는다
+        if(pending.mode==='edit'&&(v.key0||v.orig))
+          pending.bodyA=textReplaceAll(pending.bodyA,'{{'+(v.key0||v.orig)+'}}','');
+        pending.vars.splice(+el.dataset.del,1); drawVars(); drawBody(); }));
+    }
+    const cut=(t)=>String(t).length>26?String(t).slice(0,26)+'…':String(t);
+
+    /** 본문에 켜진 자리만 노랗게 — 끈 자리는 칠하지 않는다 */
+    /* ── 값의 «위치» 를 본문에서 끌어 고른다 ──────────────────────
+       이름만 적게 하면 그 칸이 문서 어디에 들어가는지 알 길이 없다.
+       아래 본문에서 그 자리를 끌어 고르면, 고른 글자가 곧 위치가 된다. */
+    let picking=null;                       // 지금 위치를 고르는 중인 줄 번호
+
+    /* 값 자리의 «역할». 당월값만 사람이 넣고, 나머지는 문서가 스스로 만든다. */
+    const ROLES=[
+      ['cur','당월값 — 넣는다'],
+      ['prev','전월값 — 지난 회차에서'],
+      ['diff','차이 — 당월 − 전월'],
+      ['vat','부가세 — 10%'],
+      ['sum','공급가 합계'],
+      ['sumvat','부가세 합계'],
+      ['total','총 합계'],
+    ];
+
+    function drawPickNote(){
+      const box=$('pvBody');
+      box.classList.toggle('picking', picking!==null);
+      const old=$('pvPickNote'); if(old) old.remove();
+      if(picking===null) return;
+      const v=pending.vars[picking];
+      const el=document.createElement('div');
+      el.className='picknote'; el.id='pvPickNote';
+      el.innerHTML='↓ 아래 문서에서 <b>«'+esc(v.name||'이 칸')+'»</b> 이 들어갈 자리를 끌어서 골라주세요'
+        +' <button class="lnkbtn" id="pvPickOff">그만두기</button>';
+      box.parentNode.insertBefore(el, box);
+      $('pvPickOff').addEventListener('click',()=>{ picking=null; drawVars(); drawBody(); drawPickNote(); });
+    }
+    $('pvBody').addEventListener('mouseup',()=>{
+      if(picking===null||!pending) return;
+      const sel=String(window.getSelection()).trim();
+      if(!sel) return;
+      const v=pending.vars[picking];
+      if(pending.mode==='edit'){
+        // 이미 만든 양식은 자리가 {{키}} 로 들어 있다. 옮기는 것이므로 예전 자리를 비우고
+        // 고른 글자를 {{키}} 로 바꾼다 — 안 그러면 자리가 둘이 되어 값이 두 번 찍힌다.
+        const key=(v.name.trim()||sel.slice(0,12));
+        if(v.key0) pending.bodyA=textReplaceAll(pending.bodyA,'{{'+v.key0+'}}','');
+        pending.bodyA=textReplaceOnce(pending.bodyA,sel,'{{'+key+'}}');
+        v.name=key; v.key0=key; v.cur='{{'+key+'}}'; v.prev=''; v.src='hand'; v.kind='자리 옮김';
+        picking=null;
+        window.getSelection().removeAllRanges();
+        drawVars(); drawBody(); drawPickNote();
+        return;
+      }
+      v.cur=sel; v.prev=''; v.src='hand'; v.kind='직접 고름';
+      if(!v.name.trim()) v.name=sel.slice(0,12);   // 이름을 안 붙였으면 고른 글자로 채워둔다
+      picking=null;
+      window.getSelection().removeAllRanges();
+      drawVars(); drawBody(); drawPickNote();
+    });
+
+    function drawBody(){
+      if(!pending){ $('pvBody').innerHTML=''; return; }
+      if(bodyEditing){ drawBodyEdit(); return; }
+      const want=new Set(pending.vars.filter(v=>v.on).map(v=>v.cur));
+      const parts=pending.bodyA.split(/(<[^>]+>)/);
+      for(let i=0;i<parts.length;i+=2){
+        const t=parts[i]; if(!t) continue;
+        let o='', at=0;
+        for(const v of findVars(t)){
+          if(!want.has(v.t)) continue;
+          o+=t.slice(at,v.i)+'\u0001'+v.t+'\u0002'; at=v.i+v.t.length;
+        }
+        // 견주기로 잡은 값은 findVars 로 안 잡히는 것도 있다(▲ · 4월 · 97.6%).
+        // 긴 것부터 찾아 칠한다 — 짧은 것을 먼저 칠하면 긴 값이 토막 난다.
+        if(!o){
+          for(const w of [...want].filter(x=>x.length>=2).sort((x,y)=>y.length-x.length)){
+            const at2=t.indexOf(w);
+            if(at2>=0){ o=t.slice(0,at2)+'\u0001'+w+'\u0002'; at=at2+w.length; break; }
+          }
+        }
+        parts[i]=o+t.slice(at);
+      }
+      $('pvBody').innerHTML=parts.join('').split('\u0001').join('<mark>').split('\u0002').join('</mark>');
+    }
+
+    $('pvAddVar').addEventListener('click',()=>{
+      if(!pending) return;
+      pending.vars.push({ on:true, name:'', orig:'', key0:'', kind:'직접 넣음', cur:'', prev:'', src:'hand', role:'cur', of:'' });
+      picking=pending.vars.length-1;          // 이름을 적자마자 위치를 고르게 한다
+      drawVars(); drawBody(); drawPickNote();
+      const last=$('pvVars').querySelector('.vr:last-child [data-nm]'); if(last) last.focus();
+    });
+
+    const closePrev=()=>{
+      $('docPrev').hidden=true; pending=null; slotFiles.a=null; slotFiles.b=null;
+      $('pvFiles').hidden=false; $('pvEditNote').hidden=true;
+      $('docMht').hidden = view!=='list';
+      $('pvAdd').textContent='이대로 문서 만들기'; $('pvDrop').hidden=true;
+      picking=null; bodyEditing=false;
+      $('pvEditBody').textContent='본문 고치기'; $('pvBodyNote').textContent='값 자리는 노랗게 칠했습니다';
+      $('pvBody').hidden=false; $('pvBodyEdit').hidden=true;
+      const n=$('pvPickNote'); if(n) n.remove();
+    };
+    $('pvClose').addEventListener('click',closePrev);
+    $('pvCancel').addEventListener('click',closePrev);
+    $('pvDrop').addEventListener('click',()=>{
+      if(!pending||pending.mode!=='edit') return;
+      const d=DOCS.find(x=>x.id===pending.docId); if(!d) return;
+      const n=(saves[d.id]||[]).length;
+      if(!confirm('«'+d.name+'» 을 목록에서 지웁니다.'
+        +(n? '\n저장해 둔 회차 '+n+'개도 함께 사라집니다.':'')+'\n\n되돌릴 수 없습니다.')) return;
+      const i=DOCS.findIndex(x=>x.id===d.id);
+      if(i>=0) DOCS.splice(i,1);
+      delete saves[d.id]; delete vals[d.id]; delete autos[d.id]; delete srcs[d.id];
+      if(OPTS[d.id]){ delete OPTS[d.id]; saveOptSet(); }
+      delete docMgrs[d.id];
+      closePrev(); draw();
+    });
+
+    $('pvAdd').addEventListener('click',()=>{
+      if(!pending) return alert('먼저 문서를 넣어주세요.');
+      if(pending.mode==='edit'){
+        if(!applyTplEdit()) return;
+        const id=pending.docId;
+        closePrev(); draw();
+        openDoc(id);        // 고친 양식으로 바로 값을 넣어볼 수 있게 문서를 다시 연다
+        return;
+      }
+      const on=pending.vars.filter(v=>v.on);
+      const noName=on.filter(v=>!v.name.trim());
+      if(noName.length && !confirm('이름을 안 붙인 칸이 '+noName.length+'개 있습니다.\n그대로 만들까요?')) return;
+      const noPos=on.filter(v=>!(v.cur||'').trim());
+      if(noPos.length && !confirm('위치를 안 고른 칸이 '+noPos.length+'개 있습니다: '
+        +noPos.map(v=>v.name||'이름 없음').join(' · ')+'\n\n그대로 만들까요? (나중에 고르실 수 있습니다)')) return;
+      // 전월값·차이·부가세는 **어느 칸을 기준으로 하는지** 없으면 만들 수 없다
+      const curKeys=on.filter(v=>(v.role||'cur')==='cur'&&v.name.trim()).map(v=>v.name.trim());
+      const badOf=on.filter(v=>['prev','diff','vat'].indexOf(v.role||'cur')>=0
+        && curKeys.indexOf(v.of||'')<0);
+      if(badOf.length){
+        alert('기준 칸을 고르지 않은 자리가 있습니다: '
+          +badOf.map(v=>(v.name||'이름 없음')+' ('+(ROLES.find(r=>r[0]===v.role)||['',''])[1]+')').join(' · ')
+          +'\n\n무엇의 전월값인지 · 무엇의 차이인지 정해야 계산할 수 있습니다.');
+        return;
+      }
+      // 고른 위치를 {{이름}} 으로 바꿔 본문 틀을 만든다 — 값이 들어갈 자리다.
+      // 글자 토막만 바꾼다. 태그는 그대로라 서식이 지켜진다.
+      const parts=bodyParts();
+      for(let i=0;i<parts.length;i+=2){
+        for(const v of on){
+          if(!v.cur||!v.name.trim()) continue;
+          const at=parts[i].indexOf(v.cur);
+          if(at>=0) parts[i]=parts[i].slice(0,at)+'{{'+v.name.trim()+'}}'+parts[i].slice(at+v.cur.length);
+        }
+      }
+      // 당월값만 «넣는 칸», 나머지는 «저절로 채우는 칸»
+      const fields=on.filter(v=>(v.role||'cur')==='cur'&&v.name.trim()).map(v=>(
+        { key:v.name.trim(), label:v.name.trim(), type:/^[\d,.\s%]+$/.test(v.cur||'')?'number':'text',
+          from:'', unit:'' }));
+      const autoFields=on.filter(v=>(v.role||'cur')!=='cur'&&v.name.trim()).map(v=>{
+        const a={ key:v.name.trim(), kind:v.role };
+        if(['prev','diff','vat'].indexOf(v.role)>=0) a.of=v.of;
+        return a;
+      });
+      DOCS.unshift({ id:'t'+Date.now(), name:$('pvName').value.trim()||'이름 없는 문서',
+        center:CENTER_NAME, cc:CENTER_CODE, kind:$('pvKind').value, body:parts.join(''),
+        fields, autoFields, slot:null,
+        slots:fields.length, state:'wait', stateTxt:'값 자리 확인 필요', hist:[] });
+      const nAuto=autoFields.length;
+      closePrev(); q=''; $('docQ').value=''; kind='all'; draw();
+      alert('목록에 넣었습니다 (샘플이라 새로고침하면 사라집니다).\n\n'
+        +'  넣는 칸 '+fields.length+'개'
+        +(nAuto? '\n  저절로 채우는 칸 '+nAuto+'개 (전월값 · 차이 · 부가세 · 합계)':'')
+        +'\n\n실제로는 여기서 값 자리를 어디서 채울지 정하고 발송 설정으로 넘어갑니다.');
+    });
+
+    // 목록 위의 큰 드롭 자리 — 넣으면 미리보기가 열린다
+    $('docAdd').addEventListener('click',()=>{ analyze(); pickInto('a'); });
+    const mht=$('docMht');
+    mht.addEventListener('click',()=>$('docAdd').click());
+    ['dragenter','dragover'].forEach(e=>mht.addEventListener(e,ev=>{ev.preventDefault();mht.classList.add('over');}));
+    ['dragleave','drop'].forEach(e=>mht.addEventListener(e,ev=>{ev.preventDefault();mht.classList.remove('over');}));
+    mht.addEventListener('drop',ev=>{ ev.preventDefault();
+      // /\.mhtml?$/ 은 «.mhtm + l?» 이라 **.mht 를 안 받는다**(샘플에 있던 버그).
+      // 파일 고르기(picker2.accept)는 '.mht,.mhtml' 을 받는데 끌어다 놓기만 조용히 무시됐다.
+      const fs=[...ev.dataTransfer.files].filter(f=>/\.mht(ml)?$/i.test(f.name));
+      if(!fs.length) return;
+      // 두 장을 한꺼번에 떨어뜨리면 둘 다 받는다
+      slotFiles.a={name:fs[0].name,file:fs[0]};
+      if(fs[1]) slotFiles.b={name:fs[1].name,file:fs[1]};
+      analyze();
+    });
+
+    /* ══════════════════════════════════════════════════════════════
+       문서 상세 — 목록에서 문서를 누르면 열린다.
+       **왼쪽에 값, 오른쪽에 초안**을 한 화면에 같이 둔다. 탭을 오가면
+       무엇을 넣으면 문서가 어떻게 되는지 눈으로 잇기 어렵다.
+       값을 넣고 → 저장하면 → 저장 목록에 쌓이고 → 그 줄을 누르면 그때 초안이 그대로 열린다.
+       ══════════════════════════════════════════════════════════════ */
+    let cur=null;                          // 지금 열어둔 문서
+    const vals={};                         // { 문서id: { 키: 값 } } — 샘플이라 메모리에만
+    const autos={};                        // 파일에서 채운 칸
+    const srcs={};                         // 그 칸을 어디서 읽었나
+    const DIR={};                          // 고르기 대신 '직접 입력…' 을 켠 칸
+    /* 항목설정 — { 문서id: { 키: { list:[…], removed:[…] } } }
+       list    지금 보이는 항목, 내가 놓은 차례 그대로
+       removed 내가 일부러 지운 항목. 다음 회차에 저절로 되살아나면 안 된다.
+       문서마다 하나다 — 회차를 바꿔도, 나갔다 들어와도 같은 설정을 본다. */
+    let OPTS=loadOptSet();
+    const OPEN_ED={};                      // 항목설정을 펼쳐둔 칸
+
+    /* 샘플이라 이 브라우저에만 둔다. 실제로는 문서 양식에 붙는다 —
+       ktis_v11__doctpl__<문서id> 의 그 값 자리(slot)에 opts 로 얹으면
+       담당자 화면(m.html)도 같은 항목을 보게 된다. */
+    const OPTKEY='ktis_v11__sample__optset';
+    /* 두 곳에 적는다. 이 샘플은 file:// 로 여시는 일이 많은데, 크롬은 file:// 의
+       localStorage 를 새로고침하면 버린다. window.name 은 같은 탭에서 살아남아
+       샘플에서도 «다시 들어와도 그대로»를 눌러보실 수 있다. 실제 앱은 http 라 localStorage 로 충분하다. */
+    function loadOptSet(){
+      for(const raw of [tryLS(), tryWN()]){
+        if(!raw) continue;
+        try{ const o=JSON.parse(raw); if(o && typeof o==='object') return o; }catch(e){}
+      }
+      return {};
+    }
+    function tryLS(){ try{ return localStorage.getItem(OPTKEY); }catch(e){ return null; } }
+    function tryWN(){
+      try{ const m=/^__optset__(\{.*\})$/.exec(window.name||''); return m? m[1] : null; }catch(e){ return null; }
+    }
+    function saveOptSet(){
+      const raw=JSON.stringify(OPTS);
+      try{ localStorage.setItem(OPTKEY, raw); }catch(e){ /* 사생활 보호 모드 */ }
+      try{ window.name='__optset__'+raw; }catch(e){}
+    }
+    const saves={};                        // { 문서id: [저장 기록] }
+    const docMgrs={ t1:['m1'], t3:['m3'] }; // 문서별로 고른 담당자
+    let curTab='edit', curYm='2026-07', saveSeq=0;
+
+    /* 담당자 명단 — 왼쪽 사이드바에서 더하고 고치고 지운다.
+       ⚠ 지어낸 이름과 example.com 주소다. 실제 담당자 정보는 넣지 않는다. */
+    let MGRS=[
+      { id:'m1', name:'김선영', email:'sy.kim@example.com',   center:'평택시 민원상담콜센터' },
+      { id:'m2', name:'박도현', email:'dh.park@example.com',  center:'KB손해보험 장기계약정비센터' },
+      { id:'m3', name:'이나윤', email:'ny.lee@example.com',   center:'이니텍' },
+    ];
+    let mgrSeq=3;
+
+    /* 지난 저장 — 실제로는 mgrsub__<문서id>__<회차> 를 읽어 만든다. ⚠ 전부 지어낸 값이다. */
+    const SEED_SAVES={
+      // 7월은 일부러 비워둔다 — 지금 넣어보는 회차라서다. 지난 두 회차만 쌓여 있다.
+      t1:[ { ym:'2026-06', at:'2026-07-02 10:12', by:'담당자 제출',
+             v:{ '회차월':'6월','인입호':41500,'응대호':40910,'포기호':590,'응대율':98.6,'1일평균':1780,'인당CPD':80.9 } },
+           { ym:'2026-05', at:'2026-06-02 09:55', by:'담당자 제출',
+             v:{ '회차월':'5월','인입호':40800,'응대호':40392,'포기호':408,'응대율':99.0,'1일평균':1740,'인당CPD':79.4 } } ],
+      t2:[ { ym:'2026-06', at:'2026-07-01 14:20', by:'내가 넣음',
+             v:{ '점검일시':'2026-06-10','보안점검인원':11,'점검결과':'이상 없음','휴무자문구':'휴무자 2명은 복귀 후 점검 예정' } } ],
+      t3:[ { ym:'2026-06', at:'2026-07-01 11:31', by:'담당자 제출',
+             v:{ '교육비':3200000,'상담료':1490000,'청구인원':182,'취약인원':1 } },
+           { ym:'2026-05', at:'2026-06-01 10:48', by:'담당자 제출',
+             v:{ '교육비':3050000,'상담료':1430000,'청구인원':179,'취약인원':0 } } ],
+    };
+    for(const id of Object.keys(SEED_SAVES)){
+      saves[id]=SEED_SAVES[id].map(x=>({ id:'s'+(++saveSeq), ym:x.ym, at:x.at, by:x.by,
+        vals:Object.assign({},x.v), srcs:{}, mgrs:[], miss:0 }));
+    }
+
+    const isBlank=(v)=>v===''||v===null||v===undefined;
+    const fieldsOf=(d)=>d.fields||[];
+    const DIRECT='직접';             // 고르기 목록의 '직접 입력…' 표 — 사람이 쓸 수 없는 값으로 둔다
+
+    function openDoc(id){
+      cur=DOCS.find(d=>d.id===id); if(!cur) return;
+      vals[id]=vals[id]||{}; autos[id]=autos[id]||{}; srcs[id]=srcs[id]||{}; DIR[id]=DIR[id]||{};
+      curTab='edit';
+      showView('doc');
+      drawDetail();
+      window.scrollTo({top:0});
+    }
+    function closeDoc(){ backToList(); }
+
+    function drawDetail(){
+      const d=cur, k=kindOf(d.kind), ns=(saves[d.id]||[]).length;
+      const TABS=[['edit','작성'],['saved','저장 목록 ('+ns+')']];
+      $('docDetail').innerHTML=
+        '<div class="dt"><div class="dth">'
+        + '<button class="dtback" id="dtBack">← 문서 목록</button>'
+        + '<h2>'+esc(d.name)+'</h2>'
+        + '<div class="meta">'+(d.center?esc(d.center):'<b style="color:var(--err)">센터 미지정</b>')
+        +   ' · <span class="kind '+k.cls+'">'+esc(k.label)+'</span>'
+        +   ' · 값 자리 '+fieldsOf(d).length+'개</div>'
+        + '<div class="dtact">'
+        +   '<input class="ymin" id="dtYm" type="month" value="'+esc(curYm)+'" title="어느 회차로 저장할지">'
+        +   '<button class="btn" id="dtSave">이 회차 값 저장</button>'
+        +   '<button class="btn g" id="dtClear">넣은 값 비우기</button>'
+        +   '<button class="btn g" id="dtTpl">양식 고치기</button>'
+        + '</div></div>'
+        + '<div class="tabs">'+TABS.map(([id,t])=>
+            '<button class="tab'+(curTab===id?' on':'')+'" data-tab="'+id+'">'+esc(t)+'</button>').join('')+'</div>'
+        + '<div class="tp" id="tpEdit"'+(curTab==='edit'?'':' hidden')+'></div>'
+        + '<div class="tp" id="tpSaved"'+(curTab==='saved'?'':' hidden')+'></div>'
+        + '</div>';
+      $('dtBack').addEventListener('click',closeDoc);
+      $('dtYm').addEventListener('change',e=>{
+        curYm=e.target.value||curYm;
+        paintPaper();     // 회차가 바뀌면 «전월» 도 바뀐다 — 전월값·차이를 다시 낸다
+        paintFoot();
+      });
+      $('dtSave').addEventListener('click',saveNow);
+      $('dtClear').addEventListener('click',clearVals);
+      $('dtTpl').addEventListener('click',()=>openEditTpl(d.id));
+      $('docDetail').querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
+        curTab=b.dataset.tab; drawDetail(); }));
+
+      if(curTab==='edit') drawEdit();
+      else drawSaved();
+    }
+
+    /* ── ① 작성 — 왼쪽 값, 오른쪽 초안 ────────────────────────────── */
+    function drawEdit(){
+      const d=cur;
+      if(!fieldsOf(d).length){
+        $('tpEdit').innerHTML='<div class="empty">아직 값 자리가 없습니다.<br>'
+          +'<b>← 문서 목록</b> 으로 가서 <b>.mht 가져오기</b> 로 양식을 넣어주세요.</div>';
+        return;
+      }
+      $('tpEdit').innerHTML='<div class="edit2">'
+        + '<div>'
+          + (d.slot
+            ? '<div class="ttl">파일에서 채우기</div>'
+              +'<div class="drop3" id="dtDrop"><b>'+esc(d.slot.label)+'</b>'
+              +'넣으면 아래 칸과 오른쪽 초안이 저절로 채워집니다'
+              +(d.slot.sample?'<br>넣어볼 파일: samples/'+esc(d.slot.sample):'')+'</div>'
+              +'<div class="xs" id="dtStat"></div>'
+            : '<div class="ttl">파일</div><div class="drop3" style="cursor:default">'
+              +'<b>이 문서는 파일에서 값을 읽지 않습니다</b>아래에 직접 넣어주세요</div>')
+          + '<div class="ttl" style="margin-top:14px">값</div><div id="dtFields"></div>'
+          + '<div id="dtAuto"></div>'
+          + '<div class="savebar" id="dtFoot"></div>'
+        + '</div>'
+        + '<div class="ppane">'
+          + '<div class="ttl">문서 초안 — 넣는 대로 바로 바뀝니다</div>'
+          + '<div id="dtPaper"></div>'
+          + '<div class="who" id="dtWho"></div>'
+        + '</div>'
+        + '</div>';
+      drawFields(); paintPaper(); drawWho();   // paintPaper 가 저절로 채우는 칸도 함께 그린다
+      if(d.slot){
+        const el=$('dtDrop');
+        el.addEventListener('click',()=>{ pick3.click(); });
+        ['dragenter','dragover'].forEach(x=>el.addEventListener(x,ev=>{ev.preventDefault();el.classList.add('over');}));
+        ['dragleave','drop'].forEach(x=>el.addEventListener(x,ev=>{ev.preventDefault();el.classList.remove('over');}));
+        el.addEventListener('drop',ev=>{ ev.preventDefault(); const f=ev.dataTransfer.files[0]; if(f) readXlsx(f); });
+      }
+    }
+    const pick3=document.createElement('input');
+    pick3.type='file'; pick3.accept='.xlsx,.xls';
+    pick3.addEventListener('change',()=>{ if(pick3.files[0]) readXlsx(pick3.files[0]); pick3.value=''; });
+
+    /* 직접 넣는 칸의 항목 — 양식에 딸린 것 + 지난 저장에서 쓴 값으로 저절로 만든다.
+       저절로 만든 것이 늘 맞지는 않으니 **항목설정에서 고치고 지우고 더할 수 있어야 한다.** */
+    function autoOpts(d,f){
+      const out=[]; const push=v=>{ v=String(v==null?'':v).trim(); if(v&&!out.includes(v)) out.push(v); };
+      (f.opts||[]).forEach(push);
+      (saves[d.id]||[]).forEach(s=>push(s.vals[f.key]));
+      return out;
+    }
+    function optRec(d,f){
+      OPTS[d.id]=OPTS[d.id]||{};
+      let r=OPTS[d.id][f.key];
+      if(!r||!Array.isArray(r.list)) r=OPTS[d.id][f.key]={ list:autoOpts(d,f), removed:[] };
+      return r;
+    }
+    const optsOf=(d,f)=>optRec(d,f).list;
+
+    /** 저장으로 새 값이 생기면 항목 끝에 더한다 — **내가 고친 것은 건드리지 않는다.**
+        예전에는 저장할 때 항목설정을 통째로 비워, 고쳐 놓은 것이 저장하는 순간 사라졌다. */
+    function refreshOpts(d){
+      for(const f of fieldsOf(d)){
+        if(f.from||f.type==='date') continue;
+        const r=optRec(d,f);
+        for(const v of autoOpts(d,f))
+          if(r.list.indexOf(v)<0 && r.removed.indexOf(v)<0) r.list.push(v);
+      }
+      saveOptSet();
+    }
+    /** 이 칸의 항목설정을 처음으로 되돌린다 — 잘못 고쳤을 때 빠져나갈 길 */
+    function resetOpts(d,f){ if(OPTS[d.id]) delete OPTS[d.id][f.key]; saveOptSet(); }
+    /** 고르기로 만들까? 직접 넣는 글자·숫자 칸이되, **고를 항목이 하나라도 있을 때만.**
+        항목이 없는 고르기 상자는 열어봐야 «직접 입력…» 뿐이라 한 번 더 누르게만 만든다. */
+    const usesSelect=(d,f)=>!f.from && f.type!=='date' && optsOf(d,f).length>0;
+
+    function drawFields(){
+      const d=cur, V=vals[d.id], A=autos[d.id], S=srcs[d.id];
+      $('dtFields').innerHTML=fieldsOf(d).map(f=>{
+        const auto=!!A[f.key], v=isBlank(V[f.key])?'':String(V[f.key]);
+        const badge = f.from? '<span class="fbadge f">'+esc((d.slot&&d.slot.label)||'파일')+'</span>'
+                            : '<span class="fbadge m">직접</span>';
+        let body='';
+        if(usesSelect(d,f)){
+          const opts=optsOf(d,f);
+          const direct = !!DIR[d.id][f.key] || (v!=='' && opts.indexOf(v)<0);
+          body = '<select class="sel" data-sel="'+esc(f.key)+'">'
+            + '<option value="">— 골라주세요 —</option>'
+            + opts.map(o=>'<option value="'+esc(o)+'"'+(!direct&&o===v?' selected':'')+'>'+esc(o)+'</option>').join('')
+            + '<option value="'+DIRECT+'"'+(direct?' selected':'')+'>직접 입력…</option>'
+            + '</select>'
+            + (direct
+              ? '<div class="fi" style="margin-top:6px"><input data-k="'+esc(f.key)+'" data-t="'+f.type+'" type="text"'
+                +' value="'+esc(v)+'" placeholder="여기에 적어주세요"'+(f.type==='number'?' inputmode="decimal"':'')+'>'
+                +(f.unit?'<span class="u">'+esc(f.unit)+'</span>':'')+'</div>'
+              : '');
+          const ed=OPEN_ED[d.id+'|'+f.key];
+          const mine=!!(OPTS[d.id]&&OPTS[d.id][f.key]&&OPTS[d.id][f.key].mine);
+          body += '<div style="margin-top:6px"><button class="lnkbtn" data-ed="'+esc(f.key)+'">'
+                + (ed?'항목설정 접기':'항목설정 ('+opts.length+')')+'</button>'
+                + (mine?'<span class="mine">내가 정함</span>':'')+'</div>'
+                + (ed? optEditor(d,f,opts) : '');
+        } else {
+          body = '<div class="fi'+(auto?' auto':'')+'">'
+            +'<input data-k="'+esc(f.key)+'" data-t="'+f.type+'" type="'+(f.type==='date'?'date':'text')+'"'
+            +' value="'+esc(v)+'"'+(f.type==='number'?' inputmode="decimal"':'')+'>'
+            +(f.unit?'<span class="u">'+esc(f.unit)+'</span>':'')+'</div>';
+          // 아직 항목이 없어 그냥 적는 칸이다. 자주 쓰는 말이 생기면 여기서 항목으로 만든다.
+          if(!f.from && f.type!=='date'){
+            const ed=OPEN_ED[d.id+'|'+f.key];
+            body += '<div style="margin-top:6px"><button class="lnkbtn" data-ed="'+esc(f.key)+'">'
+                  + (ed?'항목설정 접기':'항목설정 — 고를 항목 만들기')+'</button></div>'
+                  + (ed? optEditor(d,f,optsOf(d,f)) : '');
+          }
+        }
+        return '<div class="fr"><div class="fl"><span class="t">'+esc(f.label)+'</span>'+badge+'</div>'
+          + body
+          + (auto&&S[f.key]?'<div class="fsrc">⤷ '+esc(S[f.key])+'</div>':'')+'</div>';
+      }).join('');
+      bindFields();
+    }
+    function optEditor(d,f,opts){
+      const rec=optRec(d,f), mine=!!rec.mine;
+      return '<div class="oed">'
+        + opts.map((o,i)=>'<div class="oer"><input data-opt="'+esc(f.key)+'" data-i="'+i+'" value="'+esc(o)+'">'
+            +'<button class="del" data-optdel="'+esc(f.key)+'" data-i="'+i+'" title="지우기">×</button></div>').join('')
+        + (opts.length?'':'<div class="hint">항목이 없습니다. 아래에서 더해주세요.</div>')
+        + '<div class="oact"><button class="btn g sm" data-optadd="'+esc(f.key)+'">+ 항목 더하기</button>'
+        +   (mine?'<button class="lnkbtn" data-optreset="'+esc(f.key)+'">처음으로 되돌리기</button>':'')
+        + '</div>'
+        + '<div class="hint">'
+        + (mine
+            ? '<b>고치신 대로 이 문서에 남습니다.</b> 회차를 바꾸거나 나갔다 들어오셔도 그대로입니다.<br>'
+              +'지운 항목은 다음 회차에 저절로 되살아나지 않습니다.'
+            : '지난 저장에서 쓴 값을 모아 저절로 만든 항목입니다. 여기서 고치시면 <b>그때부터 이 문서에 남습니다.</b>')
+        + '</div></div>';
+    }
+    function bindFields(){
+      const d=cur, host=$('dtFields');
+      host.querySelectorAll('input[data-k]').forEach(el=>el.addEventListener('input',()=>{
+        vals[d.id][el.dataset.k]=el.value;
+        delete autos[d.id][el.dataset.k]; delete srcs[d.id][el.dataset.k];
+        const fi=el.closest('.fi'); if(fi) fi.classList.remove('auto');
+        const src=el.closest('.fr').querySelector('.fsrc'); if(src) src.remove();
+        paintPaper();
+      }));
+      host.querySelectorAll('select[data-sel]').forEach(el=>el.addEventListener('change',()=>{
+        const key=el.dataset.sel;
+        if(el.value===DIRECT){ DIR[d.id][key]=true; vals[d.id][key]=''; }
+        else { DIR[d.id][key]=false; vals[d.id][key]=el.value; }
+        delete autos[d.id][key]; delete srcs[d.id][key];
+        drawFields(); paintPaper();
+        if(DIR[d.id][key]){
+          const nx=host.querySelector('.fi input[data-k]');
+          host.querySelectorAll('.fi input[data-k]').forEach(i=>{ if(i.dataset.k===key) i.focus(); });
+        }
+      }));
+      // 항목설정 — 저절로 잡은 것이 틀릴 수 있으니 여기서 바로잡는다.
+      //   고친 순간부터 **이 문서의 설정**이 되어 회차를 바꿔도 그대로 따라온다.
+      host.querySelectorAll('[data-ed]').forEach(b=>b.addEventListener('click',()=>{
+        const k=d.id+'|'+b.dataset.ed; OPEN_ED[k]=!OPEN_ED[k]; drawFields();
+      }));
+      const fieldOf=(key)=>fieldsOf(d).find(x=>x.key===key);
+      host.querySelectorAll('input[data-opt]').forEach(el=>el.addEventListener('change',()=>{
+        const f=fieldOf(el.dataset.opt), rec=optRec(d,f), i=+el.dataset.i;
+        const was=rec.list[i], now=el.value.trim();
+        if(!now){ rec.list.splice(i,1); }
+        else { rec.list[i]=now; if(vals[d.id][f.key]===was) vals[d.id][f.key]=now; }
+        // 이름을 고친 것도 지운 것도, 예전 이름이 저절로 되살아나서는 안 된다
+        if(was && rec.removed.indexOf(was)<0) rec.removed.push(was);
+        rec.mine=true; saveOptSet();
+        drawFields(); paintPaper();
+      }));
+      host.querySelectorAll('[data-optdel]').forEach(b=>b.addEventListener('click',()=>{
+        const f=fieldOf(b.dataset.optdel), rec=optRec(d,f), i=+b.dataset.i;
+        const gone=rec.list[i];
+        if(vals[d.id][f.key]===gone) vals[d.id][f.key]='';
+        rec.list.splice(i,1);
+        if(gone && rec.removed.indexOf(gone)<0) rec.removed.push(gone);
+        rec.mine=true; saveOptSet();
+        drawFields(); paintPaper();
+      }));
+      host.querySelectorAll('[data-optadd]').forEach(b=>b.addEventListener('click',()=>{
+        const f=fieldOf(b.dataset.optadd), rec=optRec(d,f);
+        const t=prompt('더할 항목을 적어주세요');
+        if(t && t.trim() && rec.list.indexOf(t.trim())<0){
+          rec.list.push(t.trim());
+          rec.removed=rec.removed.filter(x=>x!==t.trim());   // 지웠다가 다시 넣으면 되살린다
+          rec.mine=true; saveOptSet();
+        }
+        drawFields();
+      }));
+      host.querySelectorAll('[data-optreset]').forEach(b=>b.addEventListener('click',()=>{
+        const f=fieldOf(b.dataset.optreset);
+        if(!confirm('«'+f.label+'» 의 항목설정을 처음으로 되돌립니다.\n지난 저장에서 모은 항목으로 다시 만듭니다.')) return;
+        resetOpts(d,f); drawFields(); paintPaper();
+      }));
+    }
+
+    /* ── 받는 담당자 — 초안 바로 밑에서 고르고 여기서 보낸다 ────────── */
+    function drawWho(){
+      const d=cur, picked=docMgrs[d.id]||[];
+      $('dtWho').innerHTML=
+        '<div class="ttl">받는 담당자</div>'
+        + (MGRS.length
+          ? '<div class="whos">'+MGRS.map(m=>'<button class="wc'+(picked.indexOf(m.id)>=0?' on':'')+'" data-w="'+esc(m.id)+'">'
+              +esc(m.name||'(이름 없음)')+' <span style="opacity:.75">'+esc(m.email)+'</span></button>').join('')+'</div>'
+          : '<div class="whos"><span class="wnone">아직 담당자가 없습니다. 왼쪽 <b>＋ 담당자 관리</b> 에서 더해주세요.</span></div>')
+        + '<button class="btn" id="dtLink"'+(picked.length?'':' disabled style="opacity:.45"')+'>담당자에게 링크 보내기</button>'
+        + '<div class="hint">고른 사람은 이 문서에 저장됩니다 — 다음에 열어도 그대로입니다.<br>'
+        + '링크는 <code>/m.html?t=&lt;토큰&gt;</code> 하나뿐이고, 센터·문서·회차가 토큰 안에 들어 있습니다.</div>';
+      $('dtWho').querySelectorAll('.wc').forEach(b=>b.addEventListener('click',()=>{
+        const id=b.dataset.w, arr=docMgrs[d.id]||(docMgrs[d.id]=[]);
+        const i=arr.indexOf(id); if(i<0) arr.push(id); else arr.splice(i,1);
+        drawWho();
+      }));
+      const lk=$('dtLink');
+      if(lk) lk.addEventListener('click',()=>{
+        const who=(docMgrs[d.id]||[]).map(id=>MGRS.find(m=>m.id===id)).filter(Boolean);
+        if(!who.length) return;
+        alert('이 문서 '+curYm+' 회차 링크를 보냅니다.\n\n'
+          + who.map(m=>'  · '+(m.name||'(이름 없음)')+' <'+m.email+'>').join('\n')
+          + '\n\n  /m.html?t=<토큰>\n\n'
+          + '담당자 화면은 mgr-form.sample.html 에서 보실 수 있습니다.\n'
+          + '(샘플이라 실제로 나가지는 않습니다.)');
+      });
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       저절로 채우는 칸 — 담당자에게도 나에게도 묻지 않는다.
+
+         전월값(prev)   지난 회차 저장에서 그대로 가져온다
+         차이(diff)     당월 − 전월
+         부가세(vat)    그 칸의 10%
+         공급가 합계(sum)    부가세를 매긴 칸을 더한다
+         부가세 합계(sumvat) 그 부가세들을 더한다
+         총 합계(total)      공급가 합계 + 부가세 합계
+
+       합계가 «부가세를 매긴 칸» 을 더하는 까닭은, 청구서에서 합계를 내는 칸이
+       곧 부가세를 매기는 칸이기 때문이다(청구인원·취약계층 같은 칸은 더하면 안 된다).
+       부가세를 매긴 칸이 하나도 없으면 숫자인 당월값을 모두 더한다.
+       무엇을 더했는지는 화면에 이름으로 밝힌다 — 합계는 틀려도 티가 안 나서 위험하다.
+       ══════════════════════════════════════════════════════════════ */
+
+    /** 이 회차 바로 앞의 저장 — 전월값은 여기서 온다 */
+    function prevSave(d,ym){
+      return (saves[d.id]||[]).filter(s=>s.ym<ym)
+        .sort((a,b)=>b.ym.localeCompare(a.ym))[0]||null;
+    }
+    /** 합계에 넣을 칸들 */
+    function sumKeys(d){
+      const auto=d.autoFields||[];
+      const vats=auto.filter(a=>a.kind==='vat').map(a=>a.of);
+      if(vats.length) return vats;
+      return fieldsOf(d).filter(f=>f.type==='number').map(f=>f.key);
+    }
+    /** V 에 저절로 채우는 칸을 채워 넣는다. prevV 는 지난 회차 값(없으면 null). */
+    function computeAuto(d,V,prevV){
+      const auto=d.autoFields||[];
+      const fmt=(n,key)=>{
+        const f=fieldsOf(d).find(x=>x.key===key);
+        return (f&&f.type!=='number')? String(n) : comma(n);
+      };
+      for(const a of auto){
+        if(a.kind==='prev'){
+          const raw=prevV? prevV[a.of] : undefined;
+          V[a.key]= isBlank(raw)? '' : (num(raw)===null? String(raw) : fmt(num(raw),a.of));
+        }
+        else if(a.kind==='diff'){
+          const n=num(V[a.of]), q=num(prevV&&prevV[a.of]);
+          V[a.key]= (n===null||q===null)? ''
+            : (n-q>=0?'▲':'▼')+comma(Math.abs(Math.round((n-q)*10)/10));
+        }
+        else if(a.kind==='vat'){
+          const n=num(V[a.of]);
+          V[a.key]= n===null? '' : comma(Math.round(n*0.1));
+        }
+      }
+      // 합계는 다른 칸이 다 끝난 뒤에 낸다 — 부가세를 먼저 알아야 한다
+      const keys=sumKeys(d);
+      const sum=keys.reduce((t,k)=>{ const n=num(V[k]); return n===null? t : t+n; },0);
+      const anySum=keys.some(k=>num(V[k])!==null);
+      const vat=auto.filter(a=>a.kind==='vat')
+        .reduce((t,a)=>{ const n=num(V[a.of]); return n===null? t : t+Math.round(n*0.1); },0);
+      for(const a of auto){
+        if(a.kind==='sum')    V[a.key]= anySum? comma(sum) : '';
+        if(a.kind==='sumvat') V[a.key]= anySum? comma(vat) : '';
+        if(a.kind==='total')  V[a.key]= anySum? comma(sum+vat) : '';
+      }
+      return V;
+    }
+
+    /* ── 초안 그리기 — 지금 넣는 값과 저장 기록이 같은 함수를 쓴다 ──── */
+    function paperHtml(d,raw,prevV){
+      if(!d.body) return null;
+      const V=computeAuto(d, Object.assign({},raw||{}), prevV===undefined? prevSave(d,curYm) && prevSave(d,curYm).vals : prevV);
+      return d.body.replace(/\{\{([^}]+)\}\}/g,function(m,key){
+        const v=V[key];
+        if(isBlank(v)) return '<span class="hole">'+esc(key)+'</span>';
+        const f=fieldsOf(d).find(x=>x.key===key);
+        const auto=(d.autoFields||[]).some(a=>a.key===key);
+        // 저절로 채운 칸은 이미 쉼표를 찍었다 — 두 번 찍으면 «4,1,500» 이 된다
+        const txt = auto? v : (f&&f.type==='number'? comma(v) : v);
+        return '<span class="fill'+(auto?' auto':'')+'">'+esc(txt)+'</span>';
+      });
+    }
+    /** 저절로 채우는 칸을 보여준다 — 넣는 칸이 아니라 **결과를 확인하는** 칸이다.
+        무엇에서 나온 값인지 한 줄로 밝힌다. 합계는 틀려도 티가 안 나서 위험하다. */
+    const KIND_KO={ prev:'전월값', diff:'차이', vat:'부가세',
+                    sum:'공급가 합계', sumvat:'부가세 합계', total:'총 합계' };
+    function paintAuto(){
+      const d=cur, box=$('dtAuto'); if(!box) return;
+      const auto=d.autoFields||[];
+      if(!auto.length){ box.innerHTML=''; return; }
+      const pv=prevSave(d,curYm);
+      const V=computeAuto(d, Object.assign({},vals[d.id]||{}), pv? pv.vals : null);
+      const how=(a)=>{
+        if(a.kind==='prev')   return pv? '지난 회차 '+pv.ym+' 의 «'+a.of+'»' : '지난 회차가 없어 비어 있습니다';
+        if(a.kind==='diff')   return pv? '이번 «'+a.of+'» − '+pv.ym+' 의 «'+a.of+'»' : '전월이 없어 낼 수 없습니다';
+        if(a.kind==='vat')    return '«'+a.of+'» 의 10%';
+        if(a.kind==='sum')    return sumKeys(d).join(' + ');
+        if(a.kind==='sumvat') return '부가세를 매긴 칸의 10% 를 다 더함';
+        if(a.kind==='total')  return '공급가 합계 + 부가세 합계';
+        return '';
+      };
+      box.innerHTML='<div class="ttl" style="margin-top:16px">저절로 채우는 칸 — 묻지 않습니다</div>'
+        + '<div class="autolist">'+auto.map(a=>{
+            const v=V[a.key], has=!isBlank(v);
+            return '<div class="ar"><span class="k">'+esc(a.key)+'</span>'
+              +'<span class="kd">'+esc(KIND_KO[a.kind]||a.kind)+'</span>'
+              +'<span class="v'+(has?'':' none')+'">'+esc(has?v:'—')+'</span>'
+              +'<span class="hw">'+esc(how(a))+'</span></div>';
+          }).join('')+'</div>'
+        + (pv? '' : '<div class="hint">지난 회차 저장이 없어 <b>전월값과 차이가 비어 있습니다.</b> '
+            +'지난 달을 한 번 저장해 두면 그때부터 저절로 채워집니다.</div>');
+    }
+
+    /** 값 칸 끝의 저장 바 — 무엇이 남았는지 말하고, 그 자리에서 저장한다 */
+    function paintFoot(){
+      const d=cur, bar=$('dtFoot'); if(!bar) return;
+      const miss=fieldsOf(d).filter(f=>isBlank(vals[d.id][f.key]));
+      bar.innerHTML=
+        '<span class="msg'+(miss.length?'':' done')+'">'
+        + (miss.length
+            ? '<b>'+miss.length+'칸</b> 남았습니다 — '+miss.map(f=>esc(f.label)).join(' · ')
+            : '<b>다 채웠습니다.</b> 이 회차로 저장하세요')
+        + '</span>'
+        + '<div class="btns">'
+        +   '<button class="btn" id="dtSave2">이 회차 값 저장 ('+esc(curYm)+')</button>'
+        +   '<button class="btn g" id="dtClear2">비우기</button>'
+        + '</div>';
+      $('dtSave2').addEventListener('click',saveNow);
+      $('dtClear2').addEventListener('click',clearVals);
+    }
+
+    /** 초안 칸만 다시 그린다 — 값 칸까지 다시 그리면 적던 자리를 잃는다 */
+    function paintPaper(){
+      const d=cur, box=$('dtPaper'); if(!box) return;
+      const html=paperHtml(d,vals[d.id]);
+      if(html===null){
+        box.innerHTML='<div class="empty">아직 문서 양식이 없습니다. <b>.mht</b> 를 가져와 주세요.</div>';
+        paintAuto(); paintFoot();
+        return;
+      }
+      paintAuto();
+      const left=fieldsOf(d).filter(f=>isBlank(vals[d.id][f.key])).length;
+      box.innerHTML='<div class="paper">'+html+'</div>'
+        +'<div style="font-size:12.5px;color:var(--dim);margin-top:8px;line-height:1.6">'
+        +(left? '<b style="color:var(--err)">'+left+'칸</b>이 비어 있습니다 — 왼쪽에서 채워주세요.'
+              : '다 채워졌습니다. 실제로는 여기서 <b>서식 그대로 복사</b>해 결재 화면에 붙여넣습니다.')
+        +'</div>';
+      paintFoot();
+    }
+
+    /* ── ② 저장 ─────────────────────────────────────────────────── */
+    function saveNow(){
+      const d=cur;
+      if(!fieldsOf(d).length){ alert('넣을 값 자리가 없습니다.'); return; }
+      const miss=fieldsOf(d).filter(f=>isBlank(vals[d.id][f.key]));
+      if(miss.length && !confirm(miss.length+'칸이 비어 있습니다: '+miss.map(f=>f.label).join(' · ')
+        +'\n\n그래도 저장할까요? (나중에 이어서 채울 수 있습니다)')) return;
+      saves[d.id]=saves[d.id]||[];
+      saves[d.id].unshift({ id:'s'+(++saveSeq), ym:curYm, at:stamp(), by:'내가 넣음',
+        vals:Object.assign({},vals[d.id]), srcs:Object.assign({},srcs[d.id]),
+        mgrs:(docMgrs[d.id]||[]).slice(), miss:miss.length });
+      refreshOpts(d);   // 이번에 넣은 값을 항목에 더한다 — 내가 고친 것은 그대로 둔다
+      curTab='saved'; drawDetail();
+    }
+    function clearVals(){
+      const d=cur;
+      if(!confirm('이 문서에 넣은 값을 비웁니다. 저장해 둔 것은 그대로 남습니다.')) return;
+      vals[d.id]={}; autos[d.id]={}; srcs[d.id]={}; DIR[d.id]={}; drawDetail();
+    }
+    function stamp(){ const p=n=>String(n).padStart(2,'0'); const t=new Date();
+      return t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate())+' '+p(t.getHours())+':'+p(t.getMinutes()); }
+
+    /* ── ③ 저장 목록 — 줄을 누르면 그때 문서(초안)가 그대로 열린다 ──── */
+    function drawSaved(){
+      const d=cur, list=saves[d.id]||[];
+      if(!list.length){
+        $('tpSaved').innerHTML='<div class="empty">아직 저장한 것이 없습니다.<br>'
+          +'<b>작성</b> 에서 값을 넣고 <b>이 회차 값 저장</b> 을 눌러주세요.</div>';
+        return;
+      }
+      $('tpSaved').innerHTML='<div class="ttl">저장은 지우지 않고 쌓입니다 — 줄을 누르면 그때 문서가 열립니다</div>'
+        + list.map(s=>{
+          const filled=fieldsOf(d).filter(f=>!isBlank(s.vals[f.key])).length;
+          const who=(s.mgrs||[]).map(id=>(MGRS.find(m=>m.id===id)||{}).name).filter(Boolean).join(' · ');
+          return '<div class="sv" data-s="'+esc(s.id)+'">'
+            +'<div class="svh"><span class="ar">▶</span>'
+            +'<span class="ym">'+esc(s.ym)+'</span>'
+            +'<span class="st '+(s.miss?'wait':'done')+'">'+(s.miss? s.miss+'칸 빔':'다 채움')+'</span>'
+            +'<span class="sm2">'+esc(s.by)+' · <b>'+filled+'/'+fieldsOf(d).length+'칸</b>'
+              +(who?' · '+esc(who)+' 에게 보냄':'')+'</span>'
+            +'<span class="at">'+esc(s.at)+'</span></div>'
+            +'<div class="svb"></div></div>';
+        }).join('')
+        + '<div class="hnote">한 회차에 여러 번 저장하면 고친 것이 위에 쌓입니다 — 앞의 것도 지우지 않습니다. '
+        + '실제로는 <code>mgrsub__&lt;문서id&gt;__&lt;연월&gt;</code> 에 회차마다 한 키로 남습니다.</div>';
+      $('tpSaved').querySelectorAll('.sv').forEach(el=>{
+        el.querySelector('.svh').addEventListener('click',()=>{
+          const on=el.classList.toggle('open'), box=el.querySelector('.svb');
+          if(!on){ box.innerHTML=''; return; }
+          const s=(saves[d.id]||[]).find(x=>x.id===el.dataset.s);
+          const pv=prevSave(d,s.ym);          // 그때의 전월값으로 그린다
+          const html=paperHtml(d,s.vals, pv? pv.vals : null);
+          box.innerHTML=(html===null? '<div class="empty">이 문서에는 아직 양식이 없습니다.</div>'
+              : '<div class="paper">'+html+'</div>')
+            + '<div class="hint" style="margin-top:8px">'
+            + fieldsOf(d).map(f=>esc(f.label)+' <b style="color:var(--ink)">'
+                +(isBlank(s.vals[f.key])?'—':esc(String(s.vals[f.key])))+'</b>').join(' · ')
+            + '</div>'
+            + '<div style="margin-top:9px"><button class="btn g sm" data-load="'+esc(s.id)+'">'
+            + '이 값으로 작성 이어가기</button></div>';
+          const ld=box.querySelector('[data-load]');
+          if(ld) ld.addEventListener('click',()=>{
+            vals[d.id]=Object.assign({},s.vals); srcs[d.id]=Object.assign({},s.srcs);
+            autos[d.id]={}; DIR[d.id]={}; curYm=s.ym; curTab='edit'; drawDetail();
+          });
+        });
+      });
+    }
+
+    /* ── 엑셀에서 채우기 — 담당자 화면과 같은 방식(kkangbi-report) ──── */
+    async function readXlsx(file){
+      const d=cur, st=$('dtStat');
+      st.className='xs'; st.textContent='엑셀을 읽는 중…';
+      try{
+        const XLSX=await ensureXlsx();
+        const wb=XLSX.read(await file.arrayBuffer(),{type:'array'});
+        const sheets=wb.SheetNames.map(name=>{
+          const ws=wb.Sheets[name], grid=new Map();
+          Object.keys(ws).forEach(ref=>{ if(ref[0]==='!')return;
+            const a=XLSX.utils.decode_cell(ref); grid.set((a.r+1)+','+(a.c+1), ws[ref].v); });
+          return { name, grid, merges: ws['!merges']||[] };
+        });
+        const sug=XE.suggestSheet(sheets,d.slot.spec);
+        if(!sug.pick) throw new Error('이 파일에서 값을 찾지 못했습니다.');
+        const sh=sheets.find(x=>x.name===sug.pick);
+        let got={}, note='';
+        if(d.slot.spec.mode==='daily'){
+          const r=XE.extractDaily(sh,d.slot.spec);
+          if(!r.ok) throw new Error('「'+sug.pick+'」 에서 날짜별 자료를 찾지 못했습니다.');
+          const a=XE.aggregate(r.rows,d.slot.spec.agg);
+          got=a.values;
+          const howKo={sum:'합계',avg:'평균',ratio:'합계로 계산',perday:'합계 ÷ 날 수'};
+          for(const key of Object.keys(got)){
+            const sp=d.slot.spec.agg.find(x=>x.key===key)||{};
+            const c=r.cols[sp.from||sp.num||key];
+            srcs[d.id][key]='「'+sug.pick+'」'+(c?' '+c.path:'')+' · '+a.days+'일 '+(howKo[sp.agg]||'');
+          }
+          note=a.days+'일치를 읽어 '+Object.keys(got).length+'개를 채웠습니다.';
+        } else {
+          const r=XE.extractLabeled(sh,d.slot.spec);
+          got=r.values;
+          for(const key of Object.keys(got)){ const c=r.cols[key];
+            srcs[d.id][key]='「'+sug.pick+'」'+(c?' '+c.path+' (行'+c.row+')':''); }
+          note=Object.keys(got).length+'개를 채웠습니다.';
+        }
+        for(const key of Object.keys(got)){
+          if(!fieldsOf(d).some(f=>f.key===key)) continue;
+          vals[d.id][key]=got[key]; autos[d.id][key]=true; DIR[d.id][key]=false;
+        }
+        st.className='xs ok'; st.innerHTML='✓ '+note+' <b>오른쪽 초안에서 확인해 주세요.</b>';
+        drawFields(); paintPaper();
+      }catch(e){
+        st.className='xs err'; st.textContent='읽지 못했습니다 — '+(e.message||e);
+      }
+    }
+    const num=(v)=>{ if(isBlank(v)) return null; const n=Number(String(v).replace(/[,\s]/g,''));
+      return isFinite(n)?n:null; };
+    const comma=(v)=>{ const a=String(v).split('.');
+      return a[0].replace(/\B(?=(\d{3})+(?!\d))/g,',')+(a[1]!==undefined?'.'+a[1]:''); };
+
+    const okMail=(e)=>/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(String(e||'').trim());
+    // 바깥(renderCenterDocs)에서 부를 수 있는 것만 내보낸다
+    return {
+      draw: draw,
+      backToList: backToList,
+      switchCenter: function () {
+        // 센터가 바뀌면 열어둔 문서를 닫고 거르기를 푼다 —
+        // 다른 센터 문서를 열어둔 채로 두면 «왜 이게 여기 있지» 가 된다
+        pickedCenter = CENTER_CODE;
+        kind = 'all'; q = '';
+        if ($('docQ')) $('docQ').value = '';
+        closePrev();
+        backToList();
+      }
+    };
+  }
+
+  return {
+    render: function (code, name) {
+      const main = document.getElementById('main');
+      const first = !root;
+      if (first) {
+        root = document.createElement('div');
+        root.className = 'doc-root';
+        root.innerHTML = MARKUP;
+      }
+      // 노드를 버리지 않고 그대로 옮겨 붙인다 — 리스너도, 넣던 값도 살아남는다
+      main.innerHTML = '';
+      main.appendChild(root);
+
+      const centerChanged = (CENTER_CODE !== code);
+      CENTER_CODE = code;
+      CENTER_NAME = name;
+
+      if (first) { api = boot(); api.switchCenter(); }
+      else if (centerChanged) api.switchCenter();
+      else api.draw();
+    }
+  };
+})();
 
 async function renderCenterDocs() {
   const main = document.getElementById('main');
   if (!currentCenter) { main.innerHTML = '<div class="empty">센터를 선택해 주세요.</div>'; return; }
-
-  const centerInfo = allCenters.find(function(c) { return c.center_code === currentCenter; });
-  const centerName = centerInfo ? centerInfo.center_name : '';
-
-  main.innerHTML = '<div class="panel" style="max-width:680px;">'
-    + '<h3>' + centerName + ' · 문서결재 요청</h3>'
-    + '<p style="font-size:13px;color:#a1a1a6;margin:10px 0 6px;">'
-    + '결재 문서를 서식 그대로 다시 만들고, 값만 갈아끼워 결재 화면에 붙여넣습니다.</p>'
-    + '<div class="empty">아직 등록된 문서가 없습니다.<br>'
-    + '다음 단계에서 문서 목록과 값 입력 화면이 여기에 들어갑니다.</div>'
-    + '</div>';
+  const info = allCenters.find(function (c) { return c.center_code === currentCenter; });
+  CenterDocs.render(currentCenter, info ? info.center_name : currentCenter);
 }
 
 // ============================================
