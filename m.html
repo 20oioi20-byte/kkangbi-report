@@ -1,0 +1,241 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<title>자료 넣기</title>
+<!--
+  담당자 화면 — 로그인 없이 «그 문서 그 달» 의 값만 넣어 보내는 한 장.
+
+  ⚠ 이 화면에 없는 것 (있으면 안 되는 것):
+     센터 비밀번호 · 센터 upload_token · 담당자 명단 · 다른 문서 이름 · 다른 센터 이름.
+     주소줄의 ?t=<토큰> 하나가 전부이고, 센터·문서·회차는 토큰 안에 들어 있다.
+     서버는 토큰의 값만 믿는다 — 이 화면이 보내는 센터·문서·회차는 읽지도 않는다.
+
+  ⚠ 회차를 고르는 자리를 두지 않는다. 있으면 지난달 값이 이번 달 것으로 조용히 들어간다.
+     회차는 링크가 정하고, 화면은 보여주기만 한다.
+
+  ⚠ 숫자 칸에 placeholder="0" 을 두지 않는다 — 0 이 유효값이라 회색 0 이
+     «이미 넣은 값» 처럼 보인다.
+
+  아래 SB_ANON_KEY 는 admin.html 과 같은 공개용 anon 키다. 이 키만으로는 아무것도
+  못 읽는다 — center_documents·center_document_saves 는 RLS 를 켜고 정책을 하나도
+  두지 않아서, Edge Function(service_role)의 토큰 검사를 거쳐야만 지나갈 수 있다.
+-->
+<style>
+  :root{
+    --bg:#000; --card:#1d1d1f; --line:#2c2c2e; --ink:#f5f5f7; --dim:#86868b;
+    --accent:#FE2E36; --ok:#3ddc84; --err:#FF6B70; --warn:#f5a623;
+  }
+  *{box-sizing:border-box}
+  body{margin:0;background:var(--bg);color:var(--ink);
+    font:15px/1.6 'KT Flow',-apple-system,BlinkMacSystemFont,"Malgun Gothic",sans-serif;
+    padding:0 0 96px}
+  .wrap{max-width:620px;margin:0 auto;padding:0 16px}
+
+  /* 회차를 맨 위에 제일 크게 — 지난달 것이 조용히 지나가는 사고를 화면이 막는다 */
+  header{background:var(--card);border-bottom:1px solid var(--line);padding:22px 0 18px;margin-bottom:20px}
+  .ym{font-size:30px;font-weight:800;letter-spacing:-.02em}
+  .who{color:var(--dim);font-size:13.5px;margin-top:6px}
+  .who b{color:var(--ink);font-weight:600}
+
+  .f{background:var(--card);border:1px solid var(--line);border-radius:14px;padding:14px 16px;margin-bottom:10px}
+  .f label{display:block;font-weight:600;font-size:14px;margin-bottom:8px}
+  .f .unit{color:var(--dim);font-weight:400;font-size:12.5px;margin-left:4px}
+  .f input,.f select,.f textarea{width:100%;background:#000;color:var(--ink);
+    border:1px solid var(--line);border-radius:9px;padding:11px 12px;font:inherit;font-size:16px}
+  .f input:focus,.f select:focus,.f textarea:focus{outline:2px solid var(--accent);outline-offset:-1px;border-color:transparent}
+  .f textarea{min-height:78px;resize:vertical}
+  .f input[inputmode="numeric"]{text-align:right;font-variant-numeric:tabular-nums}
+  .prev{color:var(--dim);font-size:12.5px;margin-top:7px}
+  .dateko{color:var(--dim);font-size:12.5px;margin-top:6px}
+  .f.miss{border-color:var(--err)}
+
+  /* 다 채운 그 자리에서 누를 곳이 있어야 한다 — 머리에만 두면 화면 밖으로 밀려난다 */
+  .bar{position:fixed;left:0;right:0;bottom:0;background:var(--card);
+    border-top:1px solid var(--line);padding:12px 16px}
+  .bar .in{max-width:620px;margin:0 auto;display:flex;gap:12px;align-items:center}
+  .bar .left{flex:1;min-width:0;font-size:13px;color:var(--dim)}
+  .bar .left b{color:var(--warn)}
+  button.go{background:var(--accent);color:#fff;border:0;border-radius:999px;
+    padding:13px 24px;font:inherit;font-weight:700;font-size:15px;cursor:pointer;white-space:nowrap}
+  button.go[disabled]{opacity:.4;cursor:default}
+
+  .msg{padding:36px 0;text-align:center;color:var(--dim)}
+  .msg.err{color:var(--err)}
+  .done{background:var(--card);border:1px solid var(--ok);border-radius:14px;padding:22px 18px;text-align:center}
+  .done .t{font-size:19px;font-weight:700;color:var(--ok);margin-bottom:6px}
+  .again{background:transparent;color:var(--ink);border:1px solid var(--line);
+    border-radius:999px;padding:10px 18px;font:inherit;cursor:pointer;margin-top:14px}
+</style>
+</head>
+<body>
+<div id="app"><div class="msg">불러오는 중…</div></div>
+
+<script>
+const SB_FUNCTION_URL = 'https://zbiwyqwjehnogxkzlhxx.supabase.co/functions/v1/center-report-upload';
+const SB_ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InpiaXd5cXdqZWhub2d4a3psaHh4Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODEwOTQ1MzYsImV4cCI6MjA5NjY3MDUzNn0.SQJjHnDcMTRyElxtY9E-04yIkzPVF35L8hcx0lSyG48';
+
+const T = new URLSearchParams(location.search).get('t') || '';
+const $ = (id) => document.getElementById(id);
+const esc = (s) => String(s == null ? '' : s).replace(/[&<>"]/g,
+  (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]));
+
+// 0 은 값이다. if(!v) 로 판단하면 0 이 «안 넣은 것» 이 된다.
+const isBlank = (v) => v === '' || v === null || v === undefined;
+const comma = (v) => { const a = String(v).split('.');
+  return a[0].replace(/\B(?=(\d{3})+(?!\d))/g, ',') + (a[1] !== undefined ? '.' + a[1] : ''); };
+const numOf = (v) => { if (isBlank(v)) return null;
+  const n = Number(String(v).replace(/[,\s]/g, '')); return isFinite(n) ? n : null; };
+
+let FORM = null;
+const V = {};
+
+function show(html) { $('app').innerHTML = html; }
+function fail(m) { show('<div class="wrap"><div class="msg err">' + esc(m) + '</div></div>'); }
+
+async function load() {
+  if (!T) return fail('링크가 올바르지 않습니다. 담당자에게 새 링크를 요청해 주세요.');
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=mgr-form&t=' + encodeURIComponent(T) + '&_ts=' + Date.now(),
+      { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+    const d = await res.json();
+    if (!d.success) return fail(d.error || '불러오지 못했습니다.');
+    FORM = d;
+    for (const f of (d.fields || [])) {
+      const had = (d.values || {})[f.key];
+      V[f.key] = isBlank(had) ? '' : had;      // 0 은 그대로 살린다
+    }
+    draw();
+  } catch (e) { fail('불러오지 못했습니다 — ' + e.message); }
+}
+
+/** 브라우저 로케일이 07/08/2026 로 그리므로 한글로 한 번 더 적어준다 */
+function koDate(s) {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(s || ''));
+  if (!m) return '';
+  const dt = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]));
+  if (isNaN(dt) || dt.getMonth() !== Number(m[2]) - 1) return '없는 날짜입니다';
+  return Number(m[1]) + '년 ' + Number(m[2]) + '월 ' + Number(m[3]) + '일 ('
+    + '일월화수목금토'[dt.getDay()] + '요일)';
+}
+
+function fieldHtml(f) {
+  const v = V[f.key];
+  const val = isBlank(v) ? '' : String(v);
+  const unit = f.unit ? '<span class="unit">' + esc(f.unit) + '</span>' : '';
+  let input;
+  if (f.type === 'date') {
+    input = '<input type="date" data-k="' + esc(f.key) + '" value="' + esc(val) + '">'
+          + '<div class="dateko" data-ko="' + esc(f.key) + '">' + esc(koDate(val)) + '</div>';
+  } else if (Array.isArray(f.opts) && f.opts.length) {
+    input = '<select data-k="' + esc(f.key) + '"><option value="">— 골라주세요 —</option>'
+      + f.opts.map((o) => '<option' + (String(o) === val ? ' selected' : '') + '>' + esc(o) + '</option>').join('')
+      + '</select>';
+  } else if (f.type === 'number') {
+    // placeholder 를 두지 않는다 — 0 이 유효값이라 회색 0 이 이미 넣은 값처럼 보인다
+    input = '<input type="text" inputmode="numeric" data-k="' + esc(f.key) + '" value="' + esc(val) + '">';
+  } else {
+    input = '<textarea data-k="' + esc(f.key) + '">' + esc(val) + '</textarea>';
+  }
+  // 지난 회차 값을 회색으로 — 자릿수 실수를 본인이 잡는다
+  let prev = '';
+  if (FORM.prevValues && !isBlank(FORM.prevValues[f.key])) {
+    const p = FORM.prevValues[f.key];
+    const n = numOf(p), c = numOf(v);
+    let delta = '';
+    if (n !== null && c !== null && n !== c) {
+      const g = c - n;
+      delta = ' · ' + (g > 0 ? '▲' : '▼') + comma(Math.abs(Math.round(g * 100) / 100));
+    }
+    prev = '<div class="prev">지난 회차(' + esc(FORM.prevYm) + ') ' + esc(n === null ? p : comma(p))
+         + esc(f.unit || '') + delta + '</div>';
+  }
+  return '<div class="f" data-f="' + esc(f.key) + '"><label>' + esc(f.label || f.key) + unit + '</label>'
+       + input + prev + '</div>';
+}
+
+function missing() {
+  return (FORM.fields || []).filter((f) => isBlank(V[f.key]));
+}
+
+function draw() {
+  const miss = missing();
+  show('<header><div class="wrap">'
+    + '<div class="ym">' + esc(Number(FORM.ym.slice(0, 4))) + '년 ' + esc(Number(FORM.ym.slice(5, 7))) + '월분</div>'
+    + '<div class="who"><b>' + esc(FORM.docName) + '</b>'
+    + (FORM.centerName ? ' · ' + esc(FORM.centerName) : '') + '</div>'
+    + '</div></header>'
+    + '<div class="wrap">' + (FORM.fields || []).map(fieldHtml).join('') + '</div>'
+    + '<div class="bar"><div class="in">'
+    + '<div class="left" id="left"></div>'
+    + '<button class="go" id="go">보내기</button>'
+    + '</div></div>');
+  bind();
+  foot();
+}
+
+function foot() {
+  const miss = missing();
+  // 개수만 세지 않고 **이름을 대준다** — 무엇이 비었는지 알아야 채운다
+  $('left').innerHTML = miss.length
+    ? '<b>' + miss.length + '칸 남았습니다</b> — ' + esc(miss.map((f) => f.label || f.key).join(' · '))
+    : '다 채우셨습니다.';
+  $('go').disabled = miss.length > 0;
+  for (const f of (FORM.fields || [])) {
+    const box = document.querySelector('[data-f="' + CSS.escape(f.key) + '"]');
+    if (box) box.classList.toggle('miss', isBlank(V[f.key]));
+  }
+}
+
+function bind() {
+  document.querySelectorAll('[data-k]').forEach((el) => {
+    el.addEventListener('input', () => {
+      V[el.dataset.k] = el.value;
+      if (el.type === 'date') {
+        const ko = document.querySelector('[data-ko="' + CSS.escape(el.dataset.k) + '"]');
+        if (ko) ko.textContent = koDate(el.value);
+      }
+      foot();
+    });
+  });
+  $('go').addEventListener('click', send);
+}
+
+async function send() {
+  const btn = $('go');
+  btn.disabled = true; btn.textContent = '보내는 중…';
+  try {
+    const res = await fetch(SB_FUNCTION_URL + '?action=mgr-submit', {
+      method: 'POST',
+      headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+      // 회차·센터·문서를 보내지 않는다 — 서버가 토큰에서 꺼내 쓴다
+      body: JSON.stringify({ t: T, values: V })
+    });
+    const d = await res.json();
+    if (!d.success) {
+      btn.disabled = false; btn.textContent = '보내기';
+      alert(d.missing && d.missing.length
+        ? '아직 안 채운 칸이 있습니다: ' + d.missing.join(' · ')
+        : (d.error || '보내지 못했습니다.'));
+      return;
+    }
+    show('<div class="wrap" style="padding-top:40px"><div class="done">'
+      + '<div class="t">보냈습니다</div>'
+      + '<div>' + esc(Number(FORM.ym.slice(0, 4))) + '년 ' + esc(Number(FORM.ym.slice(5, 7))) + '월분 «'
+      + esc(FORM.docName) + '» 자료가 전달됐습니다.</div>'
+      + '<button class="again" id="again">고쳐 보내기</button>'
+      + '</div></div>');
+    // 숫자를 잘못 넣는 일은 늘 있다 — 고쳐 보낼 길을 남긴다
+    $('again').addEventListener('click', () => { draw(); });
+  } catch (e) {
+    btn.disabled = false; btn.textContent = '보내기';
+    alert('보내지 못했습니다 — ' + e.message);
+  }
+}
+
+load();
+</script>
+</body>
+</html>

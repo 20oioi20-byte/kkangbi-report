@@ -5404,10 +5404,12 @@ const CenterDocs = (function () {
         + (MGRS.length
           ? '<div class="whos">'+MGRS.map(m=>'<button class="wc'+(picked.indexOf(m.id)>=0?' on':'')+'" data-w="'+esc(m.id)+'">'
               +esc(m.name||'(이름 없음)')+' <span style="opacity:.75">'+esc(m.email)+'</span></button>').join('')+'</div>'
-          : '<div class="whos"><span class="wnone">아직 담당자가 없습니다. 왼쪽 <b>＋ 담당자 관리</b> 에서 더해주세요.</span></div>')
+          : '<div class="whos"><span class="wnone">이 센터에 등록된 담당자가 없습니다. <b>알림설정</b> 에서 담당자를 먼저 등록해 주세요.</span></div>')
         + '<button class="btn" id="dtLink"'+(picked.length?'':' disabled style="opacity:.45"')+'>담당자에게 링크 보내기</button>'
         + '<div class="hint">고른 사람은 이 문서에 저장됩니다 — 다음에 열어도 그대로입니다.<br>'
-        + '링크는 <code>/m.html?t=&lt;토큰&gt;</code> 하나뿐이고, 센터·문서·회차가 토큰 안에 들어 있습니다.</div>';
+        + '링크는 <code>/m.html?t=&lt;토큰&gt;</code> 하나뿐입니다. 센터·문서·회차가 토큰 안에 들어 있고, '
+        + '담당자 화면에는 <b>비밀번호도 센터 토큰도 담당자 명단도 가지 않습니다.</b></div>'
+        + '<div class="hint" id="dtLinkOut"></div>';
       $('dtWho').querySelectorAll('.wc').forEach(b=>b.addEventListener('click',()=>{
         const id=b.dataset.w, arr=docMgrs[d.id]||(docMgrs[d.id]=[]);
         const i=arr.indexOf(id); if(i<0) arr.push(id); else arr.splice(i,1);
@@ -5417,11 +5419,24 @@ const CenterDocs = (function () {
       if(lk) lk.addEventListener('click',()=>{
         const who=(docMgrs[d.id]||[]).map(id=>MGRS.find(m=>m.id===id)).filter(Boolean);
         if(!who.length) return;
-        alert('이 문서 '+curYm+' 회차 링크를 보냅니다.\n\n'
+        if(!confirm(curYm+' 회차 «'+d.name+'» 자료 요청 메일을 보냅니다.\n\n'
           + who.map(m=>'  · '+(m.name||'(이름 없음)')+' <'+m.email+'>').join('\n')
-          + '\n\n  /m.html?t=<토큰>\n\n'
-          + '담당자 화면은 mgr-form.sample.html 에서 보실 수 있습니다.\n'
-          + '(샘플이라 실제로 나가지는 않습니다.)');
+          + '\n\n보낼까요?')) return;
+        lk.disabled=true; lk.textContent='보내는 중…';
+        // 메일 주소는 서버가 center_contacts 에서 찾는다 — 화면은 누구인지(id)만 보낸다
+        docPost('doc-mgr-link',{ document_id:d.id, ym:curYm,
+          contact_ids:(docMgrs[d.id]||[]).slice(), send_mail:true })
+        .then(function(r){
+          const box=$('dtLinkOut');
+          const sent=r.mail && r.mail.ok;
+          if(box) box.innerHTML = (sent
+              ? '<b style="color:var(--ok)">메일을 보냈습니다.</b> '
+              : '<b style="color:var(--err)">메일은 못 보냈습니다'
+                + (r.mail && r.mail.reason ? ' — '+esc(r.mail.reason) : '') + '.</b> 아래 주소를 직접 전해주세요.<br>')
+            + '<code style="word-break:break-all">'+esc(r.link||'')+'</code>';
+        })
+        .catch(function(e){ alert('링크를 보내지 못했습니다: '+e.message); })
+        .then(function(){ lk.disabled=false; lk.textContent='담당자에게 링크 보내기'; });
       });
     }
 

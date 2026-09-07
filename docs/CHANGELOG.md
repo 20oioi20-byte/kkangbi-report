@@ -2,6 +2,19 @@
 
 > 최신 항목이 위로 오도록 기록합니다. SQL 실행이 필요한 항목은 관련 `schema_addendum_N_*.sql` 파일명을 함께 적습니다.
 
+## 2026-09-07 (2차) — 문서결재 요청 2~6단계: 화면 전부 + Supabase 두 표 + 담당자 링크·메일 [SQL + `MGR_SECRET` + index.ts 배포 필요]
+- **요청 배경**: 1단계(빈 화면) 확인 후 "단계별로 계속 진행해서 완성해줘". 자매 저장소 `kkangbi-calendar` 의 `doc-list.sample.html`(약 2,000줄)을 이 앱의 센터별 화면으로 전부 옮겼다.
+- **프론트엔드(app.js) — `CenterDocs` IIFE 모듈 신설**: 문서 목록(종류 칩·검색) · 상세(**왼쪽 값 / 오른쪽 초안**, 넣는 대로 바로 바뀜) · 자동 계산(전월값·차이·부가세·공급가합계·부가세합계·총합계) · 저장 목록 · `.mht` 가져오기 · 값 자리 손보기(끄기/이름/위치/역할) · 고정 본문 고치기 · 양식 고치기 · 문서 지우기 · 담당자 링크. 샘플 전역 123개를 IIFE 안에 가둬 `app.js` 전역 486개와의 충돌을 0으로 만들었고, DOM id 는 `doc*` 접두사를 붙였다(`q`·`add`·`list` 같은 일반적인 이름은 앱과 겹치기 쉽다). 화면은 `innerHTML` 로 버리지 않고 **노드를 떼었다 붙인다** — 탭을 오가도 리스너와 넣던 값이 살아남는다.
+- **스타일(style.css)**: 샘플 CSS 258개 규칙을 전부 `.doc-root` 로 감쌌다(`.layout`·`.empty` 가 기존 앱 스타일과 이름이 겹쳐 새면 앱이 깨진다). 샘플의 밝은 화면·파란 강조를 앱의 검은 화면·빨간 강조(`#FE2E36`)로 갈아입히고, 어두운 화면 미디어쿼리는 버렸다(이 앱은 늘 어둡다).
+- **SQL**: `schema_addendum_15_center_documents.sql` — `center_documents`(문서 양식) + `center_document_saves`(회차별 저장). 담당자는 기존 `center_contacts` 재사용. 둘 다 RLS 를 켜고 **정책을 하나도 안 만든다**(service_role 로만 접근). `updated_at` 트리거 포함.
+- **백엔드(index.ts) — action 10개 추가**: `docs-list`·`doc-create`·`doc-update`·`doc-delete`·`doc-saves-list`·`doc-save`·`doc-save-delete` + 담당자용 `doc-mgr-link`·`mgr-form`·`mgr-submit`. `doc-update` 는 **보내온 칸만** 고친다(안 보낸 칸을 기본값으로 밀면 값이 조용히 사라진다). `doc-save` 는 update 가 아니라 **insert** — 같은 달을 고쳐 저장해도 앞의 것을 안 덮는다.
+- **담당자 화면(`m.html` 신규)**: 로그인 없이 그 문서 그 달의 값만 넣어 보내는 한 장. 회차를 맨 위에 제일 크게, 지난 회차 값을 회색으로(자릿수 실수를 본인이 잡는다), 빈 칸은 개수가 아니라 **이름**으로 알려주고, 저장 바가 화면 바닥에 붙어 다닌다. 날짜는 브라우저 로케일 위에 한글(`2026년 9월 9일 (수요일)`)로 한 번 더 적고 없는 날짜를 거른다. **숫자 칸에 `placeholder="0"` 을 두지 않는다** — 0 이 유효값이라 회색 0 이 이미 넣은 값처럼 보인다.
+- **보안 — 담당자 토큰 세 겹**: (1) 앱과 **다른 비밀키** `MGR_SECRET`(없으면 발급 자체를 안 함) (2) 서명 대상에 **도메인 접두사** `mgr.v1.` (3) 검증에서 **`payload.kind === 'mgr'`**. 서명 비교는 길이를 먼저 보고 상수시간 XOR. 유효기간은 그 달 말 + 10일. 담당자 화면에는 센터 비밀번호·센터 `upload_token`·담당자 명단이 **한 글자도 가지 않고**, 담당자가 보내는 것도 `{t, values}` 뿐이다 — **회차를 화면이 못 고른다**(고칠 수 있으면 지난달 값이 이번 달 것으로 조용히 들어간다). 메일 주소도 화면이 보낸 것을 안 믿고 서버가 `center_contacts` 에서 찾는다.
+- **고친 버그(샘플에 있던 것)**: 끌어다 놓기가 `.mht` 를 조용히 무시했다 — `/\.mhtml?$/` 는 «`.mhtm` + `l?`» 이라 `.mht` 가 안 걸린다. 파일 고르기(`accept='.mht,.mhtml'`)와 어긋나 있었다. → `/\.mht(ml)?$/` 로 고침.
+- **검증**: `node --check app.js` 통과. TS 는 Deno·tsc 가 없는 환경이라 타입체크 불가(`AGENTS.md` 가 적어둔 그대로) — 삽입한 블록만 떼어 JS 로 문법 검사 + 주석·문자열을 걷어낸 괄호 짝 대조로 최소 검증. 실제 앱을 로컬에 띄워 Supabase 붙은 상태로 확인(**콘솔 오류 0**): 부가세·합계에 **청구인원이 안 섞이는 것**(교육비+상담료=15,830,000, 총계 17,413,000), 전월값·증감(▲680), **`0` 이 값으로 처리되는 것**, 빈 칸이 이름으로 뜨는 것, `.mht` 두 장 견주기, 탭을 오가도 값이 남는 것, 다섯 탭 회귀 없음. Edge Function 을 흉내낸 가짜 서버로 저장 왕복(문서 만들기 → 값 → 회차 저장 → 다시 읽기)과 담당자 화면(0 처리·한글 날짜·보낸 뒤 «고쳐 보내기»·보내는 payload 에 회차가 없는 것)을 확인. **실제 표·실제 배포로의 검증은 SQL 실행과 배포 뒤에 해야 한다.**
+- **배포**: `schema_addendum_15` 실행 → `MGR_SECRET` 등록 → `supabase functions deploy center-report-upload` → `admin.html`+`style.css`+`app.js`+**`m.html`** 을 두 곳에 배포. 상세는 `docs/DEPLOY-CHECKLIST.md` 1-8.
+- **되돌리기**: `git checkout before-docs-tab -- app.js style.css admin.html` (태그 `before-docs-tab` = 커밋 `7ed965c`).
+
 ## 2026-09-07 — 센터별 서브메뉴 「💬 관리자 메모」를 내리고 「📋 문서결재 요청」 신설 (1단계: 빈 화면) [프론트엔드만, SQL·백엔드 없음]
 - **요청 배경**: 자매 저장소 `kkangbi-calendar` 의 `sandbox/manager-web/doc-list.sample.html`(약 2,000줄)에서 만들어 둔 "문서 양식" 화면을 이 앱의 센터별 화면으로 옮기는 작업. 결재 문서를 **서식 그대로** 두고 값만 갈아끼워 결재 화면에 붙여넣는 것이 목적. 한 번에 옮기지 않고 6단계로 나눠 단계마다 눌러보며 진행하기로 함 — 이번은 **1단계(탭만 갈아끼우고 빈 화면)**.
 - **수정(app.js, 4곳)**: (1) `MAIN_TABS` 의 `{ key:'messages', label:'💬 관리자 메모' }` → `{ key:'docs', label:'📋 문서결재 요청' }`. (2) `renderMain()` 의 `else if (currentMainTab === 'messages') renderMessages()` → `else if (currentMainTab === 'docs') renderCenterDocs()`. (3) `renderCenterDocs()` 신규 — 센터명 + 안내 + "아직 등록된 문서가 없습니다" 빈 화면(다음 단계 표시를 주석으로 남김). (4) `renderSidebar()` 의 `extraBadges` 에서 💬(안 읽은 쪽지 답변) 배지 제거 — 탭을 내려 **눌러 들어갈 곳이 없어졌기 때문**. 📝(미확인 이슈) 배지는 유지.

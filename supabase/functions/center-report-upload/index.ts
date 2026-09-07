@@ -1265,6 +1265,142 @@ Deno.serve(async (req) => {
     }
 
     // ============================================
+    // 담당자 링크 — 문서 담당자가 로그인 없이 값만 넣어 보내는 화면(m.html)용.
+    //
+    // ⚠ 링크에는 **토큰만** 간다. 담당자 화면에 넘기지 않는 것:
+    //      센터 비밀번호 · 센터 upload_token · 담당자 명단 · 다른 문서 이름.
+    //    화면이 받는 것은 «그 문서 그 달의 값 자리와 값» 뿐이다.
+    //
+    // ⚠ 토큰은 센터 토큰(center_config.upload_token)과 **절대 서로 통하면 안 된다.**
+    //    세 겹으로 막는다:
+    //      1) 다른 비밀키(MGR_SECRET). 없으면 발급 자체를 안 한다
+    //      2) 서명 대상에 도메인 접두사 'mgr.v1.' 를 넣는다
+    //      3) 검증에서 payload.kind === 'mgr' 를 확인한다
+    //    센터 토큰은 uuid 라 형식부터 다르지만, 나중에 토큰 방식이 바뀌어도
+    //    이 셋이 있으면 서로 넘어오지 못한다.
+    // ============================================
+
+    // ---------- 담당자 링크 발급 (+ 메일 보내기) ----------
+    if (action === 'doc-mgr-link' && req.method === 'POST') {
+      const body = await req.json();
+      const { workspace_password, token, document_id, ym, contact_ids, send_mail } = body;
+      if (!document_id || !ym) return json({ success: false, error: '문서와 회차를 지정해 주세요.' }, 400);
+      if (!/^\d{4}-\d{2}$/.test(String(ym))) return json({ success: false, error: '회차는 YYYY-MM 형식이어야 합니다.' }, 400);
+
+      const { data: doc } = await supabase.from('center_documents')
+        .select('id, center_code, name').eq('id', document_id).maybeSingle();
+      if (!doc) return json({ success: false, error: '문서를 찾을 수 없습니다.' }, 404);
+      if (!(await isCenterOrWorkspaceAuthorized(req, doc.center_code, token || '', workspace_password || ''))) {
+        return json({ success: false, error: '권한이 없습니다.' }, 403);
+      }
+      if (!Deno.env.get('MGR_SECRET')) {
+        return json({ success: false, error: 'MGR_SECRET 시크릿이 설정되지 않아 링크를 발급할 수 없습니다. Supabase → Edge Functions → Secrets 에 등록해 주세요.' }, 500);
+      }
+
+      // 유효기간은 그 달 말 + 10일. 짧으면 링크가 죽어 전화가 온다.
+      const y = Number(String(ym).slice(0, 4)), m = Number(String(ym).slice(5, 7));
+      const exp = Date.UTC(y, m, 10, 23, 59, 59);   // m 은 1-based 라 Date.UTC(y, m, ...) 이 곧 다음 달
+      const mgrToken = await issueMgrToken({ cid: doc.center_code, did: doc.id, ym: String(ym), exp });
+
+      const origin = req.headers.get('origin') || '';
+      const base = /^https?:\/\//.test(origin) ? origin : 'https://kkangbi-report.vercel.app';
+      const link = base + '/m.html?t=' + encodeURIComponent(mgrToken);
+
+      let mail: { ok: boolean; reason?: string } | null = null;
+      if (send_mail) {
+        const ids = Array.isArray(contact_ids) ? contact_ids : [];
+        if (!ids.length) return json({ success: false, error: '받는 담당자를 골라 주세요.' }, 400);
+        // 담당자 주소는 서버가 center_contacts 에서 찾는다 — 화면이 보낸 주소를 믿지 않는다
+        const { data: contacts } = await supabase.from('center_contacts')
+          .select('email, name').in('id', ids).eq('center_code', doc.center_code);
+        const to = (contacts || []).map((c: any) => c.email).filter(Boolean);
+        if (!to.length) return json({ success: false, error: '고른 담당자에게 등록된 메일 주소가 없습니다.' }, 400);
+
+        const subject = '[' + doc.name + '] ' + y + '년 ' + m + '월분 자료 요청';
+        const text = y + '년 ' + m + '월분 «' + doc.name + '» 자료를 넣어주세요.\n\n'
+          + link + '\n\n'
+          + '위 주소를 눌러 값을 넣고 «보내기» 를 누르시면 됩니다. 로그인은 필요 없습니다.\n'
+          + '링크는 ' + (m === 12 ? y + 1 : y) + '년 ' + (m === 12 ? 1 : m + 1) + '월 10일까지 열립니다.\n';
+        mail = await sendNotificationEmail(to, subject, text);
+      }
+      // 이 회차에 누구를 골랐는지 문서에 남긴다
+      if (Array.isArray(contact_ids)) {
+        await supabase.from('center_documents').update({ contact_ids }).eq('id', doc.id);
+      }
+      return json({ success: true, link, mail }, 200);
+    }
+
+    // ---------- 담당자 화면이 여는 것 (토큰만 있으면 된다 · 로그인 없음) ----------
+    if (action === 'mgr-form' && req.method === 'GET') {
+      const v = await verifyMgrToken(url.searchParams.get('t') || '');
+      if (!v.ok) return json({ success: false, error: v.error }, 403);
+
+      const { data: doc } = await supabase.from('center_documents')
+        .select('id, center_code, name, fields').eq('id', v.payload.did).maybeSingle();
+      if (!doc || doc.center_code !== v.payload.cid) {
+        return json({ success: false, error: '문서를 찾을 수 없습니다. 담당자에게 새 링크를 요청해 주세요.' }, 404);
+      }
+      const { data: center } = await supabase.from('center_config')
+        .select('center_name').eq('center_code', doc.center_code).maybeSingle();
+
+      // 이번 회차에 이미 낸 것이 있으면 그것을, 없으면 빈 값을 준다
+      const { data: mine } = await supabase.from('center_document_saves')
+        .select('vals, created_at').eq('document_id', doc.id).eq('ym', v.payload.ym)
+        .order('created_at', { ascending: false }).limit(1);
+      // 지난 회차 값은 «참고용»으로만 보여준다 — 자릿수 실수를 본인이 잡는다
+      const { data: prev } = await supabase.from('center_document_saves')
+        .select('vals, ym').eq('document_id', doc.id).lt('ym', v.payload.ym)
+        .order('ym', { ascending: false }).order('created_at', { ascending: false }).limit(1);
+
+      return json({
+        success: true,
+        ym: v.payload.ym,
+        centerName: center ? center.center_name : '',
+        docName: doc.name,
+        fields: doc.fields || [],          // 값 자리 목록은 **서버가 정한다**
+        values: mine && mine[0] ? mine[0].vals : {},
+        prevValues: prev && prev[0] ? prev[0].vals : null,
+        prevYm: prev && prev[0] ? prev[0].ym : null,
+        submittedAt: mine && mine[0] ? mine[0].created_at : null,
+      }, 200);
+    }
+
+    // ---------- 담당자가 보내기 ----------
+    if (action === 'mgr-submit' && req.method === 'POST') {
+      const body = await req.json();
+      const v = await verifyMgrToken(body.t || '');
+      if (!v.ok) return json({ success: false, error: v.error }, 403);
+
+      const { data: doc } = await supabase.from('center_documents')
+        .select('id, center_code, fields').eq('id', v.payload.did).maybeSingle();
+      if (!doc || doc.center_code !== v.payload.cid) {
+        return json({ success: false, error: '문서를 찾을 수 없습니다.' }, 404);
+      }
+      // 서버가 다시 검사한다 — 화면 검사만 믿지 않는다.
+      // ⚠ 0 은 값이다. !v 로 판단하면 0 이 «안 넣은 것» 이 된다.
+      const isBlank = (x: unknown) => x === '' || x === null || x === undefined;
+      const vals = (body.values && typeof body.values === 'object') ? body.values : {};
+      const clean: Record<string, unknown> = {};
+      const missing: string[] = [];
+      for (const f of (doc.fields || []) as any[]) {
+        const raw = vals[f.key];
+        if (isBlank(raw)) { missing.push(f.label || f.key); continue; }
+        clean[f.key] = typeof raw === 'string' ? raw.trim() : raw;   // 값 자리에 없는 키는 버린다
+      }
+      if (missing.length) {
+        return json({ success: false, error: '아직 안 채운 칸이 있습니다.', missing }, 400);
+      }
+      // 회차는 **토큰이 정한다.** 화면이 보내온 회차는 읽지도 않는다 —
+      // 지난달 값이 이번 달 것으로 조용히 들어가는 사고를 막는다.
+      const { error } = await supabase.from('center_document_saves').insert({
+        document_id: doc.id, center_code: doc.center_code, ym: v.payload.ym,
+        vals: clean, srcs: {}, contact_ids: [], miss: 0, saved_by: '담당자 제출',
+      });
+      if (error) return json({ success: false, error: '저장 실패: ' + error.message }, 500);
+      return json({ success: true }, 200);
+    }
+
+    // ============================================
     // 관리자-센터 쪽지(질문/답변) — 워크스페이스 관리자가 센터별로 메모를 보내고,
     // 센터장이 확인 후 답변을 남기는 1:1 스레드. center_messages 테이블 사용.
     // ============================================
@@ -1855,6 +1991,70 @@ function encodeBodyBase64(text: string): string {
   bytes.forEach((b) => { binary += String.fromCharCode(b); });
   const b64 = btoa(binary);
   return (b64.match(/.{1,76}/g) ?? [b64]).join('\r\n');
+}
+
+
+// ============================================
+// 담당자 링크 토큰 — 로그인 없이 그 문서 그 달의 값만 넣게 해주는 표.
+//
+// 센터 토큰(center_config.upload_token)과 **절대 서로 통하면 안 된다.** 세 겹으로 막는다:
+//   1) 다른 비밀키(MGR_SECRET) — 없으면 발급 자체를 안 한다
+//   2) 서명 대상에 도메인 접두사 'mgr.v1.' 를 넣는다 — 키가 같아져도 서명이 안 맞는다
+//   3) 검증에서 payload.kind === 'mgr' 를 확인한다
+//
+// 회차(ym)가 토큰 안에 들어 있다. 담당자 화면에는 회차를 고르는 자리가 없다 —
+// 있으면 지난달 값이 이번 달 것으로 조용히 들어간다. 회차는 링크가 정한다.
+// ============================================
+type MgrPayload = { kind: string; v: number; cid: string; did: string; ym: string; exp: number };
+
+function b64urlEncode(s: string): string {
+  return btoa(String.fromCharCode(...new TextEncoder().encode(s)))
+    .replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+}
+function b64urlDecode(s: string): string {
+  const t = s.replace(/-/g, '+').replace(/_/g, '/');
+  const bin = atob(t + '='.repeat((4 - (t.length % 4)) % 4));
+  return new TextDecoder().decode(Uint8Array.from(bin, (c) => c.charCodeAt(0)));
+}
+async function mgrSign(payloadB64: string, secret: string): Promise<string> {
+  const key = await crypto.subtle.importKey('raw', new TextEncoder().encode(secret),
+    { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']);
+  // 서명 대상에 도메인 접두사를 붙인다 — 다른 용도의 토큰과 서명이 절대 겹치지 않게
+  const sig = await crypto.subtle.sign('HMAC', key, new TextEncoder().encode('mgr.v1.' + payloadB64));
+  return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+}
+async function issueMgrToken(p: { cid: string; did: string; ym: string; exp: number }): Promise<string> {
+  const secret = Deno.env.get('MGR_SECRET');
+  if (!secret) throw new Error('MGR_SECRET 시크릿이 설정되지 않았습니다.');
+  const payload: MgrPayload = { kind: 'mgr', v: 1, cid: p.cid, did: p.did, ym: p.ym, exp: p.exp };
+  const b = b64urlEncode(JSON.stringify(payload));
+  return b + '.' + await mgrSign(b, secret);
+}
+async function verifyMgrToken(tok: string): Promise<{ ok: true; payload: MgrPayload } | { ok: false; error: string }> {
+  const secret = Deno.env.get('MGR_SECRET');
+  if (!secret) return { ok: false, error: '링크 확인 설정이 되어 있지 않습니다. 담당자에게 알려주세요.' };
+  const parts = String(tok || '').split('.');
+  if (parts.length !== 2 || !parts[0] || !parts[1]) return { ok: false, error: '링크가 올바르지 않습니다.' };
+
+  // 서명을 먼저 본다 — 내용은 서명이 맞은 뒤에야 믿는다
+  const expect = await mgrSign(parts[0], secret);
+  if (expect.length !== parts[1].length) return { ok: false, error: '링크가 올바르지 않습니다.' };
+  let diff = 0;
+  for (let i = 0; i < expect.length; i++) diff |= expect.charCodeAt(i) ^ parts[1].charCodeAt(i);
+  if (diff !== 0) return { ok: false, error: '링크가 올바르지 않습니다.' };
+
+  let payload: MgrPayload;
+  try { payload = JSON.parse(b64urlDecode(parts[0])); }
+  catch { return { ok: false, error: '링크가 올바르지 않습니다.' }; }
+
+  if (payload.kind !== 'mgr') return { ok: false, error: '링크가 올바르지 않습니다.' };
+  if (!payload.cid || !payload.did || !/^\d{4}-\d{2}$/.test(String(payload.ym))) {
+    return { ok: false, error: '링크가 올바르지 않습니다.' };
+  }
+  if (!(Number(payload.exp) > Date.now())) {
+    return { ok: false, error: '이 링크는 만료됐습니다. 담당자에게 새 링크를 요청해 주세요.' };
+  }
+  return { ok: true, payload };
 }
 
 // Gmail SMTP(앱 비밀번호)로 알림 이메일을 발송한다. SMTP 프로토콜을 직접 구현(자세한 배경은 상단 import 옆 주석 참고).

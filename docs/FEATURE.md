@@ -214,7 +214,7 @@
 - 배포: `schema_addendum_13_issues_reviewed_and_messages.sql` + `index.ts`(`list-all-issues`/`issues-mark-reviewed`/`messages-list`/`messages-send`/`messages-mark-read`/`list-all-messages-summary` 신규, `issues-list`에 `reviewed` 필드 추가) 배포 완료(2026-07-27). 상세는 `docs/DEPLOY-CHECKLIST.md` 1-5 참고.
 - 검증: `node --check`/`deno check` 통과. 로컬에서 "이슈 관리" 화면의 센터 필터·검색이 확인됨 이슈까지 포함해 정확히 걸러지는지, 미니 피드는 미확인만 보이고 확인함 클릭 시 목록·카운트가 즉시 갱신되는지, 분류 태그가 어디에도 안 뜨는지, 쪽지 현황 패널은 사라졌지만 사이드바 배지는 유지되는지, 데이터 표 이슈 마커의 센터별 정확한 스코핑, 쪽지 스레드 로드/읽음처리/전송(관리자·센터 두 인증 방식 모두), 센터장 화면에 확인함 버튼이 전혀 안 보이는지 확인.
 
-## 20. 문서결재 요청 (2026-09-07, 🟡 1단계만 반영 — 빈 화면)
+## 20. 문서결재 요청 (2026-09-07, 🟡 1~6단계 코드 완성 — SQL 실행 + index.ts 배포 + `MGR_SECRET` 등록 남음)
 
 자매 저장소 `kkangbi-calendar` 의 `sandbox/manager-web/doc-list.sample.html`(약 2,000줄)을 이 앱의 **센터별 화면**으로 옮기는 작업. 결재 문서를 **서식 그대로** 두고 값만 갈아끼워 결재 화면에 붙여넣게 해준다. 인수인계서(`HANDOFF-TO-REPORT.md`)·설계도(`WEB-INPUT-DESIGN.md`)는 사용자 로컬 보관.
 
@@ -222,7 +222,14 @@
 - ✅ **사이드바 💬 배지 감춤**: 탭을 내려 눌러 들어갈 곳이 없어졌으므로 `renderSidebar()` 의 `extraBadges` 에서 💬(안 읽은 쪽지 답변) 배지만 제거. 📝(미확인 이슈) 배지는 유지. 조회(`list-all-messages-summary`)와 `workspaceMessagesSummary` 는 그대로 두었으므로 되돌릴 때 한 줄만 고치면 된다.
 - ⚠ **`renderMessages()` · `loadMessageThread()` · `sendCenterMessage()` · `center_messages` 테이블은 지우지 않았다.** `MAIN_TABS` 에서만 내렸다 — 쪽지가 이미 쌓여 있고 되돌려야 할 수 있다. 지울지는 한 달쯤 써 보고 결정.
 - 🔒 되돌리기: `git checkout before-docs-tab -- app.js style.css admin.html` (태그 `before-docs-tab` = 커밋 `7ed965c`).
-- ⬜ **2단계** 문서 목록 + 상세(왼쪽 값 / 오른쪽 초안, 자료는 코드에 박아둔 채로) · **3단계** 자동 계산(전월값·차이·부가세·합계) · **4단계** `center_documents`/`center_document_saves` + Edge Function action(`docs-list`·`doc-create`·`doc-update`·`doc-delete`·`doc-saves-list`·`doc-save`·`doc-save-delete`) · **5단계** `.mht` 가져오기·양식 고치기 · **6단계** 담당자 링크·메일. 1~3단계는 테이블 없이 된다.
+- ✅ **2·3단계 (2026-09-07)**: 문서 목록(종류 칩·검색) + 상세(**왼쪽 값 / 오른쪽 초안**, 넣는 대로 바로 바뀜) + 저장 목록 + 자동 계산(전월값·차이·부가세·공급가합계·부가세합계·총합계). `CenterDocs` **IIFE 모듈**로 감싸 샘플 전역 123개가 `app.js` 전역 486개와 안 부딪히게 했다(충돌 0건 확인). DOM id 는 `doc*` 접두사(`docQ`·`docList`·`docDetail`… — `q`·`add`·`list` 같은 일반적인 이름은 앱과 겹치기 쉽다).
+- ✅ **화면을 버리지 않는다**: `main.innerHTML` 로 갈아끼우면 리스너가 죽고 넣던 값이 사라진다. 그래서 문서결재 화면을 **한 번만 만들어 두고 노드를 떼었다 붙인다** — 탭을 오가도 값이 남는다. 센터를 바꿀 때만 서버에서 다시 읽는다.
+- ✅ **5단계 (2026-09-07)**: `.mht` 가져오기(한 장이면 «짐작», 두 장이면 견주어 «견줌») · 값 자리 끄기/이름 고치기/지우기/더하기 · 위치 고르기(본문에서 끌어서) · 역할 정하기 · **고정 본문 고치기**(글자 토막만) · 양식 고치기 · 문서 지우기.
+- ✅ **4단계 (2026-09-07)**: `center_documents` + `center_document_saves` 두 표와 Edge Function action 7개(`docs-list`·`doc-create`·`doc-update`·`doc-delete`·`doc-saves-list`·`doc-save`·`doc-save-delete`). 항목설정(`OPTS`)도 `center_documents.opts` 에 얹는다(800ms 모았다 보냄). **`doc-save` 는 update 가 아니라 insert** — 같은 달을 고쳐 저장해도 앞의 것을 안 덮는다. `schema_addendum_15_center_documents.sql` 필요.
+- ✅ **6단계 (2026-09-07)**: 담당자 링크 · 메일. `m.html`(담당자 화면) 신설 + action 3개(`doc-mgr-link`·`mgr-form`·`mgr-submit`). 메일은 기존 Gmail SMTP(`sendNotificationEmail`)를 그대로 쓴다. **`MGR_SECRET` 시크릿 필요.**
+- 🔒 **담당자 링크 보안 — 세 겹**: (1) 앱과 **다른 비밀키**(`MGR_SECRET`, 없으면 발급 자체를 안 함) (2) 서명 대상에 **도메인 접두사** `mgr.v1.` (3) 검증에서 **`payload.kind === 'mgr'`** 확인. 서명 비교는 길이를 먼저 보고 **상수시간 XOR** 로 한다. 유효기간은 그 달 말 + 10일.
+- 🔒 **담당자 화면에 가지 않는 것**: 센터 비밀번호 · 센터 `upload_token` · 담당자 명단 · 다른 문서/센터 이름. 링크는 `?t=<토큰>` 하나뿐이고 센터·문서·**회차가 토큰 안**에 있다. 담당자가 보내는 것도 `{t, values}` 뿐 — **회차를 화면이 못 고른다**(고칠 수 있으면 지난달 값이 이번 달 것으로 조용히 들어간다). `mgr-submit` 은 서버가 빈칸을 **다시** 검사하고, 값 자리에 없는 키는 버린다.
+- 🐛 **고친 버그(샘플에 있던 것)**: 끌어다 놓기가 `.mht` 를 조용히 무시했다 — `/\.mhtml?$/` 는 «`.mhtm` + `l?`» 이라 `.mht` 가 안 걸린다. 파일 고르기(`accept='.mht,.mhtml'`)와 어긋나 있었다. → `/\.mht(ml)?$/` 로 고침.
 - ⚠ **옮길 때 지켜야 하는 규칙** (어기면 기능 전체가 쓸모없어짐): (1) 서식 보존 — 본문은 `/(<[^>]+>)/` 로 쪼갠 **짝수 자리(글자)만** 바꾸고 태그는 한 글자도 안 건드린다. `contenteditable` 로 본문 통째 편집 금지. (2) `0` 은 값이다 — `if(!v)` 로 빈칸 판단 금지, 숫자칸 `placeholder="0"` 금지. (3) 값 자리 이름은 **네 곳**(본문 `{{키}}` · 다른 칸의 `of` · 지난 회차 저장 · 엑셀 추출 규칙)에 동시에 박혀 있어 함께 고쳐야 한다. (4) 합계는 **부가세를 매긴 칸만** 더한다(안 그러면 청구인원이 금액에 섞인다). (5) 지난 회차가 없으면 전월값·차이는 **빈칸**(0으로 채우면 거짓말). (6) 응대율 같은 비율은 일별 평균이 아니라 `Σ응대호 ÷ Σ인입호`. (7) 담당자 링크에는 토큰만 — Supabase 키·앱 세션·담당자 명단 금지.
 - ⚠ **다시 만들지 말 것** (`app.js` 에 이미 있음): `xlsxParseSheet`(시트 읽기) · 병합 셀 풀기 · `xlsxExtractDaily`(키워드로 열 찾기) · `xlsxDateScore`(날짜 열 고르기) · `allCenters`/`centerTokenMap`(센터·토큰) · `center_contacts`(담당자) · `archive-*`(파일 보관함).
 - ⚠ **저장소가 PUBLIC**: 실제 공문(`.mht`)·회사 엑셀·메일 본문을 커밋하지 않는다. 샘플 숫자·날짜·문장은 전부 지어낸다. 커밋 전 유출 검사 습관화.
