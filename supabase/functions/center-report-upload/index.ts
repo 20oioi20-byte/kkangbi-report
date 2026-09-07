@@ -1100,6 +1100,171 @@ Deno.serve(async (req) => {
     }
 
     // ============================================
+    // 문서결재 요청 — 결재 문서 양식(center_documents)과 회차별 저장(center_document_saves).
+    // 담당자는 center_contacts 를 그대로 쓴다(새로 만들지 않는다).
+    // 권한은 다른 센터별 기능과 같다 — 관리자(workspace_password) 또는 그 센터 토큰.
+    // schema_addendum_15_center_documents.sql 필요.
+    // ============================================
+
+    // ---------- 그 센터의 문서 양식 목록 ----------
+    if (action === 'docs-list' && req.method === 'GET') {
+      const workspacePw = url.searchParams.get('workspace_password') || '';
+      const token = url.searchParams.get('token') || '';
+      let centerCode = url.searchParams.get('center_code') || '';
+
+      if (!(await isWorkspaceAuthorized(req, workspacePw))) {
+        if (!token) return json({ success: false, error: '권한이 없습니다.' }, 403);
+        const { data: center } = await supabase.from('center_config').select('center_code').eq('upload_token', token).maybeSingle();
+        if (!center) return json({ success: false, error: '유효하지 않은 토큰입니다.' }, 403);
+        centerCode = center.center_code;   // 토큰으로 들어오면 그 센터만 — 화면이 보낸 값은 안 믿는다
+      }
+      if (!centerCode) return json({ success: false, error: '센터를 지정해 주세요.' }, 400);
+
+      const { data: docs, error } = await supabase
+        .from('center_documents').select('*')
+        .eq('center_code', centerCode)
+        .order('sort_order', { ascending: true }).order('created_at', { ascending: true });
+      if (error) return json({ success: false, error: error.message }, 500);
+
+      // 저장 회차는 «몇 개인지»와 «전월값을 어디서 가져올지» 때문에 목록에서도 필요하다.
+      // 값(vals)까지 통째로 내려보내면 무거워지므로 문서마다 최근 24회차만 준다.
+      const ids = (docs || []).map((d: any) => d.id);
+      let saves: any[] = [];
+      if (ids.length) {
+        const { data: sv, error: e2 } = await supabase
+          .from('center_document_saves').select('*')
+          .in('document_id', ids)
+          .order('ym', { ascending: false }).order('created_at', { ascending: false })
+          .limit(24 * ids.length);
+        if (e2) return json({ success: false, error: e2.message }, 500);
+        saves = sv || [];
+      }
+      return json({ success: true, documents: docs || [], saves }, 200);
+    }
+
+    // ---------- 문서 양식 만들기 ----------
+    if (action === 'doc-create' && req.method === 'POST') {
+      const body = await req.json();
+      const { workspace_password, token, center_code } = body;
+      if (!(await isCenterOrWorkspaceAuthorized(req, center_code, token || '', workspace_password || ''))) {
+        return json({ success: false, error: '권한이 없습니다.' }, 403);
+      }
+      if (!center_code || !body.name) return json({ success: false, error: '센터와 문서 이름은 필수입니다.' }, 400);
+
+      const { data, error } = await supabase.from('center_documents').insert({
+        center_code,
+        name: body.name,
+        kind: body.kind || 'etc',
+        body: body.body || '',
+        fields: body.fields ?? [],
+        auto_fields: body.auto_fields ?? [],
+        slot: body.slot ?? null,
+        opts: body.opts ?? {},
+        contact_ids: body.contact_ids ?? [],
+        sort_order: body.sort_order ?? 0,
+      }).select().single();
+      if (error) return json({ success: false, error: '등록 실패: ' + error.message }, 500);
+      return json({ success: true, document: data }, 200);
+    }
+
+    // ---------- 문서 양식 고치기 ----------
+    if (action === 'doc-update' && req.method === 'POST') {
+      const body = await req.json();
+      const { workspace_password, token, id } = body;
+      if (!id) return json({ success: false, error: '문서를 지정해 주세요.' }, 400);
+
+      const { data: doc } = await supabase.from('center_documents').select('center_code').eq('id', id).maybeSingle();
+      if (!doc) return json({ success: false, error: '문서를 찾을 수 없습니다.' }, 404);
+      if (!(await isCenterOrWorkspaceAuthorized(req, doc.center_code, token || '', workspace_password || ''))) {
+        return json({ success: false, error: '권한이 없습니다.' }, 403);
+      }
+      // 보내온 것만 고친다 — 안 보낸 칸을 기본값으로 밀어버리면 값이 조용히 사라진다
+      const patch: Record<string, unknown> = {};
+      for (const k of ['name', 'kind', 'body', 'fields', 'auto_fields', 'slot', 'opts', 'contact_ids', 'sort_order']) {
+        if (body[k] !== undefined) patch[k] = body[k];
+      }
+      if (!Object.keys(patch).length) return json({ success: false, error: '고칠 내용이 없습니다.' }, 400);
+
+      const { error } = await supabase.from('center_documents').update(patch).eq('id', id);
+      if (error) return json({ success: false, error: '수정 실패: ' + error.message }, 500);
+      return json({ success: true }, 200);
+    }
+
+    // ---------- 문서 양식 지우기 (저장 회차도 cascade 로 함께 사라진다) ----------
+    if (action === 'doc-delete' && req.method === 'POST') {
+      const body = await req.json();
+      const { workspace_password, token, id } = body;
+      const { data: doc } = await supabase.from('center_documents').select('center_code').eq('id', id).maybeSingle();
+      if (!doc) return json({ success: false, error: '문서를 찾을 수 없습니다.' }, 404);
+      if (!(await isCenterOrWorkspaceAuthorized(req, doc.center_code, token || '', workspace_password || ''))) {
+        return json({ success: false, error: '권한이 없습니다.' }, 403);
+      }
+      const { error } = await supabase.from('center_documents').delete().eq('id', id);
+      if (error) return json({ success: false, error: '삭제 실패: ' + error.message }, 500);
+      return json({ success: true }, 200);
+    }
+
+    // ---------- 한 문서의 저장 회차 목록 ----------
+    if (action === 'doc-saves-list' && req.method === 'GET') {
+      const workspacePw = url.searchParams.get('workspace_password') || '';
+      const token = url.searchParams.get('token') || '';
+      const documentId = url.searchParams.get('document_id') || '';
+      if (!documentId) return json({ success: false, error: '문서를 지정해 주세요.' }, 400);
+
+      const { data: doc } = await supabase.from('center_documents').select('center_code').eq('id', documentId).maybeSingle();
+      if (!doc) return json({ success: false, error: '문서를 찾을 수 없습니다.' }, 404);
+      if (!(await isCenterOrWorkspaceAuthorized(req, doc.center_code, token || '', workspacePw))) {
+        return json({ success: false, error: '권한이 없습니다.' }, 403);
+      }
+      const { data, error } = await supabase.from('center_document_saves').select('*')
+        .eq('document_id', documentId)
+        .order('ym', { ascending: false }).order('created_at', { ascending: false });
+      if (error) return json({ success: false, error: error.message }, 500);
+      return json({ success: true, saves: data || [] }, 200);
+    }
+
+    // ---------- 회차 저장 — **덮어쓰지 않고 쌓는다** ----------
+    if (action === 'doc-save' && req.method === 'POST') {
+      const body = await req.json();
+      const { workspace_password, token, document_id, ym } = body;
+      if (!document_id || !ym) return json({ success: false, error: '문서와 회차를 지정해 주세요.' }, 400);
+      if (!/^\d{4}-\d{2}$/.test(String(ym))) return json({ success: false, error: '회차는 YYYY-MM 형식이어야 합니다.' }, 400);
+
+      const { data: doc } = await supabase.from('center_documents').select('center_code').eq('id', document_id).maybeSingle();
+      if (!doc) return json({ success: false, error: '문서를 찾을 수 없습니다.' }, 404);
+      if (!(await isCenterOrWorkspaceAuthorized(req, doc.center_code, token || '', workspace_password || ''))) {
+        return json({ success: false, error: '권한이 없습니다.' }, 403);
+      }
+      // 같은 회차를 고쳐 저장해도 update 하지 않는다 — insert 로 위에 얹는다.
+      const { data, error } = await supabase.from('center_document_saves').insert({
+        document_id,
+        center_code: doc.center_code,
+        ym: String(ym),
+        vals: body.vals ?? {},
+        srcs: body.srcs ?? {},
+        contact_ids: body.contact_ids ?? [],
+        miss: Number(body.miss) || 0,
+        saved_by: body.saved_by || '내가 넣음',
+      }).select().single();
+      if (error) return json({ success: false, error: '저장 실패: ' + error.message }, 500);
+      return json({ success: true, save: data }, 200);
+    }
+
+    // ---------- 저장 회차 하나 지우기 ----------
+    if (action === 'doc-save-delete' && req.method === 'POST') {
+      const body = await req.json();
+      const { workspace_password, token, id } = body;
+      const { data: sv } = await supabase.from('center_document_saves').select('center_code').eq('id', id).maybeSingle();
+      if (!sv) return json({ success: false, error: '저장 회차를 찾을 수 없습니다.' }, 404);
+      if (!(await isCenterOrWorkspaceAuthorized(req, sv.center_code, token || '', workspace_password || ''))) {
+        return json({ success: false, error: '권한이 없습니다.' }, 403);
+      }
+      const { error } = await supabase.from('center_document_saves').delete().eq('id', id);
+      if (error) return json({ success: false, error: '삭제 실패: ' + error.message }, 500);
+      return json({ success: true }, 200);
+    }
+
+    // ============================================
     // 관리자-센터 쪽지(질문/답변) — 워크스페이스 관리자가 센터별로 메모를 보내고,
     // 센터장이 확인 후 답변을 남기는 1:1 스레드. center_messages 테이블 사용.
     // ============================================

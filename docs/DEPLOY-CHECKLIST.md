@@ -79,6 +79,16 @@
 - **배포 순서**: (1) SQL 실행 → (2) `deno check`(이미 통과 확인함) → (3) `supabase functions deploy center-report-upload`. **SQL을 먼저 실행해야** `issue_send_on_day`/`issue_subject`/`issue_body` 컬럼이 생겨서 새 index.ts가 정상 동작함(순서 바뀌면 컬럼 없음 오류).
 - **검증(배포 후)**: 알림 설정 화면에서 "📝 이슈/히스토리 미등록 알림" 섹션에 새 기본 문구가 보이는지, 최근 N일간 이슈를 등록 안 한 센터를 대상으로 "⚡ 즉시 발송"을 눌렀을 때 이슈 알림이 정상 발송되고 결과표에 "📝 이슈"로 표시되는지 확인.
 
+## 1-8. 🟡 문서결재 요청 — SQL + index.ts 배포 필요 (2026-09-07)
+- **배경**: 센터별 서브메뉴의 「💬 관리자 메모」를 내리고 「📋 문서결재 요청」을 신설. 결재 문서를 서식 그대로 두고 값만 갈아끼워 결재 화면에 붙여넣는 화면(자매 저장소 kkangbi-calendar 에서 옮겨옴). 자세한 내용은 `docs/FEATURE.md` 20장.
+- **SQL**: `schema_addendum_15_center_documents.sql` — `center_documents`(문서 양식)와 `center_document_saves`(회차별 저장) 두 표 신설. 담당자는 기존 `center_contacts` 를 그대로 재사용하므로 새로 만들 것이 없다. 두 표 모두 RLS 를 켜고 **정책을 하나도 만들지 않는다** — Edge Function 의 service_role 로만 접근한다(브라우저 anon 키로 직접 못 읽음).
+- **index.ts**: action 7개 추가 — `docs-list` · `doc-create` · `doc-update` · `doc-delete` · `doc-saves-list` · `doc-save` · `doc-save-delete`. 권한 검사는 기존 `isCenterOrWorkspaceAuthorized`(관리자 비밀번호 또는 그 센터 토큰)를 그대로 쓴다. 토큰으로 들어오면 **화면이 보낸 center_code 를 안 믿고** 토큰이 가리키는 센터로 덮어쓴다.
+- **배포 순서**: (1) SQL 실행 → (2) `supabase functions deploy center-report-upload` → (3) `admin.html`+`style.css`+`app.js` 3개 세트를 **두 곳**에 배포.
+  **SQL을 먼저 실행해야** 한다(순서가 바뀌면 "relation center_documents does not exist" 오류).
+- **배포 전 화면 안내**: 배포가 덜 되면 문서 목록 자리에 무엇을 해야 하는지가 뜬다 — Edge Function 이 옛 버전이면 "index.ts 를 배포해 주세요", 표가 없으면 "schema_addendum_15 를 실행해 주세요". 로컬에서 두 경우 다 확인함.
+- **검증(배포 후)**: 센터별 「📋 문서결재 요청」에서 (1) 목록이 «이 센터에는 아직 문서가 없습니다» 로 뜨는지, (2) 결재 화면에서 저장한 `.mht` 를 끌어다 놓아 문서가 만들어지는지(두 장을 같이 넣으면 «견줌»), (3) 값을 넣고 「이 회차 값 저장」 → 새로고침해도 남는지, (4) 같은 달을 고쳐 저장하면 **덮어쓰지 않고 위에 쌓이는지**, (5) 문서를 지울 때 «저장해 둔 회차 N개도 함께 사라집니다» 를 확인받는지.
+- ⚠ `center_document_saves` 는 `on delete cascade` 다 — **문서를 지우면 저장 회차가 같이 사라진다.**
+
 ## 2. Function Secrets 확인 (Supabase 대시보드 → Edge Functions → Secrets)
 | 키 | 용도 | 없으면 |
 |---|---|---|

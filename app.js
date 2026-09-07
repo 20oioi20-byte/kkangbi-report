@@ -3992,142 +3992,99 @@ const CenterDocs = (function () {
     /* 문서마다 **값 자리(fields)** 와 **본문(body)** 을 지녀야 눌렀을 때 값을 넣고 미리볼 수 있다.
        실제로는 ktis_v11__doctpl__<문서id> 에 들어 있는 것이다(bodyHtml · slots).
        ⚠ 아래 본문·숫자는 전부 지어냈다. */
-    const PTK_BODY = `<table>
-    <tr><th colspan="2">구분</th><th>전월 실적</th><th>{{회차월}} 실적</th><th>증감</th></tr>
-    <tr><td rowspan="4">응대현황</td><td>인입호</td><td>{{인입호_전월}}건</td><td>{{인입호}}건</td><td>{{인입호_증감}}</td></tr>
-    <tr><td>응대호</td><td>{{응대호_전월}}건</td><td>{{응대호}}건</td><td>{{응대호_증감}}</td></tr>
-    <tr><td>포기호</td><td>{{포기호_전월}}건</td><td>{{포기호}}건</td><td>{{포기호_증감}}</td></tr>
-    <tr><td>응대율</td><td>{{응대율_전월}}%</td><td>{{응대율}}%</td><td>{{응대율_증감}}</td></tr>
-    <tr><td colspan="2">1일 평균 상담건수</td><td>{{1일평균_전월}}건</td><td>{{1일평균}}건</td><td>{{1일평균_증감}}</td></tr>
-    <tr><td colspan="2">인당CPD</td><td>{{인당CPD_전월}}건</td><td>{{인당CPD}}건</td><td>{{인당CPD_증감}}</td></tr>
-    </table>
-    <p>나. 세부내역 : 붙임자료 참조</p>
-    <p>다. 운영협의 : 매월 1회 시행(일정협의)</p>`;
+    /* 문서는 center_documents 에서, 저장 회차는 center_document_saves 에서 읽는다.
+       (4단계 이전에는 여기에 지어낸 문서 6개가 박혀 있었다 — 이제 서버가 준다.)
+       DOCS 는 «지금 센터의 문서» 만 담는다. 센터를 바꾸면 다시 읽는다. */
+    const DOCS = [];
+    const reslot = (d) => { d.slots = (d.fields || []).length; };
 
-    const BILL_BODY = `<table>
-    <tr><th>구분</th><th>항목</th><th>공급가액</th><th>부가세</th></tr>
-    <tr><td>수수료</td><td>교육비</td><td>{{교육비}}</td><td>{{교육비_부가세}}</td></tr>
-    <tr><td>수수료</td><td>상담료</td><td>{{상담료}}</td><td>{{상담료_부가세}}</td></tr>
-    <tr><td colspan="2">합계</td><td>{{공급가합계}}</td><td>{{부가세합계}}</td></tr>
-    <tr><td colspan="3">총 청구액</td><td>{{총합계}}</td></tr>
-    </table>
-    <p>청구인원 {{청구인원}}명 (지난달 {{청구인원_전월}}명) · 취약계층 {{취약인원}}명</p>`;
+    /* ── 서버와 주고받기 ───────────────────────────────────────
+       권한은 다른 센터별 기능과 같은 방식이다 — 관리자면 workspace_password,
+       센터장이면 그 센터 토큰. 둘 다 없으면 아무것도 못 한다. */
+    function docAuthQS() {
+      if (typeof workspaceUnlocked !== 'undefined' && workspaceUnlocked) {
+        return 'workspace_password=' + encodeURIComponent(workspacePasswordCache || '');
+      }
+      const t = (typeof centerTokenMap !== 'undefined' && centerTokenMap[CENTER_CODE]) || '';
+      return 'token=' + encodeURIComponent(t);
+    }
+    function docAuthBody() {
+      if (typeof workspaceUnlocked !== 'undefined' && workspaceUnlocked) {
+        return { workspace_password: workspacePasswordCache || '' };
+      }
+      return { token: (typeof centerTokenMap !== 'undefined' && centerTokenMap[CENTER_CODE]) || '' };
+    }
+    async function docGet(action, extra) {
+      const res = await fetch(SB_FUNCTION_URL + '?action=' + action + '&' + docAuthQS()
+        + (extra || '') + '&_ts=' + Date.now(),
+        { headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY }, cache: 'no-store' });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '조회 실패');
+      return data;
+    }
+    async function docPost(action, payload) {
+      const res = await fetch(SB_FUNCTION_URL + '?action=' + action, {
+        method: 'POST',
+        headers: { 'Authorization': 'Bearer ' + SB_ANON_KEY, 'Content-Type': 'application/json' },
+        body: JSON.stringify(Object.assign(docAuthBody(), payload))
+      });
+      const data = await res.json();
+      if (!data.success) throw new Error(data.error || '저장 실패');
+      return data;
+    }
 
-    const KB_BODY = `<p>가. 점검 대상 : KB손해보험 고객센터</p>
-    <p>나. 점검 일시 : {{점검일시}}</p>
-    <p>다. 점검 방법</p>
-    <p>&nbsp;&nbsp;ㅇ 보안점검 총 {{보안점검인원}}명</p>
-    <p>&nbsp;&nbsp;ㅇ 정보보안 개인생활 체크리스트 수기 작성</p>
-    <p>라. 점검 결과 : {{점검결과}}</p>
-    <p>&nbsp;&nbsp;ㅇ {{휴무자문구}}</p>`;
+    /** 서버 행 → 화면이 쓰는 문서 모양 */
+    function rowToDoc(r) {
+      const d = {
+        id: r.id, name: r.name, kind: r.kind || 'etc',
+        center: CENTER_NAME, cc: r.center_code,
+        body: r.body || null,
+        fields: r.fields || [], autoFields: r.auto_fields || [],
+        slot: r.slot || null, sort_order: r.sort_order || 0,
+        state: 'none', stateTxt: '', hist: []
+      };
+      reslot(d);
+      return d;
+    }
+    /** 저장 회차가 있으면 줄 끝에 «7월 저장됨» 딱지를 붙인다 */
+    function restamp(d) {
+      const sv = saves[d.id] || [];
+      if (!sv.length) { d.state = 'wait'; d.stateTxt = '아직 저장 없음'; return; }
+      const ym = sv[0].ym, mm = Number(String(ym).slice(5, 7));
+      d.state = sv[0].miss > 0 ? 'wait' : 'done';
+      d.stateTxt = mm + '월 ' + (sv[0].miss > 0 ? '작성중' : '저장됨');
+    }
 
-    const DOCS = [
-      { id:'t1', name:'민원상담콜센터 운영보고', center:'평택시청', cc:'pyeongtaek', kind:'rep',
-        state:'done', stateTxt:'7월 반영됨', body:PTK_BODY,
-        fields:[
-          { key:'회차월',   label:'회차(월)',   type:'text',   from:'', unit:'' },
-          { key:'인입호',   label:'인입호',     type:'number', from:'perf', unit:'건' },
-          { key:'응대호',   label:'응대호',     type:'number', from:'perf', unit:'건' },
-          { key:'포기호',   label:'포기호',     type:'number', from:'perf', unit:'건' },
-          { key:'응대율',   label:'응대율',     type:'number', from:'perf', unit:'%'  },
-          { key:'1일평균',  label:'1일 평균 상담건수', type:'number', from:'perf', unit:'건' },
-          { key:'인당CPD',  label:'인당CPD',    type:'number', from:'perf', unit:'건' },
-        ],
-        /* 전월값·증감은 **묻지 않는다.** 전월값은 지난 회차 저장에서 그대로 가져오고,
-           증감은 당월 − 전월로 만든다. 예전에는 전월 실적을 본문에 못 박아 두어
-           달이 바뀌면 손으로 고쳐야 했고, 잊으면 틀린 문서가 그대로 나갔다. */
-        autoFields:[
-          { key:'인입호_전월',  kind:'prev', of:'인입호'  }, { key:'인입호_증감',  kind:'diff', of:'인입호'  },
-          { key:'응대호_전월',  kind:'prev', of:'응대호'  }, { key:'응대호_증감',  kind:'diff', of:'응대호'  },
-          { key:'포기호_전월',  kind:'prev', of:'포기호'  }, { key:'포기호_증감',  kind:'diff', of:'포기호'  },
-          { key:'응대율_전월',  kind:'prev', of:'응대율'  }, { key:'응대율_증감',  kind:'diff', of:'응대율'  },
-          { key:'1일평균_전월', kind:'prev', of:'1일평균' }, { key:'1일평균_증감', kind:'diff', of:'1일평균' },
-          { key:'인당CPD_전월', kind:'prev', of:'인당CPD' }, { key:'인당CPD_증감', kind:'diff', of:'인당CPD' },
-        ],
-        slot:{ id:'perf', label:'일별 실적 엑셀', sample:'sample-pyeongtaek-2607.xlsx',
-          spec:{ mode:'daily', headerHints:['일자','콜'], headerDepth:2, dateTokens:['일자'],
-            columns:[{key:'요청호',tokens:['콜현황','요청호'],type:'int'},
-                     {key:'응답호',tokens:['콜현황','응답호'],type:'int'},
-                     {key:'포기',tokens:['콜현황','포기호'],type:'int'},
-                     {key:'cpd',tokens:['콜현황','CPD'],type:'num'}],
-            agg:[{key:'인입호',agg:'sum',from:'요청호'},{key:'응대호',agg:'sum',from:'응답호'},
-                 {key:'포기호',agg:'sum',from:'포기'},
-                 {key:'응대율',agg:'ratio',num:'응답호',den:'요청호'},
-                 {key:'1일평균',agg:'perday',from:'응답호'},{key:'인당CPD',agg:'avg',from:'cpd'}] } },
-        hist:[
-          { ym:'2026-07', st:'반영됨', vals:'인입호 42,180 · 응대율 97.7%', files:1 },
-          { ym:'2026-06', st:'반영됨', vals:'인입호 41,500 · 응대율 98.6%', files:1 },
-          { ym:'2026-05', st:'반영됨', vals:'인입호 40,800 · 응대율 99.0%', files:1 },
-        ] },
+    let docsLoaded = false;
+    async function loadDocs() {
+      const data = await docGet('docs-list', '&center_code=' + encodeURIComponent(CENTER_CODE));
+      DOCS.length = 0;
+      for (const k of Object.keys(saves)) delete saves[k];
+      for (const r of (data.documents || [])) {
+        const d = rowToDoc(r);
+        DOCS.push(d);
+        OPTS[d.id] = r.opts || OPTS[d.id] || {};      // 항목설정은 문서에 딸려 온다
+        docMgrs[d.id] = r.contact_ids || [];
+      }
+      for (const s of (data.saves || [])) {
+        (saves[s.document_id] = saves[s.document_id] || []).push({
+          id: s.id, ym: s.ym, at: String(s.created_at || '').slice(0, 16).replace('T', ' '),
+          by: s.saved_by || '내가 넣음', vals: s.vals || {}, srcs: s.srcs || {},
+          mgrs: s.contact_ids || [], miss: s.miss || 0
+        });
+      }
+      DOCS.forEach(restamp);
+      docsLoaded = true;
+    }
 
-      { id:'t2', name:'개인정보 점검 결과 제출', center:'평택시청', cc:'pyeongtaek', kind:'gon',
-        state:'wait', stateTxt:'7월 대기중', body:KB_BODY,
-        fields:[
-          { key:'점검일시',     label:'점검 일시',   type:'date',   from:'', unit:'' },
-          { key:'보안점검인원', label:'보안점검 인원', type:'number', from:'', unit:'명' },
-          // 직접 넣는 칸은 **고르게** 한다. opts 는 양식에 딸린 항목이고,
-          // 여기에 지난 저장에서 쓴 값이 저절로 더해진다(autoOpts).
-          // 저절로 잡은 것이 틀리면 화면의 «항목설정» 에서 고친다 — 고치면 그 문서에 남는다.
-          { key:'점검결과',     label:'점검 결과',   type:'text',   from:'', unit:'',
-            opts:['이상 없음','일부 보완 후 조치 완료','재점검 필요'] },
-          { key:'휴무자문구',   label:'휴무자 문구', type:'text',   from:'', unit:'',
-            opts:['휴무자 없음','휴무자는 복귀 후 점검 예정'] },
-        ],
-        slot:null,
-        hist:[
-          { ym:'2026-07', st:'담당자 대기', vals:'—', files:0 },
-          { ym:'2026-06', st:'반영됨', vals:'점검 6/10 · 보안점검 11명', files:1 },
-        ] },
-
-      { id:'t3', name:'청구수수료 명세', center:'이니텍', cc:'이니텍', kind:'bil',
-        state:'done', stateTxt:'7월 반영됨', body:BILL_BODY,
-        fields:[
-          { key:'교육비',   label:'교육비 공급가액', type:'number', from:'bill', unit:'원' },
-          { key:'상담료',   label:'상담료 공급가액', type:'number', from:'bill', unit:'원' },
-          { key:'청구인원', label:'청구인원',       type:'number', from:'bill', unit:'명' },
-          { key:'취약인원', label:'취약계층 인원',   type:'number', from:'',     unit:'명' },
-        ],
-        // 부가세·합계는 계산이다 — 담당자에게 묻지 않는다
-        autoFields:[
-          { key:'교육비_부가세', kind:'vat', of:'교육비' },
-          { key:'상담료_부가세', kind:'vat', of:'상담료' },
-          { key:'공급가합계',    kind:'sum'    },   // 부가세를 매긴 칸을 더한다
-          { key:'부가세합계',    kind:'sumvat' },
-          { key:'총합계',        kind:'total'  },   // 공급가 합계 + 부가세 합계
-          { key:'청구인원_전월', kind:'prev', of:'청구인원' },
-        ],
-        slot:{ id:'bill', label:'청구 명세 엑셀', sample:'sample-initech-2607.xlsx',
-          spec:{ mode:'labeled',
-            columns:[{key:'교육비',tokens:['교육비'],type:'int'},
-                     {key:'상담료',tokens:['상담료'],type:'int'},
-                     {key:'청구인원',tokens:['청구인원'],type:'int'}] } },
-        hist:[
-          { ym:'2026-07', st:'반영됨', vals:'교육비 3,380,000 · 청구인원 186', files:2 },
-          { ym:'2026-06', st:'반영됨', vals:'교육비 3,200,000 · 청구인원 182', files:1 },
-        ] },
-
-      { id:'t4', name:'개인정보처리 수탁자 자체점검 결과', center:'KB손보정비', cc:'kbjeongbi', kind:'gon',
-        state:'wait', stateTxt:'7월 대기중', body:KB_BODY,
-        fields:[
-          { key:'점검일시',     label:'점검 일시',   type:'date',   from:'', unit:'' },
-          { key:'보안점검인원', label:'보안점검 인원', type:'number', from:'', unit:'명' },
-          // 직접 넣는 칸은 **고르게** 한다. opts 는 양식에 딸린 항목이고,
-          // 여기에 지난 저장에서 쓴 값이 저절로 더해진다(autoOpts).
-          // 저절로 잡은 것이 틀리면 화면의 «항목설정» 에서 고친다 — 고치면 그 문서에 남는다.
-          { key:'점검결과',     label:'점검 결과',   type:'text',   from:'', unit:'',
-            opts:['이상 없음','일부 보완 후 조치 완료','재점검 필요'] },
-          { key:'휴무자문구',   label:'휴무자 문구', type:'text',   from:'', unit:'',
-            opts:['휴무자 없음','휴무자는 복귀 후 점검 예정'] },
-        ],
-        slot:null,
-        hist:[ { ym:'2026-07', st:'담당자 대기', vals:'—', files:0 } ] },
-
-      { id:'t5', name:'이미지 파일 모니터링 점검', center:'KB손보정비', cc:'kbjeongbi', kind:'gon',
-        state:'done', stateTxt:'7월 반영됨', body:null, fields:[], slot:null,
-        hist:[ { ym:'2026-07', st:'반영됨', vals:'점검팀 4명 · 표 5줄', files:0 } ] },
-
-    ];
-    DOCS.forEach(d=>{ d.slots=(d.fields||[]).length; });
+    /** 담당자는 center_contacts 를 그대로 쓴다 — 명단을 따로 만들지 않는다 */
+    async function loadMgrs() {
+      try {
+        const d = await docGet('list-contacts', '&center_code=' + encodeURIComponent(CENTER_CODE));
+        MGRS = (d.contacts || []).filter(c => c.is_active !== false)
+          .map(c => ({ id: c.id, name: c.name || '(이름 없음)', email: c.email || '', center: CENTER_NAME }));
+      } catch (e) { MGRS = []; }
+    }
 
     const $=(id)=>document.getElementById(id);
     const esc=(s)=>String(s).replace(/[&<>"]/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]));
@@ -5034,12 +4991,13 @@ const CenterDocs = (function () {
       const n=(saves[d.id]||[]).length;
       if(!confirm('«'+d.name+'» 을 목록에서 지웁니다.'
         +(n? '\n저장해 둔 회차 '+n+'개도 함께 사라집니다.':'')+'\n\n되돌릴 수 없습니다.')) return;
-      const i=DOCS.findIndex(x=>x.id===d.id);
-      if(i>=0) DOCS.splice(i,1);
-      delete saves[d.id]; delete vals[d.id]; delete autos[d.id]; delete srcs[d.id];
-      if(OPTS[d.id]){ delete OPTS[d.id]; saveOptSet(); }
-      delete docMgrs[d.id];
-      closePrev(); draw();
+      docPost('doc-delete',{ id:d.id }).then(function(){
+        const i=DOCS.findIndex(x=>x.id===d.id);
+        if(i>=0) DOCS.splice(i,1);
+        delete saves[d.id]; delete vals[d.id]; delete autos[d.id]; delete srcs[d.id];
+        delete OPTS[d.id]; delete docMgrs[d.id];
+        closePrev(); draw();
+      }).catch(function(e){ alert('삭제하지 못했습니다: '+e.message); });
     });
 
     $('pvAdd').addEventListener('click',()=>{
@@ -5047,6 +5005,14 @@ const CenterDocs = (function () {
       if(pending.mode==='edit'){
         if(!applyTplEdit()) return;
         const id=pending.docId;
+        const d=DOCS.find(x=>x.id===id);
+        // ⚠ 값 자리 이름은 네 곳에 동시에 박혀 있다(본문 {{키}} · 다른 칸의 of ·
+        //    지난 회차 저장 · 엑셀 추출 규칙). applyTplEdit 이 앞의 셋을 맞춰 놓았으니
+        //    그 결과를 통째로 서버에 얹는다 — 일부만 보내면 조용히 어긋난다.
+        docPost('doc-update',{ id:id, name:d.name, kind:d.kind, body:d.body,
+          fields:d.fields, auto_fields:d.autoFields, slot:d.slot })
+          .catch(function(e){ alert('양식을 저장하지 못했습니다: '+e.message
+            +'\n\n화면에는 반영됐지만 서버에는 안 들어갔습니다. 다시 시도해 주세요.'); });
         closePrev(); draw();
         openDoc(id);        // 고친 양식으로 바로 값을 넣어볼 수 있게 문서를 다시 연다
         return;
@@ -5086,16 +5052,20 @@ const CenterDocs = (function () {
         if(['prev','diff','vat'].indexOf(v.role)>=0) a.of=v.of;
         return a;
       });
-      DOCS.unshift({ id:'t'+Date.now(), name:$('pvName').value.trim()||'이름 없는 문서',
-        center:CENTER_NAME, cc:CENTER_CODE, kind:$('pvKind').value, body:parts.join(''),
-        fields, autoFields, slot:null,
-        slots:fields.length, state:'wait', stateTxt:'값 자리 확인 필요', hist:[] });
       const nAuto=autoFields.length;
-      closePrev(); q=''; $('docQ').value=''; kind='all'; draw();
-      alert('목록에 넣었습니다 (샘플이라 새로고침하면 사라집니다).\n\n'
-        +'  넣는 칸 '+fields.length+'개'
-        +(nAuto? '\n  저절로 채우는 칸 '+nAuto+'개 (전월값 · 차이 · 부가세 · 합계)':'')
-        +'\n\n실제로는 여기서 값 자리를 어디서 채울지 정하고 발송 설정으로 넘어갑니다.');
+      // 서버에 넣고, 서버가 준 id 로 목록에 올린다. 임시 id 를 쓰면 저장할 때 문서를 못 찾는다.
+      docPost('doc-create',{
+        center_code:CENTER_CODE, name:$('pvName').value.trim()||'이름 없는 문서',
+        kind:$('pvKind').value, body:parts.join(''),
+        fields:fields, auto_fields:autoFields, slot:null, sort_order:DOCS.length
+      }).then(function(r){
+        const d=rowToDoc(r.document); restamp(d); DOCS.unshift(d);
+        closePrev(); q=''; $('docQ').value=''; kind='all'; draw();
+        alert('문서를 만들었습니다.\n\n'
+          +'  넣는 칸 '+fields.length+'개'
+          +(nAuto? '\n  저절로 채우는 칸 '+nAuto+'개 (전월값 · 차이 · 부가세 · 합계)':'')
+          +'\n\n문서를 눌러 값을 넣고 «이 회차 값 저장» 을 누르면 회차가 쌓입니다.');
+      }).catch(function(e){ alert('문서를 만들지 못했습니다: '+e.message); });
     });
 
     // 목록 위의 큰 드롭 자리 — 넣으면 미리보기가 열린다
@@ -5154,39 +5124,29 @@ const CenterDocs = (function () {
     function saveOptSet(){
       const raw=JSON.stringify(OPTS);
       try{ localStorage.setItem(OPTKEY, raw); }catch(e){ /* 사생활 보호 모드 */ }
-      try{ window.name='__optset__'+raw; }catch(e){}
+      // 서버에도 얹는다 — 다른 기기·다른 브라우저에서도 같은 항목을 봐야 한다.
+      // 타이핑마다 부르지 않도록 잠깐 모았다 보낸다.
+      if(cur && cur.id){
+        clearTimeout(optSaveTimer);
+        const id=cur.id, snap=OPTS[id]||{};
+        optSaveTimer=setTimeout(function(){
+          docPost('doc-update',{ id:id, opts:snap }).catch(function(e){
+            console.warn('항목설정 저장 실패(다음에 다시 시도합니다): '+e.message);
+          });
+        },800);
+      }
     }
+    let optSaveTimer=null;
     const saves={};                        // { 문서id: [저장 기록] }
-    const docMgrs={ t1:['m1'], t3:['m3'] }; // 문서별로 고른 담당자
-    let curTab='edit', curYm='2026-07', saveSeq=0;
+    const docMgrs={};                      // 문서별로 고른 담당자 — center_documents.contact_ids
+    let curTab='edit', curYm=(function(){ const t=new Date();
+      return t.getFullYear()+'-'+String(t.getMonth()+1).padStart(2,'0'); })(), saveSeq=0;
 
-    /* 담당자 명단 — 왼쪽 사이드바에서 더하고 고치고 지운다.
-       ⚠ 지어낸 이름과 example.com 주소다. 실제 담당자 정보는 넣지 않는다. */
-    let MGRS=[
-      { id:'m1', name:'김선영', email:'sy.kim@example.com',   center:'평택시 민원상담콜센터' },
-      { id:'m2', name:'박도현', email:'dh.park@example.com',  center:'KB손해보험 장기계약정비센터' },
-      { id:'m3', name:'이나윤', email:'ny.lee@example.com',   center:'이니텍' },
-    ];
-    let mgrSeq=3;
+    /* 담당자는 center_contacts 를 그대로 쓴다(이미 있는 표다). 여기서 명단을 따로 만들지 않는다 —
+       문서마다 메일 주소를 다시 치면 오타가 문서 수만큼 는다. */
+    let MGRS=[];
 
-    /* 지난 저장 — 실제로는 mgrsub__<문서id>__<회차> 를 읽어 만든다. ⚠ 전부 지어낸 값이다. */
-    const SEED_SAVES={
-      // 7월은 일부러 비워둔다 — 지금 넣어보는 회차라서다. 지난 두 회차만 쌓여 있다.
-      t1:[ { ym:'2026-06', at:'2026-07-02 10:12', by:'담당자 제출',
-             v:{ '회차월':'6월','인입호':41500,'응대호':40910,'포기호':590,'응대율':98.6,'1일평균':1780,'인당CPD':80.9 } },
-           { ym:'2026-05', at:'2026-06-02 09:55', by:'담당자 제출',
-             v:{ '회차월':'5월','인입호':40800,'응대호':40392,'포기호':408,'응대율':99.0,'1일평균':1740,'인당CPD':79.4 } } ],
-      t2:[ { ym:'2026-06', at:'2026-07-01 14:20', by:'내가 넣음',
-             v:{ '점검일시':'2026-06-10','보안점검인원':11,'점검결과':'이상 없음','휴무자문구':'휴무자 2명은 복귀 후 점검 예정' } } ],
-      t3:[ { ym:'2026-06', at:'2026-07-01 11:31', by:'담당자 제출',
-             v:{ '교육비':3200000,'상담료':1490000,'청구인원':182,'취약인원':1 } },
-           { ym:'2026-05', at:'2026-06-01 10:48', by:'담당자 제출',
-             v:{ '교육비':3050000,'상담료':1430000,'청구인원':179,'취약인원':0 } } ],
-    };
-    for(const id of Object.keys(SEED_SAVES)){
-      saves[id]=SEED_SAVES[id].map(x=>({ id:'s'+(++saveSeq), ym:x.ym, at:x.at, by:x.by,
-        vals:Object.assign({},x.v), srcs:{}, mgrs:[], miss:0 }));
-    }
+    /* 저장 회차는 center_document_saves 에서 읽는다(loadDocs). 회차마다 쌓이고 앞의 것을 덮지 않는다. */
 
     const isBlank=(v)=>v===''||v===null||v===undefined;
     const fieldsOf=(d)=>d.fields||[];
@@ -5618,12 +5578,22 @@ const CenterDocs = (function () {
       const miss=fieldsOf(d).filter(f=>isBlank(vals[d.id][f.key]));
       if(miss.length && !confirm(miss.length+'칸이 비어 있습니다: '+miss.map(f=>f.label).join(' · ')
         +'\n\n그래도 저장할까요? (나중에 이어서 채울 수 있습니다)')) return;
-      saves[d.id]=saves[d.id]||[];
-      saves[d.id].unshift({ id:'s'+(++saveSeq), ym:curYm, at:stamp(), by:'내가 넣음',
+      docPost('doc-save',{
+        document_id:d.id, ym:curYm,
         vals:Object.assign({},vals[d.id]), srcs:Object.assign({},srcs[d.id]),
-        mgrs:(docMgrs[d.id]||[]).slice(), miss:miss.length });
-      refreshOpts(d);   // 이번에 넣은 값을 항목에 더한다 — 내가 고친 것은 그대로 둔다
-      curTab='saved'; drawDetail();
+        contact_ids:(docMgrs[d.id]||[]).slice(), miss:miss.length, saved_by:'내가 넣음'
+      }).then(function(r){
+        const s=r.save||{};
+        saves[d.id]=saves[d.id]||[];
+        // 회차마다 쌓는다 — 같은 달을 고쳐 저장해도 앞의 것을 덮지 않는다
+        saves[d.id].unshift({ id:s.id||('s'+(++saveSeq)), ym:curYm,
+          at:String(s.created_at||'').slice(0,16).replace('T',' ')||stamp(), by:'내가 넣음',
+          vals:Object.assign({},vals[d.id]), srcs:Object.assign({},srcs[d.id]),
+          mgrs:(docMgrs[d.id]||[]).slice(), miss:miss.length });
+        refreshOpts(d);   // 이번에 넣은 값을 항목에 더한다 — 내가 고친 것은 그대로 둔다
+        restamp(d);
+        curTab='saved'; drawDetail();
+      }).catch(function(e){ alert('저장하지 못했습니다: '+e.message); });
     }
     function clearVals(){
       const d=cur;
@@ -5736,6 +5706,11 @@ const CenterDocs = (function () {
     return {
       draw: draw,
       backToList: backToList,
+      load: async function () {
+        await Promise.all([loadDocs(), loadMgrs()]);
+        pickedCenter = CENTER_CODE;
+        backToList();
+      },
       switchCenter: function () {
         // 센터가 바뀌면 열어둔 문서를 닫고 거르기를 푼다 —
         // 다른 센터 문서를 열어둔 채로 두면 «왜 이게 여기 있지» 가 된다
@@ -5749,7 +5724,7 @@ const CenterDocs = (function () {
   }
 
   return {
-    render: function (code, name) {
+    render: async function (code, name) {
       const main = document.getElementById('main');
       const first = !root;
       if (first) {
@@ -5767,7 +5742,31 @@ const CenterDocs = (function () {
 
       if (first) { api = boot(); api.switchCenter(); }
       else if (centerChanged) api.switchCenter();
-      else api.draw();
+      else { api.draw(); return; }
+
+      // 센터가 바뀌었거나 처음 열 때만 서버에서 다시 읽는다.
+      // 같은 센터로 돌아온 것뿐이면 넣던 값을 그대로 둔다(다시 읽으면 지워진다).
+      const box = root.querySelector('#docList');
+      if (box) box.innerHTML = '<div class="grp"><div class="empty">불러오는 중…</div></div>';
+      try {
+        await api.load();
+      } catch (e) {
+        const msg = String(e && e.message || e);
+        // 배포가 덜 됐을 때 «invalid action» 이나 «권한이 없습니다» 만 보이면 한참 헤맨다.
+        // 무엇을 해야 하는지 그 자리에서 말해준다.
+        let tell;
+        if (/invalid action|unknown action/i.test(msg)) {
+          tell = 'Edge Function이 아직 옛 버전입니다.<br>'
+               + '<b>supabase/functions/center-report-upload/index.ts</b> 를 배포해 주세요.';
+        } else if (/relation|does not exist|schema cache|center_documents/i.test(msg)) {
+          tell = '문서 표가 아직 없습니다.<br>'
+               + '<b>schema_addendum_15_center_documents.sql</b> 을 Supabase에서 실행해 주세요.';
+        } else {
+          tell = '불러오지 못했습니다 — ' + msg.replace(/[&<>"]/g, function (c) {
+            return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]; });
+        }
+        if (box) box.innerHTML = '<div class="grp"><div class="empty">' + tell + '</div></div>';
+      }
     }
   };
 })();
