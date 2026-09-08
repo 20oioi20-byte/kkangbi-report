@@ -741,3 +741,13 @@
   .doc-root .pastelist .was { color:var(--dim); text-decoration:line-through; }
   .doc-root .pastelist .now { color:var(--ok); font-weight:700; }
   .doc-root .pastelist .src { margin-left:auto; color:var(--dim); font-size:11.5px; }
+
+
+  /* 문서 지우기 — 되돌릴 수 없으니 눈에 띄되 손이 먼저 가지는 않게 */
+  .doc-root .btn.danger { color:var(--err); border-color:#5a2b2e; }
+  .doc-root .btn.danger:hover { background:var(--err-bg); border-color:var(--err); }
+  .doc-root .docdel { border:1px solid var(--line); background:transparent; color:var(--dim);
+    border-radius:7px; padding:3px 9px; font:inherit; font-size:11.5px; cursor:pointer;
+    opacity:0; transition:opacity .12s; }
+  .doc-root .doc:hover .docdel, .doc-root .docdel:focus { opacity:1; }
+  .doc-root .docdel:hover { color:var(--err); border-color:var(--err); background:var(--err-bg); }

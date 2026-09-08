@@ -4175,6 +4175,11 @@ const CenterDocs = (function () {
 
 
     function bindList(){
+      // 줄의 «지우기» — 줄을 누르면 문서가 열리므로 여기서 퍼짐을 막는다
+      $('docList').querySelectorAll('[data-del-doc]').forEach(b=>b.addEventListener('click',(e)=>{
+        e.preventDefault(); e.stopPropagation();
+        deleteDoc(b.dataset.delDoc);
+      }));
       $('docList').querySelectorAll('.gh .ar').forEach(a=>a.parentElement.addEventListener('click',()=>
         a.parentElement.parentElement.classList.toggle('open')));
       // 문서를 누르면 **상세가 열린다.** 이력만 보고 싶으면 오른쪽 '회차 N' 을 누른다.
@@ -4193,7 +4198,9 @@ const CenterDocs = (function () {
       return '<div class="doc" data-d="'+d.id+'">'
         +'<div class="dl"><span class="nm">'+esc(d.name)+'</span>'
         +'<span class="tags"><span class="kind '+k.cls+'">'+esc(k.label)+'</span>'
-        +'<span class="st '+d.state+'">'+esc(d.stateTxt)+'</span></span></div>'
+        +'<span class="st '+d.state+'">'+esc(d.stateTxt)+'</span>'
+        +'<button class="docdel" data-del-doc="'+d.id+'" title="이 문서를 지웁니다">지우기</button>'
+        +'</span></div>'
         +'<div class="dsub">'
           +(d.slots?'값 자리 '+d.slots+'개':'값 자리 아직 없음')
           +(sv.length?' · <a href="#" data-hist="1" onclick="return false" style="color:var(--accent);text-decoration:none;font-weight:600">저장 목록 '+sv.length+'개 ▾</a>'
@@ -5560,19 +5567,28 @@ const CenterDocs = (function () {
     };
     $('pvClose').addEventListener('click',closePrev);
     $('pvCancel').addEventListener('click',closePrev);
-    $('pvDrop').addEventListener('click',()=>{
-      if(!pending||pending.mode!=='edit') return;
-      const d=DOCS.find(x=>x.id===pending.docId); if(!d) return;
+    /* 문서 지우기 — 목록·상세·양식 고치기 **세 자리가 이 하나를 쓴다.**
+       ⚠ center_document_saves 가 on delete cascade 라 **저장해 둔 회차도 같이 사라진다.**
+          그래서 몇 회차가 사라지는지 개수를 대고 확인받는다. 되돌릴 수 없다. */
+    function deleteDoc(id){
+      const d=DOCS.find(x=>x.id===id); if(!d) return;
       const n=(saves[d.id]||[]).length;
-      if(!confirm('«'+d.name+'» 을 목록에서 지웁니다.'
-        +(n? '\n저장해 둔 회차 '+n+'개도 함께 사라집니다.':'')+'\n\n되돌릴 수 없습니다.')) return;
+      if(!confirm('«'+d.name+'» 을 지웁니다.'
+        +(n? '\n\n⚠ 저장해 둔 회차 '+n+'개도 **함께 사라집니다.**':'')
+        +'\n\n되돌릴 수 없습니다. 지울까요?')) return;
       docPost('doc-delete',{ id:d.id }).then(function(){
         const i=DOCS.findIndex(x=>x.id===d.id);
         if(i>=0) DOCS.splice(i,1);
         delete saves[d.id]; delete vals[d.id]; delete autos[d.id]; delete srcs[d.id];
         delete OPTS[d.id]; delete docMgrs[d.id];
-        closePrev(); draw();
-      }).catch(function(e){ alert('삭제하지 못했습니다: '+e.message); });
+        if(cur && cur.id===d.id) { closePrev(); backToList(); }
+        else { closePrev(); draw(); }
+      }).catch(function(e){ alert('지우지 못했습니다: '+e.message); });
+    }
+
+    $('pvDrop').addEventListener('click',()=>{
+      if(!pending||pending.mode!=='edit') return;
+      deleteDoc(pending.docId);
     });
 
     $('pvAdd').addEventListener('click',()=>{
@@ -5667,9 +5683,12 @@ const CenterDocs = (function () {
     });
 
     // 목록 위의 큰 드롭 자리 — 넣으면 미리보기가 열린다
-    $('docAdd').addEventListener('click',()=>{ analyze(); pickInto('a'); });
+    // ⚠ 여기서 pickInto('a') 를 부르면 **누르자마자 파일 고르기 창이 뜬다.**
+    //    화면을 보기도 전에 창이 막고 서서, 무엇을 넣어야 하는지 읽을 수가 없다.
+    //    자리를 열어만 주고, 넣는 것은 사람이 고른다(끌어다 놓거나 그 자리를 누른다).
+    $('docAdd').addEventListener('click',()=>{ analyze(); });
     const mht=$('docMht');
-    mht.addEventListener('click',()=>$('docAdd').click());
+    mht.addEventListener('click',()=>$('docAdd').click());   // 미리보기만 연다(파일창은 안 띄운다)
     ['dragenter','dragover'].forEach(e=>mht.addEventListener(e,ev=>{ev.preventDefault();mht.classList.add('over');}));
     ['dragleave','drop'].forEach(e=>mht.addEventListener(e,ev=>{ev.preventDefault();mht.classList.remove('over');}));
     mht.addEventListener('drop',ev=>{ ev.preventDefault();
@@ -5775,6 +5794,7 @@ const CenterDocs = (function () {
         +   '<button class="btn" id="dtSave">이 회차 값 저장</button>'
         +   '<button class="btn g" id="dtClear">넣은 값 비우기</button>'
         +   '<button class="btn g" id="dtTpl">양식 고치기</button>'
+        +   '<button class="btn g danger" id="dtDel">문서 지우기</button>'
         + '</div></div>'
         + '<div class="tabs">'+TABS.map(([id,t])=>
             '<button class="tab'+(curTab===id?' on':'')+'" data-tab="'+id+'">'+esc(t)+'</button>').join('')+'</div>'
@@ -5790,6 +5810,7 @@ const CenterDocs = (function () {
         paintFoot();
       });
       $('dtSave').addEventListener('click',saveNow);
+      $('dtDel') && $('dtDel').addEventListener('click',()=>deleteDoc(cur.id));
       $('dtClear').addEventListener('click',clearVals);
       $('dtTpl').addEventListener('click',()=>openEditTpl(d.id));
       $('docDetail').querySelectorAll('.tab').forEach(b=>b.addEventListener('click',()=>{
