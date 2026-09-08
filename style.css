@@ -354,8 +354,12 @@
   .doc-root .hnote{font-size:12.5px;color:var(--dim);margin:8px 0 4px;line-height:1.6}
   .doc-root .empty{padding:26px 16px;text-align:center;color:var(--dim);font-size:14px}
   /* .mht 를 읽고 나서 보여주는 미리보기 */
+  /* ⚠ overflow:hidden 을 쓰면 안 된다 — 안에 있는 position:sticky 가 죽는다.
+     (오른쪽 문서가 스크롤을 안 따라오던 원인) 모서리는 안쪽 요소에서 다듬는다. */
   .doc-root .prev{background:var(--card);border:1.5px solid var(--accent);border-radius:var(--r);
-    box-shadow:var(--shadow);margin-bottom:14px;overflow:hidden}
+    box-shadow:var(--shadow);margin-bottom:14px}
+  .doc-root .prev .ph{border-radius:calc(var(--r) - 2px) calc(var(--r) - 2px) 0 0}
+  .doc-root .prev .pa{border-radius:0 0 calc(var(--r) - 2px) calc(var(--r) - 2px)}
   .doc-root .prev .ph{display:flex;align-items:center;gap:10px;padding:13px 15px;border-bottom:1px solid var(--line)}
   .doc-root .prev .ph b{flex:1;font-size:15px}
   .doc-root .prev .ph .x{border:0;background:transparent;color:var(--dim);font-size:22px;line-height:1;cursor:pointer}
@@ -682,3 +686,21 @@
   .doc-root .pdoc mark.hot { background:#ffd54a; outline:2px solid #f0a500; outline-offset:1px; }
   .doc-root .vr.hot { background:var(--warn-bg); }
   .doc-root .vr[data-i] { cursor:default; }
+
+  /* ─ 오른쪽 문서는 스크롤을 따라오고, 늘 한 화면에 들어온다 ────────── */
+  @media (min-width:1081px) {
+    .doc-root .pb2 .pstick { position:sticky; top:14px; align-self:start;
+      max-height:calc(100vh - 28px); display:flex; flex-direction:column; }
+    /* 세로는 남는 높이를 다 쓰고, 가로는 fitPaper 가 줄여 맞춘다 */
+    .doc-root .pb2 .pstick .pdoc { flex:1; min-height:180px; max-height:none;
+      overflow-y:auto; overflow-x:hidden; }
+    .doc-root .pb2 .pstick .bedit { flex:1; min-height:180px; max-height:none; overflow:auto; }
+  }
+  /* 줄인 뒤에도 가로로는 안 넘치게 */
+  .doc-root .pdoc .fitin { display:block; }
+  .doc-root .pdoc table { table-layout:auto; }
+
+  /* 왼쪽 줄이 제 칸을 넘어 오른쪽을 덮지 않게 — 겹쳐 보이던 원인 */
+  .doc-root .pb2 .vr > * { min-width:0; }
+  .doc-root .pb2 .vr .nmcell input { width:100%; min-width:0; }
+  .doc-root .pb2 .vlist { overflow:hidden; }

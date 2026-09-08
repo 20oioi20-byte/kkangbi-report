@@ -5457,6 +5457,29 @@ const CenterDocs = (function () {
       $('pvVars').querySelectorAll('.vr.hot').forEach(x=>x.classList.remove('hot'));
     }
 
+    /* 문서를 오른쪽 칸 너비에 맞춰 줄인다 — 가로로 삐져나오면 왼쪽을 덮고,
+       가로 스크롤이 생기면 «한눈에» 가 안 된다. 표가 칸보다 좁으면 그대로 둔다. */
+    function fitPaper(){
+      const box=$('pvBody'); if(!box) return;
+      const inner=box.querySelector('.fitin'); if(!inner) return;
+      inner.style.transform=''; inner.style.width='';
+      // clientWidth 에는 안쪽 여백(padding)이 들어 있다 — 빼지 않으면 그만큼 넘친다
+      const cs=getComputedStyle(box);
+      const pad=(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0);
+      const avail=box.clientWidth-pad-2, need=inner.scrollWidth;
+      if(need>avail && avail>60){
+        const s=Math.max(0.45, avail/need);          // 0.45 아래로는 안 줄인다 — 못 읽는다
+        inner.style.transformOrigin='top left';
+        inner.style.transform='scale('+s.toFixed(3)+')';
+        inner.style.width=(100/s)+'%';
+        box.dataset.zoom=Math.round(s*100);
+      } else { delete box.dataset.zoom; }
+      const note=$('pvBodyNote');
+      if(note) note.textContent = box.dataset.zoom
+        ? '값 자리는 노랗게 · 폭에 맞춰 '+box.dataset.zoom+'% 로 줄였습니다'
+        : '값 자리는 노랗게 칠했습니다';
+    }
+
     function drawBody(){
       if(!pending){ $('pvBody').innerHTML=''; return; }
       if(bodyEditing){ drawBodyEdit(); return; }
@@ -5482,9 +5505,10 @@ const CenterDocs = (function () {
         }
         parts[i]=o+t.slice(at);
       }
-      $('pvBody').innerHTML=parts.join('')
+      $('pvBody').innerHTML='<div class="fitin">'+parts.join('')
         .replace(/\u0001(\d+)\u0003([^\u0002]*)\u0002/g,
-          function(m,n,txt){ return '<mark data-v="'+n+'">'+txt+'</mark>'; });
+          function(m,n,txt){ return '<mark data-v="'+n+'">'+txt+'</mark>'; })+'</div>';
+      fitPaper();
       // ⚠ 연결은 **본문을 그린 바로 뒤에** 건다. drawVars 에서 걸면 그 뒤에 본문을
       //    다시 그리면서 노드가 갈려 손잡이가 떨어진다(실제로 그래서 엉뚱한 줄이 짚였다).
       $('pvBody').querySelectorAll('mark[data-v]').forEach(m=>{
@@ -5615,6 +5639,8 @@ const CenterDocs = (function () {
     });
 
     $('docHolBtn').addEventListener('click',openHolidays);
+    // 창을 줄이거나 늘리면 본문 크기도 다시 맞춘다
+    window.addEventListener('resize',function(){ if(pending && !bodyEditing) fitPaper(); });
 
     // 목록 위의 큰 드롭 자리 — 넣으면 미리보기가 열린다
     $('docAdd').addEventListener('click',()=>{ analyze(); pickInto('a'); });

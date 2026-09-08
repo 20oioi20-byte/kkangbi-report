@@ -67,7 +67,8 @@ function loadModule() {
   };
   const sandbox = {
     document,
-    window: { XLSX: null, name: '', getSelection() { return null; }, scrollTo() {} },
+    window: { XLSX: null, name: '', getSelection() { return null; }, scrollTo() {},
+              addEventListener() {}, removeEventListener() {}, innerHeight: 900, innerWidth: 1440 },
     localStorage: { getItem() { return null; }, setItem() {}, removeItem() {} },
     console, setTimeout, clearTimeout, JSON, Math, Date, Number, String, Object, Array,
     fetch: async () => ({ json: async () => ({ success: false, error: 'test' }) }),
