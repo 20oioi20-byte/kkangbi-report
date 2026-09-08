@@ -751,3 +751,29 @@
     opacity:0; transition:opacity .12s; }
   .doc-root .doc:hover .docdel, .doc-root .docdel:focus { opacity:1; }
   .doc-root .docdel:hover { color:var(--err); border-color:var(--err); background:var(--err-bg); }
+
+
+  /* 접었다 폈다 하는 제목 */
+  .doc-root .ttl.fold { display:flex; align-items:center; gap:7px; user-select:none; }
+  .doc-root .ttl.fold .ar { display:inline-block; transition:transform .12s; color:var(--dim); font-size:11px; }
+  .doc-root .ttl.fold.closed .ar { transform:rotate(-90deg); }
+  .doc-root .ttl.fold .cnt { font-weight:400; font-size:12px; color:var(--dim); }
+  .doc-root .ttl.fold:hover { color:var(--accent); }
+
+  /* 붙여넣기 — 읽은 표 보여주고 열을 고르게 */
+  .doc-root .ptar { display:flex; align-items:center; gap:8px; margin:8px 0 0; }
+  .doc-root .ptar select { background:var(--bg); color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:6px 9px; font:inherit; font-size:13px; }
+  .doc-root .pastebox.over { border-color:var(--accent); background:var(--err-bg); }
+  .doc-root .gwrap { overflow-x:auto; border:1px solid var(--line); border-radius:9px; margin:6px 0; }
+  .doc-root .gtbl { border-collapse:collapse; font-size:12px; width:100%; }
+  .doc-root .gtbl th, .doc-root .gtbl td { border:1px solid var(--line); padding:4px 7px;
+    white-space:nowrap; max-width:180px; overflow:hidden; text-overflow:ellipsis; }
+  .doc-root .gtbl th { background:var(--bg); }
+  .doc-root .gtbl td.on, .doc-root .gtbl th:has(.colb.on) { background:var(--ok-bg); }
+  .doc-root .gtbl td.lbl, .doc-root .gtbl th.lbl { font-weight:700; }
+  .doc-root .gtbl td.rn { color:var(--dim); text-align:center; width:22px; }
+  .doc-root .colb { border:1px solid var(--line); background:transparent; color:var(--dim);
+    border-radius:6px; padding:2px 8px; font:inherit; font-size:11px; cursor:pointer; white-space:nowrap; }
+  .doc-root .colb:hover { border-color:var(--accent); color:var(--ink); }
+  .doc-root .colb.on { background:var(--ok); border-color:var(--ok); color:#04140c; font-weight:700; }

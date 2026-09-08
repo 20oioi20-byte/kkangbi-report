@@ -5841,11 +5841,18 @@ const CenterDocs = (function () {
             : '<div class="ttl">파일</div><div class="drop3" style="cursor:default">'
               +'<b>이 문서는 파일에서 값을 읽지 않습니다</b>'
               +'아래에 직접 넣거나, <b>붙여넣어</b> 한꺼번에 채우세요</div>')
-          + '<button class="btn g sm" id="dtPasteBtn" style="margin-top:8px">📋 붙여넣어 채우기</button>'
+          + '<button class="btn g sm" id="dtPasteBtn" style="margin-top:8px">📋 붙여넣기 · 파일로 채우기</button>'
           + '<div id="dtPasteBox" hidden>'
+          +   '<div class="ptar">'
+          +     '<span class="bw">어디에 넣을까요</span>'
+          +     '<select id="dtPasteTarget">'
+          +       '<option value="cur">이번 회차 값</option>'
+          +       '<option value="prev">지난 회차 값 (전월)</option>'
+          +     '</select>'
+          +   '</div>'
           +   '<textarea id="dtPasteText" class="pastebox" '
-          +     'placeholder="엑셀·워드의 표를 골라 복사해서 여기에 붙여넣으세요 (Ctrl+V)"></textarea>'
-          +   '<div class="hint" id="dtPasteHint"></div>'
+          +     'placeholder="표를 복사해 여기에 붙여넣으세요 (Ctrl+V) — 또는 파일을 이 칸에 끌어다 놓으세요"></textarea>'
+          +   '<div id="dtPasteWrap"></div>'
           +   '<div style="display:flex;gap:7px;margin-top:8px">'
           +     '<button class="btn sm" id="dtPasteGo">넣기</button>'
           +     '<button class="btn g sm" id="dtPasteClose">닫기</button></div>'
@@ -5863,29 +5870,48 @@ const CenterDocs = (function () {
         + '</div>'
         + '</div>';
       drawFields(); drawRows(); drawPrevHand(); paintPaper(); drawWho();
-      // 붙여넣어 채우기 — 파일 규칙이 없는 문서에서 손으로 옮겨 적는 일을 없앤다
-      let pasteRes=null;
+      // 붙여넣기·파일로 채우기 — 표를 읽고 «어느 열이 값인지» 를 고르게 한다
       $('dtPasteBtn') && $('dtPasteBtn').addEventListener('click',openPaste);
       $('dtPasteClose') && $('dtPasteClose').addEventListener('click',()=>{ $('dtPasteBox').hidden=true; });
-      $('dtPasteText') && $('dtPasteText').addEventListener('input',function(){
-        const pairs=parsePasted(this.value);
-        pasteRes = pairs.length? matchPasted(cur,pairs) : null;
-        drawPasteHint(pasteRes);
+      $('dtPasteTarget') && $('dtPasteTarget').addEventListener('change',function(){
+        PG.target=this.value; recompute();
       });
+      $('dtPasteText') && $('dtPasteText').addEventListener('input',function(){
+        takeGrid(gridFromText(this.value),'붙여넣은 글자');
+      });
+      // 파일을 끌어다 놓아도 된다 — 엑셀·결재문서(.mht)·워드·메모장
+      const pt=$('dtPasteText');
+      if(pt){
+        ['dragenter','dragover'].forEach(x=>pt.addEventListener(x,ev=>{ev.preventDefault();pt.classList.add('over');}));
+        ['dragleave','drop'].forEach(x=>pt.addEventListener(x,ev=>{ev.preventDefault();pt.classList.remove('over');}));
+        pt.addEventListener('drop',async ev=>{
+          ev.preventDefault();
+          const f=ev.dataTransfer.files[0]; if(!f) return;
+          pt.value='('+f.name+' 을 읽는 중…)';
+          try{ const g=await gridFromFile(f); pt.value='('+f.name+')'; takeGrid(g, f.name); }
+          catch(e){ pt.value=''; takeGrid([],''); alert('읽지 못했습니다: '+e.message); }
+        });
+      }
       $('dtPasteGo') && $('dtPasteGo').addEventListener('click',()=>{
-        if(!pasteRes||!pasteRes.hit.length){ alert('넣을 것을 못 찾았습니다.'); return; }
+        const res=PG&&PG.res;
+        if(!res||!res.hit.length){ alert('넣을 것을 못 찾았습니다.'); return; }
         // ⚠ 조용히 덮지 않는다 — 이미 값이 있던 칸이 몇 개인지 먼저 밝힌다
-        const over=pasteRes.hit.filter(h=>!isBlank(h.was));
+        const over=res.hit.filter(h=>!isBlank(h.was));
         if(over.length && !confirm(over.length+'칸은 이미 값이 있습니다:\n'
           + over.map(h=>'  · '+h.label+'  '+h.was+' → '+h.now).join('\n')
           + '\n\n덮어쓸까요?')) return;
-        for(const h of pasteRes.hit){
-          vals[cur.id][h.key]=h.now;
-          srcs[cur.id][h.key]='붙여넣기';
-          delete autos[cur.id][h.key];
+        if(PG.target==='prev'){
+          const P=vals[cur.id].__prev=vals[cur.id].__prev||{};
+          for(const h of res.hit) P[h.key]=h.now;
+        } else {
+          for(const h of res.hit){
+            vals[cur.id][h.key]=h.now;
+            srcs[cur.id][h.key]='붙여넣기';
+            delete autos[cur.id][h.key];
+          }
         }
         $('dtPasteBox').hidden=true;
-        drawFields(); bindFields(); paintPaper(); paintFoot();
+        drawFields(); bindFields(); drawPrevHand(); paintPaper(); paintFoot();
       });   // paintPaper 가 저절로 채우는 칸도 함께 그린다
       if(d.slot){
         const el=$('dtDrop');
@@ -6182,91 +6208,256 @@ const CenterDocs = (function () {
     }
 
     /* 첫 회차라 지난 회차가 없을 때, 전월값을 손으로 받는다 */
-    /* ══════════════════════════════════════════════════════════════
-       붙여넣어 값 채우기 — 엑셀·워드·메모장 어디서 복사해도 된다.
-
-       파일에서 값을 읽는 규칙(slot)이 없는 문서가 실제로 많다. 그런 문서는
-       지금까지 칸마다 손으로 옮겨 적어야 했다. 대신 **표를 통째로 복사해서
-       붙여넣으면** 칸 이름을 찾아 값을 넣는다.
-
-       읽는 모양 세 가지:
-         엑셀에서 복사   →  탭으로 갈린 줄        인입호<TAB>28,204
-         워드 표 복사    →  같은 모양(탭)
-         메모장·본문     →  «이름 : 값» / «이름  값»  인입호 : 28,204건
-
-       ⚠ 넣기 전에 **무엇을 어디에 넣을지 보여주고 확인받는다.** 조용히 덮으면
-         잘못 붙여넣었을 때 알아채지 못한다.
-       ⚠ 이름이 딱 맞지 않아도 찾는다(공백·단위·«전월» 같은 꼬리표를 떼고 견준다).
-         다만 **비슷하다고 아무거나 넣지 않는다** — 못 찾은 것은 그대로 둔다.
-       ══════════════════════════════════════════════════════════════ */
-
     const normKey=(s)=>String(s||'').replace(/\s|[()[\]{}]/g,'')
       .replace(/[·:：\-_/]/g,'').toLowerCase();
 
-    /** 붙여넣은 글자에서 «이름 → 값» 짝을 뽑는다 */
-    function parsePasted(text){
-      const out=[];
-      for(const raw of String(text||'').split(/\r?\n/)){
-        const line=raw.trim(); if(!line) continue;
-        let name='', val='';
-        if(line.indexOf('\t')>=0){                       // 엑셀·워드 표
-          const c=line.split('\t').map(x=>x.trim()).filter(x=>x!=='');
-          if(c.length<2) continue;
-          name=c[0]; val=c[c.length-1];                  // 맨 끝 칸을 값으로 본다
-        } else {
-          const m=/^(.+?)\s*[:：]\s*(.+)$/.exec(line)     // 이름 : 값
-              || /^(.+?)\s{2,}(.+)$/.exec(line);         // 이름   값 (공백 둘 이상)
-                 // ⚠ \D(숫자 아님)로 이름을 잡으면 «1일 평균 상담건수» 처럼
-                 //    숫자로 시작하는 이름을 통째로 놓친다.
-          if(!m) continue;
-          name=m[1].trim(); val=m[2].trim();
-        }
-        if(!name||!val) continue;
-        out.push({ name, val });
-      }
-      return out;
+    /* ══════════════════════════════════════════════════════════════
+       붙여넣기·파일로 값 채우기 — 표를 통째로 읽고 **어느 열을 쓸지 고른다.**
+
+       예전에는 «맨 끝 칸을 값으로» 보았다. 그런데 실제 공문 표는
+           구분 | 전월 실적 | 8월 실적 | 증감
+       이라서 맨 끝이 **증감**이다. 그래서 인입호에 «▼ 3,181건» 이 들어갔다.
+       열이 무엇인지는 표가 말해준다 — 머리글로 짐작하고, 틀리면 **사람이 고른다.**
+
+       받는 것: 붙여넣은 글자 · 엑셀(.xlsx/.xls/.csv) · 결재 문서(.mht/.html) ·
+                워드(.docx) · 메모장(.txt)
+       넣는 곳: 이번 회차 값 / 지난 회차 값(전월)
+       ══════════════════════════════════════════════════════════════ */
+
+    const cellTxt = (s) => String(s == null ? '' : s).replace(/ /g,' ').replace(/\s+/g,' ').trim();
+
+    /** 붙여넣은 글자를 표로 —  탭 > 쉼표 > 공백 둘 이상 > «이름 : 값» 순으로 본다 */
+    function gridFromText(text){
+      const lines=String(text||'').split(/\r?\n/).filter(l=>l.trim()!=='');
+      if(!lines.length) return [];
+      // 절반 이상의 줄에 있으면 그것으로 가른다. 한 줄만 붙여넣어도 되게 1줄부터 본다.
+      const has=(re)=>{ const n=lines.filter(l=>re.test(l)).length;
+        return n>=1 && n>=lines.length*0.5; };
+      /* ⚠ 쉼표로 가르지 않는다 — «28,204» 의 쉼표는 **자릿수 쉼표**다.
+            쉼표로 가르면 «인입호 28» 과 «204» 로 쪼개진다(실제로 그랬다).
+            .csv 파일은 엑셀 읽개(gridFromXlsx)가 제대로 읽는다. */
+      let split;
+      if(has(/\t/))              split=(l)=>l.split('\t');
+      else if(has(/\s{2,}/))     split=(l)=>l.split(/\s{2,}/);
+      else if(has(/[:：]/))      split=(l)=>{ const m=/^(.+?)\s*[:：]\s*(.*)$/.exec(l); return m?[m[1],m[2]]:[l]; };
+      else                       split=(l)=>[l];
+      return lines.map(l=>split(l).map(cellTxt)).filter(r=>r.some(c=>c!==''));
     }
 
-    /** 뽑은 짝을 이 문서의 칸에 맞춰본다 */
-    function matchPasted(d,pairs){
-      const fields=fieldsOf(d);
-      const hit=[], miss=[];
-      const used={};
-      for(const p of pairs){
-        const n=normKey(p.name);
-        // ① 이름이 똑같은 것  ② 이름이 서로를 품는 것 (단위·꼬리표 차이)
-        let f=fields.find(x=>normKey(x.key)===n||normKey(x.label)===n);
+    /** HTML(결재 .mht 포함) 에서 가장 큰 표를 표로 */
+    function gridFromHtml(html){
+      const best=(function(){
+        const all=[]; const stack=[];
+        const re=/<(\/?)table\b[^>]*>/gi; let m;
+        while((m=re.exec(html))){
+          if(!m[1]) stack.push(m.index);
+          else { const s0=stack.pop(); if(s0!==undefined) all.push(html.slice(s0,m.index+m[0].length)); }
+        }
+        return all.map(t=>({ t, rows:bodyRows(t).filter(r=>r.cells.length>=2) }))
+                  .sort((a,b)=>b.rows.length-a.rows.length)[0];
+      })();
+      if(!best||!best.rows.length) return [];
+      return best.rows.map(r=>r.cells.map(c=>cellTxt(c.text))).filter(r=>r.some(c=>c!==''));
+    }
+
+    /** .docx — zip 안의 word/document.xml 을 풀어 표를 읽는다.
+        브라우저의 DecompressionStream('deflate-raw') 로 푼다(라이브러리 없이). */
+    async function gridFromDocx(file){
+      const buf=new Uint8Array(await file.arrayBuffer());
+      const dv=new DataView(buf.buffer);
+      // 끝에서 EOCD 를 찾아 중앙 목록을 읽는다
+      let eo=-1;
+      for(let i=buf.length-22;i>=0&&i>buf.length-70000;i--)
+        if(dv.getUint32(i,true)===0x06054b50){ eo=i; break; }
+      if(eo<0) throw new Error('워드 파일을 읽지 못했습니다.');
+      const n=dv.getUint16(eo+10,true); let p=dv.getUint32(eo+16,true);
+      let ent=null;
+      for(let i=0;i<n;i++){
+        const nl=dv.getUint16(p+28,true), el=dv.getUint16(p+30,true), cl=dv.getUint16(p+32,true);
+        const name=new TextDecoder().decode(buf.subarray(p+46,p+46+nl));
+        if(name==='word/document.xml'){
+          ent={ off:dv.getUint32(p+42,true), method:dv.getUint16(p+10,true), size:dv.getUint32(p+24,true) };
+          break;
+        }
+        p+=46+nl+el+cl;
+      }
+      if(!ent) throw new Error('워드 본문을 찾지 못했습니다.');
+      const lo=ent.off;
+      const nl2=dv.getUint16(lo+26,true), el2=dv.getUint16(lo+28,true);
+      const start=lo+30+nl2+el2;
+      const raw=buf.subarray(start, start+ (ent.method===0? ent.size : buf.length-start));
+      let xml;
+      if(ent.method===0) xml=new TextDecoder().decode(raw);
+      else {
+        const ds=new DecompressionStream('deflate-raw');
+        const ab=await new Response(new Blob([raw]).stream().pipeThrough(ds)).arrayBuffer();
+        xml=new TextDecoder().decode(ab);
+      }
+      // 표가 있으면 표를, 없으면 문단을 줄로
+      const tbls=[...xml.matchAll(/<w:tbl>[\s\S]*?<\/w:tbl>/g)].map(m=>m[0]);
+      /* ⚠ <w:t[^>]*> 로 쓰면 <w:tc> · <w:tr> · <w:tbl> 까지 잡힌다(모두 w:t 로 시작한다).
+            그러면 칸 값에 XML 조각이 섞인다 — 실제로 그랬다.
+            태그 이름이 **딱 w:t** 일 때만(바로 닫히거나 공백이 오는 것) 잡는다. */
+      const cellOf=(c)=>cellTxt([...c.matchAll(/<w:t(?:\s[^>]*)?>([\s\S]*?)<\/w:t>/g)]
+        .map(x=>x[1]).join('')
+        .replace(/&lt;/g,'<').replace(/&gt;/g,'>').replace(/&amp;/g,'&'));
+      if(tbls.length){
+        const g=tbls.map(t=>[...t.matchAll(/<w:tr[\s>][\s\S]*?<\/w:tr>/g)]
+          .map(r=>[...r[0].matchAll(/<w:tc>[\s\S]*?<\/w:tc>/g)].map(c=>cellOf(c[0]))))
+          .sort((a,b)=>b.length-a.length)[0];
+        if(g&&g.length) return g.filter(r=>r.some(c=>c!==''));
+      }
+      const paras=[...xml.matchAll(/<w:p[\s>][\s\S]*?<\/w:p>/g)].map(m=>cellOf(m[0])).filter(Boolean);
+      return gridFromText(paras.join('\n'));
+    }
+
+    /** 엑셀 — 이미 쓰는 SheetJS 를 그대로 (줄이 가장 많은 시트) */
+    async function gridFromXlsx(file){
+      const X=await ensureXlsx();
+      const wb=X.read(await file.arrayBuffer(),{type:'array'});
+      let best=[];
+      for(const nm of wb.SheetNames){
+        const g=X.utils.sheet_to_json(wb.Sheets[nm],{header:1,blankrows:false,defval:''})
+          .map(r=>r.map(cellTxt)).filter(r=>r.some(c=>c!==''));
+        if(g.length>best.length) best=g;
+      }
+      return best;
+    }
+
+    /** 무슨 파일이든 표로 만든다 */
+    async function gridFromFile(file){
+      const n=(file.name||'').toLowerCase();
+      if(/\.(xlsx|xls|csv)$/.test(n))      return await gridFromXlsx(file);
+      if(/\.(mht|mhtml)$/.test(n))         return gridFromHtml(mhtToHtml(await file.text()));
+      if(/\.(html?|htm)$/.test(n))         return gridFromHtml(await file.text());
+      if(/\.docx$/.test(n))                return await gridFromDocx(file);
+      if(/\.(txt|tsv|md)$/.test(n))        return gridFromText(await file.text());
+      if(/\.doc$/.test(n))
+        throw new Error('옛 워드(.doc)는 못 읽습니다. 워드에서 표를 복사해 붙여넣어 주세요.');
+      // 모르는 것은 글자로 열어본다
+      return gridFromText(await file.text());
+    }
+
+    /* ── 어느 열이 «이번 달 값» 인가 ────────────────────────────────
+       머리글로 짐작한다. 전월·증감 열을 **피하는 것이 핵심**이다 —
+       맨 끝 칸을 쓰면 «증감» 열의 ▼3,181 이 인입호에 들어간다(실제로 그랬다). */
+    function guessValueCol(grid){
+      if(!grid.length) return 1;
+      const w=Math.max(...grid.map(r=>r.length));
+      if(w<2) return 0;
+      const head=grid[0].map(cellTxt);
+      const bad=/전월|전달|지난|누계|누적|증감|대비|차이|구분|항목|비고/;
+      const good=/당월|이번|금월|당해|실적|값|계/;
+      let best=-1, score=-1e9;
+      for(let c=1;c<w;c++){
+        const h=head[c]||'';
+        let sc=0;
+        if(bad.test(h)) sc-=100;
+        if(good.test(h)) sc+=30;
+        if(/^\d{1,2}\s*월/.test(h)||/\d{4}\s*년/.test(h)) sc+=40;   // «8월 실적»
+        // 숫자가 많이 든 열일수록 값 열일 가능성이 높다
+        let nums=0, tot=0;
+        for(let r=1;r<grid.length;r++){ const v=(grid[r]||[])[c]; if(v===undefined||v==='') continue;
+          tot++; if(num(v)!==null) nums++; }
+        if(tot) sc += (nums/tot)*20;
+        sc += c*0.4;                                    // 뒤쪽 열이 대개 최근 값이다
+        if(sc>score){ score=sc; best=c; }
+      }
+      return best<0?1:best;
+    }
+
+    /** 표에서 «이름 → 값» 을 뽑아 이 문서 칸에 맞춘다 */
+    function matchGrid(d,grid,col,target){
+      const fields = target==='prev' ? prevNeeded(d).map(k=>({key:k,label:k,type:'number'}))
+                                     : fieldsOf(d);
+      const cur = target==='prev' ? ((vals[d.id]||{}).__prev||{}) : (vals[d.id]||{});
+      const hit=[], miss=[], used={};
+      for(let r=0;r<grid.length;r++){
+        const nameRaw=(grid[r]||[])[0], valRaw=(grid[r]||[])[col];
+        const name=cellTxt(nameRaw), val=cellTxt(valRaw);
+        if(!name||val==='') continue;
+        const nk=normKey(name);
+        let f=fields.find(x=>normKey(x.key)===nk||normKey(x.label)===nk);
         if(!f) f=fields.find(x=>{ const k=normKey(x.key);
-          return k.length>1&&n.length>1&&(k.indexOf(n)>=0||n.indexOf(k)>=0); });
-        if(!f||used[f.key]){ miss.push(p); continue; }
+          return k.length>1&&nk.length>1&&(k.indexOf(nk)>=0||nk.indexOf(k)>=0); });
+        if(!f||used[f.key]){ if(name) miss.push({name,val}); continue; }
         used[f.key]=1;
-        // 숫자 칸이면 숫자만 남긴다 — «28,204건» 에서 건을 뗀다
-        const v = f.type==='number' ? (num(p.val)===null? p.val : String(num(p.val))) : p.val;
-        hit.push({ key:f.key, label:f.label||f.key, was:vals[d.id][f.key], now:v, from:p.name });
+        const v = (f.type==='number'&&num(val)!==null) ? String(num(val)) : val;
+        hit.push({ key:f.key, label:f.label||f.key, was:cur[f.key], now:v, from:name });
       }
       return { hit, miss };
     }
 
+    /* ── 붙여넣기·파일 화면 ──────────────────────────────────────── */
+    let PG = null;          // { grid, col, target, res }
+
     function openPaste(){
-      const d=cur;
-      if(!fieldsOf(d).length){ alert('넣을 값 자리가 없습니다.'); return; }
       const box=$('dtPasteBox'); if(!box) return;
       box.hidden=!box.hidden;
-      if(!box.hidden){ const t=$('dtPasteText'); if(t){ t.value=''; t.focus(); } drawPasteHint(null); }
+      if(box.hidden) return;
+      PG={ grid:[], col:1, target:'cur', res:null };
+      const t=$('dtPasteText'); if(t){ t.value=''; t.focus(); }
+      drawPaste();
     }
-    function drawPasteHint(res){
-      const el=$('dtPasteHint'); if(!el) return;
-      if(!res){ el.innerHTML='<span style="color:var(--dim)">엑셀·워드의 표를 그대로 골라 복사해서 붙여넣으세요. '
-        + '메모장이라면 «인입호 : 28,204» 처럼 한 줄에 하나씩이면 됩니다.</span>'; return; }
-      if(!res.hit.length){ el.innerHTML='<b style="color:var(--err)">넣을 것을 못 찾았습니다.</b> '
-        + '칸 이름이 붙여넣은 글자에 그대로 있어야 찾습니다 — 이름을 바꾸거나 직접 넣어주세요.'; return; }
-      el.innerHTML='<b style="color:var(--ok)">'+res.hit.length+'칸을 찾았습니다.</b> 확인하고 «넣기» 를 누르세요.'
-        + '<div class="pastelist">'+res.hit.map(h=>
-            '<div class="pl"><span class="k">'+esc(h.label)+'</span>'
-            + (isBlank(h.was)? '' : '<span class="was">'+esc(h.was)+' →</span>')
-            + '<span class="now">'+esc(h.now)+'</span>'
-            + '<span class="src">'+esc(h.from)+'</span></div>').join('')+'</div>'
-        + (res.miss.length? '<div style="margin-top:6px;color:var(--dim)">못 찾은 줄 '+res.miss.length+'개는 그대로 둡니다.</div>':'');
+
+    function takeGrid(grid,how){
+      PG.grid=grid||[];
+      PG.col=guessValueCol(PG.grid);
+      PG.how=how||'';
+      recompute();
+    }
+    function recompute(){
+      PG.res = PG.grid.length ? matchGrid(cur,PG.grid,PG.col,PG.target) : null;
+      drawPaste();
+    }
+
+    function drawPaste(){
+      const box=$('dtPasteWrap'); if(!box||!PG) return;
+      const g=PG.grid, w=g.length? Math.max(...g.map(r=>r.length)) : 0;
+      let h='';
+
+      if(!g.length){
+        h+='<div class="hint">엑셀·워드의 표를 골라 복사해 위에 붙여넣거나, '
+          +'<b>파일을 끌어다 놓으세요</b> — 엑셀(.xlsx·.csv) · 결재문서(.mht) · 워드(.docx) · 메모장(.txt).<br>'
+          +'메모장이라면 «인입호 : 28,204» 처럼 한 줄에 하나씩이어도 됩니다.</div>';
+      } else {
+        // 읽은 표 + 어느 열을 쓸지 고르기
+        h+='<div class="hint" style="margin-bottom:6px">'+(PG.how?esc(PG.how)+' · ':'')
+          +'표 '+g.length+'줄 · '+w+'칸을 읽었습니다. <b>값이 든 열을 골라주세요.</b></div>'
+          +'<div class="gwrap"><table class="gtbl"><tr><th></th>'
+          + Array.from({length:w},(_,c)=>c===0? '<th class="lbl">이름</th>'
+              : '<th><button class="colb'+(c===PG.col?' on':'')+'" data-col="'+c+'">'
+                +(c===PG.col?'✓ 이 열':'이 열')+'</button></th>').join('')
+          +'</tr>'
+          + g.slice(0,7).map((r,ri)=>'<tr><td class="rn">'+(ri+1)+'</td>'
+              + Array.from({length:w},(_,c)=>'<td'+(c===PG.col?' class="on"':(c===0?' class="lbl"':''))+'>'
+                  +esc(cellTxt(r[c]||''))+'</td>').join('')+'</tr>').join('')
+          + '</table></div>'
+          + (g.length>7? '<div class="hint">…모두 '+g.length+'줄</div>':'');
+      }
+
+      const res=PG.res;
+      if(res){
+        if(!res.hit.length)
+          h+='<div class="hint" style="color:var(--err)"><b>넣을 것을 못 찾았습니다.</b> '
+            +'표의 <b>첫 열</b>에 칸 이름이 있어야 찾습니다. 다른 열을 골라보시거나 이름을 맞춰주세요.</div>';
+        else {
+          h+='<div class="hint" style="color:var(--ok)"><b>'+res.hit.length+'칸을 찾았습니다.</b> 확인하고 «넣기» 를 누르세요.</div>'
+            +'<div class="pastelist">'+res.hit.map(x=>
+              '<div class="pl"><span class="k">'+esc(x.label)+'</span>'
+              +(isBlank(x.was)?'':'<span class="was">'+esc(x.was)+' →</span>')
+              +'<span class="now">'+esc(x.now)+'</span>'
+              +'<span class="src">'+esc(x.from)+'</span></div>').join('')+'</div>';
+          if(res.miss.length)
+            h+='<div class="hint">못 찾은 줄 '+res.miss.length+'개는 그대로 둡니다 — '
+              +esc(res.miss.slice(0,4).map(m=>m.name).join(' · '))+(res.miss.length>4?' …':'')+'</div>';
+        }
+      }
+      box.innerHTML=h;
+
+      box.querySelectorAll('[data-col]').forEach(b=>b.addEventListener('click',()=>{
+        PG.col=+b.dataset.col; recompute();
+      }));
     }
 
     function drawPrevHand(){
@@ -6562,6 +6753,7 @@ const CenterDocs = (function () {
     }
     /** 저절로 채우는 칸을 보여준다 — 넣는 칸이 아니라 **결과를 확인하는** 칸이다.
         무엇에서 나온 값인지 한 줄로 밝힌다. 합계는 틀려도 티가 안 나서 위험하다. */
+    let autoOpen=false;   // 저절로 채우는 칸은 **처음엔 접어 둔다** — 넣는 칸이 아니라 결과를 보는 칸이다
     function paintAuto(){
       const d=cur, box=$('dtAuto'); if(!box) return;
       const auto=d.autoFields||[];
@@ -6572,16 +6764,24 @@ const CenterDocs = (function () {
       // 왜 그 값이 나왔는지는 **규칙이 직접 말해준다**(computeAuto 가 whyOut 에 담아준다).
       // 예전에는 여기에 if 사슬을 또 두어, 계산을 고치면 설명이 따로 놀았다.
       const how=(a)=>WHY[a.key]||'';
-      box.innerHTML='<div class="ttl" style="margin-top:16px">저절로 채우는 칸 — 묻지 않습니다</div>'
-        + '<div class="autolist">'+auto.map(a=>{
+      box.innerHTML='<div class="ttl fold'+(autoOpen?'':' closed')+'" id="dtAutoTtl" '
+        + 'style="margin-top:16px;cursor:pointer" title="눌러서 접었다 폈다 합니다">'
+        + '<span class="ar">▾</span>저절로 채우는 칸 — 묻지 않습니다 '
+        + '<span class="cnt">'+auto.length+'개</span></div>'
+        + '<div class="autolist"'+(autoOpen?'':' hidden')+'>'+auto.map(a=>{
             const v=V[a.key], has=!isBlank(v);
             return '<div class="ar"><span class="k">'+esc(a.key)+'</span>'
               +'<span class="kd">'+esc(KIND_KO[a.kind]||a.kind)+'</span>'
               +'<span class="v'+(has?'':' none')+'">'+esc(has?v:'—')+'</span>'
               +'<span class="hw">'+esc(how(a))+'</span></div>';
           }).join('')+'</div>'
-        + (pv? '' : '<div class="hint">지난 회차 저장이 없어 <b>전월값과 차이가 비어 있습니다.</b> '
-            +'지난 달을 한 번 저장해 두면 그때부터 저절로 채워집니다.</div>');
+        + (autoOpen && !pv
+            ? '<div class="hint">지난 회차 저장이 없어 <b>전월값과 차이가 비어 있습니다.</b> '
+              +'위의 <b>지난 회차 값</b> 에 손으로 넣거나, 지난 달을 한 번 저장해 두면 그때부터 저절로 채워집니다.</div>'
+            : '');
+      // 눌러서 접었다 폈다 — 넣는 칸이 아니라 «결과를 보는 칸» 이라 처음엔 접어 둔다
+      const t=$('dtAutoTtl');
+      if(t) t.addEventListener('click',()=>{ autoOpen=!autoOpen; paintAuto(); });
     }
 
     /** 값 칸 끝의 저장 바 — 무엇이 남았는지 말하고, 그 자리에서 저장한다 */
@@ -6787,7 +6987,15 @@ const CenterDocs = (function () {
         st.className='xs err'; st.textContent='읽지 못했습니다 — '+(e.message||e);
       }
     }
-    const num=(v)=>{ if(isBlank(v)) return null; const n=Number(String(v).replace(/[,\s]/g,''));
+    /* 숫자로 읽는다. ⚠ 뒤에 붙은 단위는 떼고 읽는다 — 실제 공문 값은
+       «31,385건» · «99.8%» · «186명» 처럼 단위를 달고 온다. 단위 때문에 숫자로
+       못 읽으면 증감·부가세·합계가 통째로 안 나온다(실제로 그랬다).
+       숫자로 **시작하지 않으면** 값이 없는 것으로 본다 — «열개» 를 0 으로 읽으면 안 된다. */
+    const num=(v)=>{ if(isBlank(v)) return null;
+      const s=String(v).replace(/[,\s]/g,'');
+      const m=/^[+-]?\d+(?:\.\d+)?/.exec(s);
+      if(!m) return null;
+      const n=Number(m[0]);
       return isFinite(n)?n:null; };
     const comma=(v)=>{ const a=String(v).split('.');
       return a[0].replace(/\B(?=(\d{3})+(?!\d))/g,',')+(a[1]!==undefined?'.'+a[1]:''); };
@@ -6822,7 +7030,9 @@ const CenterDocs = (function () {
         AUTO_OPS: AUTO_OPS, ROW_OPS: ROW_OPS,
         repeatRows: repeatRows, expandRepeat: expandRepeat, hasRepeat: hasRepeat,
         allWeekdays: allWeekdays, nthWeekday: nthWeekday, shiftOff: shiftOff,
-        titleForYm: titleForYm, parsePasted: parsePasted, normKey: normKey,
+        titleForYm: titleForYm, normKey: normKey,
+        gridFromText: gridFromText, gridFromHtml: gridFromHtml,
+        guessValueCol: guessValueCol, matchGrid: matchGrid, cellTxt: cellTxt,
         prevNeeded: prevNeeded, slotsFromTable: slotsFromTable, bodyRows: bodyRows,
         setYm: function(y){ curYm=y; },
         isBlank: isBlank, num: num, comma: comma, XE: XE,
