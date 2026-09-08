@@ -1266,6 +1266,48 @@ Deno.serve(async (req) => {
       return json({ success: true }, 200);
     }
 
+    // ---------- 공휴일표 읽기 (전체 공용) ----------
+    // 날짜 규칙이 «쉬는 날» 을 판단하려면 이 표가 있어야 한다.
+    // 센터 토큰으로도 읽을 수 있다 — 값을 넣는 화면이 날짜를 계산해야 하기 때문이다.
+    // 고치는 것은 관리자만.
+    if (action === 'holidays-get' && req.method === 'GET') {
+      const workspacePw = url.searchParams.get('workspace_password') || '';
+      const token = url.searchParams.get('token') || '';
+      if (!(await isWorkspaceAuthorized(req, workspacePw))) {
+        if (!token) return json({ success: false, error: '권한이 없습니다.' }, 403);
+        const { data: c } = await supabase.from('center_config').select('center_code').eq('upload_token', token).maybeSingle();
+        if (!c) return json({ success: false, error: '유효하지 않은 토큰입니다.' }, 403);
+      }
+      const { data, error } = await supabase.from('workspace_config').select('holidays').limit(1).maybeSingle();
+      if (error) return json({ success: false, error: error.message }, 500);
+      return json({ success: true, holidays: (data && data.holidays) || {} }, 200);
+    }
+
+    // ---------- 공휴일표 저장 (관리자만) ----------
+    if (action === 'holidays-save' && req.method === 'POST') {
+      const body = await req.json();
+      if (!(await isWorkspaceAuthorized(req, body.workspace_password || ''))) {
+        return json({ success: false, error: '권한이 없습니다.' }, 403);
+      }
+      const h = body.holidays;
+      if (!h || typeof h !== 'object' || Array.isArray(h)) {
+        return json({ success: false, error: '공휴일표 모양이 올바르지 않습니다.' }, 400);
+      }
+      // 서버가 다시 거른다 — 화면 검사만 믿지 않는다. 날짜꼴이 아닌 것은 버린다.
+      const clean: Record<string, string> = {};
+      for (const k of Object.keys(h)) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(k)) continue;
+        const d = new Date(k + 'T00:00:00Z');
+        if (isNaN(d.getTime()) || d.toISOString().slice(0, 10) !== k) continue;   // 2월 30일 같은 것
+        clean[k] = String(h[k] || '').slice(0, 40);
+      }
+      const { data: row } = await supabase.from('workspace_config').select('id').limit(1).maybeSingle();
+      if (!row) return json({ success: false, error: 'workspace_config 행이 없습니다.' }, 500);
+      const { error } = await supabase.from('workspace_config').update({ holidays: clean }).eq('id', row.id);
+      if (error) return json({ success: false, error: '저장 실패: ' + error.message }, 500);
+      return json({ success: true, count: Object.keys(clean).length }, 200);
+    }
+
     // ============================================
     // 담당자 링크 — 문서 담당자가 로그인 없이 값만 넣어 보내는 화면(m.html)용.
     //

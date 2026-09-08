@@ -3945,6 +3945,7 @@ const CenterDocs = (function () {
       '<div class="tools">'
     +   '<label class="search"><span class="ic">🔍</span>'
     +     '<input id="docQ" placeholder="문서 이름 · 종류로 찾기" autocomplete="off"></label>'
+    +   '<button class="btn g" id="docHolBtn" title="날짜 규칙이 «쉬는 날» 을 판단할 때 씁니다">📅 공휴일</button>'
     +   '<button class="btn" id="docAdd">+ .mht 가져오기</button>'
     + '</div>'
     + '<div class="chips" id="docKinds"></div>'
@@ -3977,7 +3978,8 @@ const CenterDocs = (function () {
     +     '<button class="btn" id="pvAdd">이대로 문서 만들기</button></div>'
     + '</div>'
     + '<div id="docList"></div>'
-    + '<div id="docDetail" hidden></div>';
+    + '<div id="docDetail" hidden></div>'
+    + '<div id="docHol" hidden></div>';
 
   function boot() {
 
@@ -4106,6 +4108,7 @@ const CenterDocs = (function () {
       $('docList').hidden  = v!=='list';
       if(v!=='list') $('docPrev').hidden=true;
       $('docDetail').hidden  = v!=='doc';
+      $('docHol').hidden     = v!=='hol';
       if(v!=='doc') cur=null;
     }
     /** 목록으로 돌아와 다시 그린다 — 사이드바·칩·검색이 공통으로 부른다 */
@@ -4970,6 +4973,132 @@ const CenterDocs = (function () {
     }
 
     /** 「.mht 가져오기」 화면의 되풀이 줄 칸 */
+    /* ══════════════════════════════════════════════════════════════
+       공휴일표 — 날짜 규칙이 «쉬는 날» 을 판단하는 데 쓴다.
+
+       ⚠ 센터마다·문서마다 다르지 않다. 그래서 **전체가 한 표를 함께 본다**
+         (workspace_config.holidays). 문서에 따로 두면 문서를 만들 때마다 같은 표를
+         다시 넣어야 하고, 대체공휴일 하나 생기면 문서 수만큼 고쳐야 한다.
+       문서에 딸린 표(center_documents.holidays)는 «그 문서만의 예외» 로 위에 얹는다.
+
+       ⚠ 표가 비어 있으면 **주말만** 보고, 화면이 그 사실을 밝힌다.
+         조용히 틀린 날짜를 내는 것보다 «무엇을 못 봤는지» 를 말하는 편이 낫다.
+       ══════════════════════════════════════════════════════════════ */
+    let HOLIDAYS = {};            // 전체 공용 표 (서버에서 읽어온다)
+    let holLoaded = false;
+
+    async function loadHolidays(){
+      try{
+        const d = await docGet('holidays-get','');
+        HOLIDAYS = d.holidays || {};
+      }catch(e){ HOLIDAYS = {}; }
+      holLoaded = true;
+    }
+
+    /* 값을 넣을 때 쓰는 문서 — 전체 표 위에 그 문서 예외를 얹는다 */
+    function withHolidays(d){
+      if(!d) return d;
+      const merged = Object.assign({}, HOLIDAYS, d.holidays || {});
+      return Object.assign({}, d, { holidays: merged });
+    }
+
+    /* 예시용 기본표 — 넣어 두고 **반드시 눈으로 확인**하시라고 안내한다.
+       대체공휴일은 해마다 달라져서 여기 적힌 것이 틀릴 수 있다. */
+    const HOL_SEED_2026 = {
+      '2026-01-01':'신정',
+      '2026-02-16':'설 연휴','2026-02-17':'설날','2026-02-18':'설 연휴',
+      '2026-03-01':'삼일절','2026-03-02':'삼일절 대체',
+      '2026-05-05':'어린이날','2026-05-24':'부처님오신날','2026-05-25':'부처님오신날 대체',
+      '2026-06-06':'현충일','2026-08-15':'광복절',
+      '2026-09-24':'추석 연휴','2026-09-25':'추석','2026-09-26':'추석 연휴',
+      '2026-10-03':'개천절','2026-10-09':'한글날','2026-12-25':'성탄절',
+    };
+
+    let holEditing = null;        // 편집 중인 표 (저장 전)
+
+    function openHolidays(){
+      holEditing = Object.assign({}, HOLIDAYS);
+      showView('hol');
+      drawHolPane();
+      window.scrollTo({top:0});
+    }
+    function drawHolPane(){
+      const box=$('docHol'); if(!box) return;
+      const keys=Object.keys(holEditing).sort();
+      const byYear={};
+      for(const k of keys){ (byYear[k.slice(0,4)] = byYear[k.slice(0,4)] || []).push(k); }
+      const years=Object.keys(byYear).sort();
+      const admin = (typeof workspaceUnlocked!=='undefined') && workspaceUnlocked;
+
+      box.innerHTML='<div class="hp">'
+        + '<div class="ph"><b>공휴일표</b>'
+          + '<button class="x" id="holClose">×</button></div>'
+        + '<div class="pb">'
+        + '<div class="hint">날짜 규칙(<b>매월 n번째 ○요일 · 쉬는 날이면 다음 평일</b>)이 이 표를 봅니다.<br>'
+          + '<b>토·일은 넣지 않아도 됩니다</b> — 늘 쉬는 날로 봅니다. 여기엔 <b>공휴일만</b> 넣습니다.<br>'
+          + '이 표는 <b>모든 센터·모든 문서가 함께</b> 씁니다.</div>'
+        + (admin ? '' : '<div class="pnote warn">고치려면 관리자로 들어와야 합니다. 지금은 보기만 됩니다.</div>')
+        + (keys.length ? '' : '<div class="pnote warn">아직 표가 비어 있습니다 — 지금은 <b>주말만</b> 보고 있습니다.</div>')
+        + (admin
+            ? '<div class="holadd">'
+              + '<input type="date" id="holDate">'
+              + '<input type="text" id="holName" placeholder="이름 (예: 임시공휴일)">'
+              + '<button class="btn sm" id="holAdd">더하기</button>'
+              + '<span style="flex:1"></span>'
+              + '<button class="btn g sm" id="holSeed">2026년 기본 공휴일 넣기</button>'
+              + '</div>' : '')
+        + (years.length
+            ? years.map(y=>'<div class="holyear"><b>'+esc(y)+'년</b> <span>'+byYear[y].length+'일</span></div>'
+                + '<div class="hollist">' + byYear[y].map(k=>
+                    '<span class="holchip">'+esc(k.slice(5))+' '+esc(holEditing[k])
+                    + (admin? '<button data-hdel="'+esc(k)+'" title="빼기">×</button>' : '')
+                    + '</span>').join('') + '</div>').join('')
+            : '')
+        + '</div>'
+        + (admin
+            ? '<div class="pa"><span style="flex:1"></span>'
+              + '<button class="btn g" id="holCancel">취소</button>'
+              + '<button class="btn" id="holSave">저장</button></div>'
+            : '<div class="pa"><span style="flex:1"></span>'
+              + '<button class="btn g" id="holCancel">닫기</button></div>')
+        + '</div>';
+
+      const close=()=>{ holEditing=null; backToList(); };
+      $('holClose').addEventListener('click',close);
+      $('holCancel').addEventListener('click',close);
+      box.querySelectorAll('[data-hdel]').forEach(b=>b.addEventListener('click',()=>{
+        delete holEditing[b.dataset.hdel]; drawHolPane();
+      }));
+      const add=$('holAdd');
+      if(add) add.addEventListener('click',()=>{
+        const d=$('holDate').value, n=($('holName').value||'').trim();
+        if(!/^\d{4}-\d{2}-\d{2}$/.test(d)){ alert('날짜를 골라주세요.'); return; }
+        holEditing[d]= n || '공휴일';
+        $('holName').value=''; drawHolPane();
+      });
+      const seed=$('holSeed');
+      if(seed) seed.addEventListener('click',()=>{
+        if(!confirm('2026년 기본 공휴일을 넣습니다.\n\n'
+          + '⚠ 대체공휴일은 해마다 달라져서 **틀릴 수 있습니다.**\n'
+          + '넣은 뒤 반드시 눈으로 확인하고 고쳐주세요.\n\n'
+          + '이미 넣어둔 날짜는 그대로 둡니다.')) return;
+        holEditing = Object.assign({}, HOL_SEED_2026, holEditing);
+        drawHolPane();
+      });
+      const save=$('holSave');
+      if(save) save.addEventListener('click',()=>{
+        save.disabled=true; save.textContent='저장 중…';
+        docPost('holidays-save',{ holidays:holEditing })
+          .then(function(r){
+            HOLIDAYS = Object.assign({}, holEditing);
+            alert('공휴일 '+(r.count!==undefined?r.count:Object.keys(HOLIDAYS).length)+'일을 저장했습니다.');
+            holEditing=null; backToList();
+          })
+          .catch(function(e){ alert('저장하지 못했습니다: '+e.message); })
+          .then(function(){ save.disabled=false; save.textContent='저장'; });
+      });
+    }
+
     function drawRepeatPick(){
       const box=$('pvRepeat'); if(!box||!pending) return;
       const rows=bodyRows(pending.bodyA);
@@ -5331,6 +5460,8 @@ const CenterDocs = (function () {
       }).catch(function(e){ alert('문서를 만들지 못했습니다: '+e.message); });
     });
 
+    $('docHolBtn').addEventListener('click',openHolidays);
+
     // 목록 위의 큰 드롭 자리 — 넣으면 미리보기가 열린다
     $('docAdd').addEventListener('click',()=>{ analyze(); pickInto('a'); });
     const mht=$('docMht');
@@ -5596,7 +5727,7 @@ const CenterDocs = (function () {
       //    «사람이 넣은 값» 으로 취급돼, 달을 바꿔도 지난달 날짜가 그대로 남는다.
       //    V.__rows 에는 **사람이 손댄 것만** 담고, 나머지는 그때그때 규칙이 만든다.
       V.__rows = V.__rows || [];
-      const rows=repeatRows(d,curYm,V.__rows);
+      const rows=repeatRows(withHolidays(d),curYm,V.__rows);
       const cols=repCols(d);
       const by=d.repeat.by, opko=(ROW_OPS[by.kind]||{}).ko||by.kind;
       const made=by.kind==='weekdays'
@@ -6015,10 +6146,11 @@ const CenterDocs = (function () {
     /* ── 초안 그리기 — 지금 넣는 값과 저장 기록이 같은 함수를 쓴다 ──── */
     function paperHtml(d,raw,prevV){
       if(!d.body) return null;
-      const V=computeAuto(d, Object.assign({},raw||{}), prevV===undefined? prevSave(d,curYm) && prevSave(d,curYm).vals : prevV);
+      const V=computeAuto(withHolidays(d), Object.assign({},raw||{}), prevV===undefined? prevSave(d,curYm) && prevSave(d,curYm).vals : prevV);
       // 되풀이 줄을 먼저 펼친다 — 회차마다 줄 수가 달라진다
-      const rows=repeatRows(d,curYm,(raw||{}).__rows);
-      const body=expandRepeat(d.body,d,rows);
+      const dh=withHolidays(d);
+      const rows=repeatRows(dh,curYm,(raw||{}).__rows);
+      const body=expandRepeat(d.body,dh,rows);
       return body.replace(/\{\{([^}]+)\}\}/g,function(m,key){
         if(String(key).charAt(0)==='#') return m;   // 되풀이 줄 것은 위에서 이미 처리했다
         const v=V[key];
@@ -6038,7 +6170,7 @@ const CenterDocs = (function () {
       if(!auto.length){ box.innerHTML=''; return; }
       const pv=prevSave(d,curYm);
       const WHY={};
-      const V=computeAuto(d, Object.assign({},vals[d.id]||{}), pv? pv.vals : null, WHY);
+      const V=computeAuto(withHolidays(d), Object.assign({},vals[d.id]||{}), pv? pv.vals : null, WHY);
       // 왜 그 값이 나왔는지는 **규칙이 직접 말해준다**(computeAuto 가 whyOut 에 담아준다).
       // 예전에는 여기에 if 사슬을 또 두어, 계산을 고치면 설명이 따로 놀았다.
       const how=(a)=>WHY[a.key]||'';
@@ -6228,7 +6360,7 @@ const CenterDocs = (function () {
       draw: draw,
       backToList: backToList,
       load: async function () {
-        await Promise.all([loadDocs(), loadMgrs()]);
+        await Promise.all([loadDocs(), loadMgrs(), loadHolidays()]);
         pickedCenter = CENTER_CODE;
         backToList();
       },
