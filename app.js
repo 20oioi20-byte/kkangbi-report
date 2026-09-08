@@ -4785,7 +4785,10 @@ const CenterDocs = (function () {
 
       // 뺀 자리의 {{키}} 는 본문에서 지운다 — 안 지우면 «{{인입호}}» 가 그대로 결재로 올라간다
       let body=pending.bodyA;
-      for(const v of gone) body=textReplaceAll(body,'{{'+(v.key0||v.orig)+'}}','');
+      // 끈 자리는 **빈칸이 아니라 정해준 글자**로 되돌린다. 안 그러면 «당월 실적» 같은
+      // 머리글이 통째로 사라진다.
+      for(const v of gone)
+        body=textReplaceAll(body,'{{'+(v.key0||v.orig)+'}}', v.fixed||'');
 
       // 이름이 바뀐 칸은 **지난 회차 값과 항목설정도 따라간다** — 안 그러면 전월값을 못 찾는다
       const renames=on.filter(v=>v.orig&&v.orig!==v.name.trim()).map(v=>[v.orig,v.name.trim()]);
@@ -4844,7 +4847,7 @@ const CenterDocs = (function () {
        ══════════════════════════════════════════════════════════════ */
 
     const OF_NEEDED = ['prev','diff','vat','percent','if'];   // 기준 칸이 있어야 하는 규칙
-    const ARG_KEYS  = ['n','wd','avoid','pct','cmp','v','then','else','back'];
+    const ARG_KEYS  = ['n','wd','avoid','pct','cmp','v','then','else','back','fmt'];
     const R3 = [['cur','내가 채운다'],['auto','저절로 나온다'],['off','안 바뀐다 (고정)']];
 
     const role3of = (v) => !v.on ? 'off' : ((v.role||'cur')==='cur' ? 'cur' : 'auto');
@@ -4873,6 +4876,10 @@ const CenterDocs = (function () {
           + '<span class="bw">번째</span>'
           + sel('wd',v.wd===undefined?3:v.wd,[[1,'월'],[2,'화'],[3,'수'],[4,'목'],[5,'금']])
           + '<span class="bw">요일 · 쉬는 날이면</span>' + sel('avoid',v.avoid||'next',AV);
+        case 'ym': return '<span class="bw">고른 회차를</span>'
+          + sel('fmt', v.fmt||'YM', [['YM','2026년 8월'],['M','8월'],['YMB','2026년 8월분'],
+                                     ['MB','8월분'],['ISO','2026-08']])
+          + '<span class="bw">꼴로</span>';
         case 'eom': return '<span class="bw">말일에서</span>'+numIn('back',v.back||0,48)
           + '<span class="bw">일 전 · 쉬는 날이면</span>' + sel('avoid',v.avoid||'prev',AV);
         case 'if': return '<span class="bw">만약</span>'+ofSel()
@@ -4897,6 +4904,15 @@ const CenterDocs = (function () {
               +esc(AUTO_OPS[k].ko)+'</option>').join('')
           + '</select>'
           + '<div class="blk2">'+argBlocks(v,i,curNames)+'</div>';
+      }
+      if(r3==='off'){
+        // ⚠ 그냥 끄면 본문의 {{키}} 가 **빈칸**이 된다. 그 자리에 둘 글자를 받아야
+        //    «당월 실적» 같은 고정 문구를 남길 수 있다(실제로 여기서 막혔다).
+        const dflt = /^\{\{.*\}\}$/.test(v.cur||'') ? '' : (v.cur||'');
+        h+='<div class="blk2"><span class="bw">이 자리엔</span>'
+          + '<input type="text" data-arg="'+i+'|fixed" value="'+esc(v.fixed!==undefined?v.fixed:dflt)+'" '
+          + 'placeholder="그대로 둘 글자 (예: 당월 실적)" style="min-width:150px">'
+          + '<span class="bw">를 둡니다</span></div>';
       }
       if(r3!=='off') h+='<button class="exbtn" data-ex="'+i+'" title="지난 회차에 적혔던 값으로 규칙을 찾습니다">'
         + '지난달 값으로 찾기</button>';
@@ -5576,6 +5592,11 @@ const CenterDocs = (function () {
         openDoc(id);        // 고친 양식으로 바로 값을 넣어볼 수 있게 문서를 다시 연다
         return;
       }
+      // 끈 자리에 «다른 글자» 를 정했으면 본문에서 그렇게 바꾼다(정하지 않았으면 원문 그대로)
+      for(const v of pending.vars)
+        if(!v.on && v.fixed!==undefined && v.fixed!==v.cur && (v.cur||'').trim())
+          pending.bodyA=textReplaceOnce(pending.bodyA, v.cur, v.fixed);
+
       const on=pending.vars.filter(v=>v.on);
       const noName=on.filter(v=>!v.name.trim());
       if(noName.length && !confirm('이름을 안 붙인 칸이 '+noName.length+'개 있습니다.\n그대로 만들까요?')) return;
@@ -5640,7 +5661,10 @@ const CenterDocs = (function () {
 
     $('docHolBtn').addEventListener('click',openHolidays);
     // 창을 줄이거나 늘리면 본문 크기도 다시 맞춘다
-    window.addEventListener('resize',function(){ if(pending && !bodyEditing) fitPaper(); });
+    window.addEventListener('resize',function(){
+      if(pending && !bodyEditing) fitPaper();
+      if(cur) fitPaperD();
+    });
 
     // 목록 위의 큰 드롭 자리 — 넣으면 미리보기가 열린다
     $('docAdd').addEventListener('click',()=>{ analyze(); pickInto('a'); });
@@ -5761,7 +5785,7 @@ const CenterDocs = (function () {
       $('dtYm').addEventListener('change',e=>{
         curYm=e.target.value||curYm;
         // 회차가 바뀌면 되풀이 줄 수도 달라진다(그 달의 요일 수가 다르다) — 표를 다시 그린다
-        drawRows();
+        drawRows(); drawPrevHand();
         paintPaper();     // 회차가 바뀌면 «전월» 도 바뀐다 — 전월값·차이를 다시 낸다
         paintFoot();
       });
@@ -5794,9 +5818,20 @@ const CenterDocs = (function () {
               +(d.slot.sample?'<br>넣어볼 파일: samples/'+esc(d.slot.sample):'')+'</div>'
               +'<div class="xs" id="dtStat"></div>'
             : '<div class="ttl">파일</div><div class="drop3" style="cursor:default">'
-              +'<b>이 문서는 파일에서 값을 읽지 않습니다</b>아래에 직접 넣어주세요</div>')
+              +'<b>이 문서는 파일에서 값을 읽지 않습니다</b>'
+              +'아래에 직접 넣거나, <b>붙여넣어</b> 한꺼번에 채우세요</div>')
+          + '<button class="btn g sm" id="dtPasteBtn" style="margin-top:8px">📋 붙여넣어 채우기</button>'
+          + '<div id="dtPasteBox" hidden>'
+          +   '<textarea id="dtPasteText" class="pastebox" '
+          +     'placeholder="엑셀·워드의 표를 골라 복사해서 여기에 붙여넣으세요 (Ctrl+V)"></textarea>'
+          +   '<div class="hint" id="dtPasteHint"></div>'
+          +   '<div style="display:flex;gap:7px;margin-top:8px">'
+          +     '<button class="btn sm" id="dtPasteGo">넣기</button>'
+          +     '<button class="btn g sm" id="dtPasteClose">닫기</button></div>'
+          + '</div>'
           + '<div class="ttl" style="margin-top:14px">값</div><div id="dtFields"></div>'
           + '<div id="dtRows"></div>'
+          + '<div id="dtPrev"></div>'
           + '<div id="dtAuto"></div>'
           + '<div class="savebar" id="dtFoot"></div>'
         + '</div>'
@@ -5806,7 +5841,31 @@ const CenterDocs = (function () {
           + '<div class="who" id="dtWho"></div>'
         + '</div>'
         + '</div>';
-      drawFields(); drawRows(); paintPaper(); drawWho();   // paintPaper 가 저절로 채우는 칸도 함께 그린다
+      drawFields(); drawRows(); drawPrevHand(); paintPaper(); drawWho();
+      // 붙여넣어 채우기 — 파일 규칙이 없는 문서에서 손으로 옮겨 적는 일을 없앤다
+      let pasteRes=null;
+      $('dtPasteBtn') && $('dtPasteBtn').addEventListener('click',openPaste);
+      $('dtPasteClose') && $('dtPasteClose').addEventListener('click',()=>{ $('dtPasteBox').hidden=true; });
+      $('dtPasteText') && $('dtPasteText').addEventListener('input',function(){
+        const pairs=parsePasted(this.value);
+        pasteRes = pairs.length? matchPasted(cur,pairs) : null;
+        drawPasteHint(pasteRes);
+      });
+      $('dtPasteGo') && $('dtPasteGo').addEventListener('click',()=>{
+        if(!pasteRes||!pasteRes.hit.length){ alert('넣을 것을 못 찾았습니다.'); return; }
+        // ⚠ 조용히 덮지 않는다 — 이미 값이 있던 칸이 몇 개인지 먼저 밝힌다
+        const over=pasteRes.hit.filter(h=>!isBlank(h.was));
+        if(over.length && !confirm(over.length+'칸은 이미 값이 있습니다:\n'
+          + over.map(h=>'  · '+h.label+'  '+h.was+' → '+h.now).join('\n')
+          + '\n\n덮어쓸까요?')) return;
+        for(const h of pasteRes.hit){
+          vals[cur.id][h.key]=h.now;
+          srcs[cur.id][h.key]='붙여넣기';
+          delete autos[cur.id][h.key];
+        }
+        $('dtPasteBox').hidden=true;
+        drawFields(); bindFields(); paintPaper(); paintFoot();
+      });   // paintPaper 가 저절로 채우는 칸도 함께 그린다
       if(d.slot){
         const el=$('dtDrop');
         el.addEventListener('click',()=>{ pick3.click(); });
@@ -6080,9 +6139,134 @@ const CenterDocs = (function () {
        ══════════════════════════════════════════════════════════════ */
 
     /** 이 회차 바로 앞의 저장 — 전월값은 여기서 온다 */
+    /* 이 회차 바로 앞의 저장 — 전월값은 여기서 온다.
+       ⚠ 첫 회차에는 지난 회차가 아예 없다. 그때는 사람이 손으로 넣은 것을 쓴다
+       (vals[문서id].__prev). 0 으로 채우지 않는다 — «지난달이 0» 이라는 거짓말이 된다. */
     function prevSave(d,ym){
-      return (saves[d.id]||[]).filter(s=>s.ym<ym)
-        .sort((a,b)=>b.ym.localeCompare(a.ym))[0]||null;
+      const found=(saves[d.id]||[]).filter(s=>s.ym<ym)
+        .sort((a,b)=>b.ym.localeCompare(a.ym))[0];
+      if(found) return found;
+      const hand=(vals[d.id]||{}).__prev;
+      if(hand && Object.keys(hand).some(k=>!isBlank(hand[k])))
+        return { ym:'(손으로 넣음)', vals:hand, srcs:{}, mgrs:[], miss:0, by:'손으로 넣음', hand:true };
+      return null;
+    }
+
+    /** 전월값이 필요한 칸들 — 저절로 채우는 칸이 «of» 로 가리키는 당월값 */
+    function prevNeeded(d){
+      const want=[];
+      for(const af of (d.autoFields||[]))
+        if((af.kind==='prev'||af.kind==='diff') && af.of && want.indexOf(af.of)<0) want.push(af.of);
+      return want;
+    }
+
+    /* 첫 회차라 지난 회차가 없을 때, 전월값을 손으로 받는다 */
+    /* ══════════════════════════════════════════════════════════════
+       붙여넣어 값 채우기 — 엑셀·워드·메모장 어디서 복사해도 된다.
+
+       파일에서 값을 읽는 규칙(slot)이 없는 문서가 실제로 많다. 그런 문서는
+       지금까지 칸마다 손으로 옮겨 적어야 했다. 대신 **표를 통째로 복사해서
+       붙여넣으면** 칸 이름을 찾아 값을 넣는다.
+
+       읽는 모양 세 가지:
+         엑셀에서 복사   →  탭으로 갈린 줄        인입호<TAB>28,204
+         워드 표 복사    →  같은 모양(탭)
+         메모장·본문     →  «이름 : 값» / «이름  값»  인입호 : 28,204건
+
+       ⚠ 넣기 전에 **무엇을 어디에 넣을지 보여주고 확인받는다.** 조용히 덮으면
+         잘못 붙여넣었을 때 알아채지 못한다.
+       ⚠ 이름이 딱 맞지 않아도 찾는다(공백·단위·«전월» 같은 꼬리표를 떼고 견준다).
+         다만 **비슷하다고 아무거나 넣지 않는다** — 못 찾은 것은 그대로 둔다.
+       ══════════════════════════════════════════════════════════════ */
+
+    const normKey=(s)=>String(s||'').replace(/\s|[()[\]{}]/g,'')
+      .replace(/[·:：\-_/]/g,'').toLowerCase();
+
+    /** 붙여넣은 글자에서 «이름 → 값» 짝을 뽑는다 */
+    function parsePasted(text){
+      const out=[];
+      for(const raw of String(text||'').split(/\r?\n/)){
+        const line=raw.trim(); if(!line) continue;
+        let name='', val='';
+        if(line.indexOf('\t')>=0){                       // 엑셀·워드 표
+          const c=line.split('\t').map(x=>x.trim()).filter(x=>x!=='');
+          if(c.length<2) continue;
+          name=c[0]; val=c[c.length-1];                  // 맨 끝 칸을 값으로 본다
+        } else {
+          const m=/^(.+?)\s*[:：]\s*(.+)$/.exec(line)     // 이름 : 값
+              || /^(.+?)\s{2,}(.+)$/.exec(line);         // 이름   값 (공백 둘 이상)
+                 // ⚠ \D(숫자 아님)로 이름을 잡으면 «1일 평균 상담건수» 처럼
+                 //    숫자로 시작하는 이름을 통째로 놓친다.
+          if(!m) continue;
+          name=m[1].trim(); val=m[2].trim();
+        }
+        if(!name||!val) continue;
+        out.push({ name, val });
+      }
+      return out;
+    }
+
+    /** 뽑은 짝을 이 문서의 칸에 맞춰본다 */
+    function matchPasted(d,pairs){
+      const fields=fieldsOf(d);
+      const hit=[], miss=[];
+      const used={};
+      for(const p of pairs){
+        const n=normKey(p.name);
+        // ① 이름이 똑같은 것  ② 이름이 서로를 품는 것 (단위·꼬리표 차이)
+        let f=fields.find(x=>normKey(x.key)===n||normKey(x.label)===n);
+        if(!f) f=fields.find(x=>{ const k=normKey(x.key);
+          return k.length>1&&n.length>1&&(k.indexOf(n)>=0||n.indexOf(k)>=0); });
+        if(!f||used[f.key]){ miss.push(p); continue; }
+        used[f.key]=1;
+        // 숫자 칸이면 숫자만 남긴다 — «28,204건» 에서 건을 뗀다
+        const v = f.type==='number' ? (num(p.val)===null? p.val : String(num(p.val))) : p.val;
+        hit.push({ key:f.key, label:f.label||f.key, was:vals[d.id][f.key], now:v, from:p.name });
+      }
+      return { hit, miss };
+    }
+
+    function openPaste(){
+      const d=cur;
+      if(!fieldsOf(d).length){ alert('넣을 값 자리가 없습니다.'); return; }
+      const box=$('dtPasteBox'); if(!box) return;
+      box.hidden=!box.hidden;
+      if(!box.hidden){ const t=$('dtPasteText'); if(t){ t.value=''; t.focus(); } drawPasteHint(null); }
+    }
+    function drawPasteHint(res){
+      const el=$('dtPasteHint'); if(!el) return;
+      if(!res){ el.innerHTML='<span style="color:var(--dim)">엑셀·워드의 표를 그대로 골라 복사해서 붙여넣으세요. '
+        + '메모장이라면 «인입호 : 28,204» 처럼 한 줄에 하나씩이면 됩니다.</span>'; return; }
+      if(!res.hit.length){ el.innerHTML='<b style="color:var(--err)">넣을 것을 못 찾았습니다.</b> '
+        + '칸 이름이 붙여넣은 글자에 그대로 있어야 찾습니다 — 이름을 바꾸거나 직접 넣어주세요.'; return; }
+      el.innerHTML='<b style="color:var(--ok)">'+res.hit.length+'칸을 찾았습니다.</b> 확인하고 «넣기» 를 누르세요.'
+        + '<div class="pastelist">'+res.hit.map(h=>
+            '<div class="pl"><span class="k">'+esc(h.label)+'</span>'
+            + (isBlank(h.was)? '' : '<span class="was">'+esc(h.was)+' →</span>')
+            + '<span class="now">'+esc(h.now)+'</span>'
+            + '<span class="src">'+esc(h.from)+'</span></div>').join('')+'</div>'
+        + (res.miss.length? '<div style="margin-top:6px;color:var(--dim)">못 찾은 줄 '+res.miss.length+'개는 그대로 둡니다.</div>':'');
+    }
+
+    function drawPrevHand(){
+      const d=cur, box=$('dtPrev'); if(!box) return;
+      const want=prevNeeded(d);
+      const real=(saves[d.id]||[]).filter(s=>s.ym<curYm)[0];
+      if(!want.length || real){ box.innerHTML=''; return; }
+      const V=vals[d.id]; V.__prev=V.__prev||{};
+      box.innerHTML='<div class="prevbox">'
+        + '<div class="ttl">지난 회차 값 — 손으로 넣기</div>'
+        + '<div class="hint" style="margin:0 0 4px">이 문서에 <b>저장해 둔 지난 회차가 없습니다.</b> '
+        + '전월값·증감을 내려면 여기 넣어주세요. 다음 회차부터는 <b>저장한 값에서 저절로</b> 가져옵니다.<br>'
+        + '비워두면 전월값·증감은 <b>빈칸</b>으로 둡니다 — 0 으로 채우면 «지난달이 0» 이라는 거짓말이 됩니다.</div>'
+        + want.map(k=>'<div class="prevrow"><label>'+esc(k)+'</label>'
+            + '<input type="text" inputmode="numeric" data-pv="'+esc(k)+'" value="'
+            + esc(isBlank(V.__prev[k])?'':V.__prev[k])+'"></div>').join('')
+        + '</div>';
+      box.querySelectorAll('[data-pv]').forEach(el=>el.addEventListener('input',()=>{
+        V.__prev[el.dataset.pv]=el.value;
+        paintPaper(); paintFoot();
+      }));
     }
     /** 합계에 넣을 칸들 */
     /* ══════════════════════════════════════════════════════════════
@@ -6175,6 +6359,19 @@ const CenterDocs = (function () {
         const { d:dt, moved }=shiftOff(base,a.avoid,c.d);
         return { v:ymd(dt), why:'말일'+(a.back?' − '+a.back+'일':'')+' = '+koD(base)
           + (moved? ' → 쉬는 날이라 옮겨 '+koD(dt) : '') };
+      }},
+      // 회차(월) — 고른 회차에서 만든다. 사람이 매달 타이핑할 이유가 없다.
+      ym: { pass:1, ko:'회차(월)', run:(a,c)=>{
+        const m=/^(\d{4})-(\d{2})$/.exec(String(c.ym||''));
+        if(!m) return { v:'', why:'회차를 못 읽었습니다' };
+        const Y=Number(m[1]), M=Number(m[2]);
+        const f=a.fmt||'YM';
+        const v = f==='M'    ? M+'월'
+                : f==='YMB'  ? Y+'년 '+M+'월분'
+                : f==='ISO'  ? Y+'-'+String(M).padStart(2,'0')
+                : f==='MB'   ? M+'월분'
+                :              Y+'년 '+M+'월';
+        return { v:v, why:'고른 회차('+c.ym+')에서 만듭니다' };
       }},
       // 값에 따라 문장이 통째로 바뀐다
       if: { pass:1, ko:'조건 문장', run:(a,c)=>{
@@ -6385,6 +6582,22 @@ const CenterDocs = (function () {
     }
 
     /** 초안 칸만 다시 그린다 — 값 칸까지 다시 그리면 적던 자리를 잃는다 */
+    /* 초안도 오른쪽 칸 폭에 맞춰 줄인다 — 표가 넓으면 왼쪽을 덮는다 */
+    function fitPaperD(){
+      const box=$('dtPaper'); if(!box) return;
+      const inner=box.querySelector('.fitin'); if(!inner) return;
+      inner.style.transform=''; inner.style.width='';
+      const cs=getComputedStyle(box);
+      const pad=(parseFloat(cs.paddingLeft)||0)+(parseFloat(cs.paddingRight)||0);
+      const avail=box.clientWidth-pad-2, need=inner.scrollWidth;
+      if(need>avail && avail>60){
+        const s=Math.max(0.45, avail/need);
+        inner.style.transformOrigin='top left';
+        inner.style.transform='scale('+s.toFixed(3)+')';
+        inner.style.width=(100/s)+'%';
+      }
+    }
+
     function paintPaper(){
       const d=cur, box=$('dtPaper'); if(!box) return;
       const html=paperHtml(d,vals[d.id]);
@@ -6395,11 +6608,12 @@ const CenterDocs = (function () {
       }
       paintAuto();
       const left=fieldsOf(d).filter(f=>isBlank(vals[d.id][f.key])).length;
-      box.innerHTML='<div class="paper">'+html+'</div>'
+      box.innerHTML='<div class="paper"><div class="fitin">'+html+'</div></div>'
         +'<div style="font-size:12.5px;color:var(--dim);margin-top:8px;line-height:1.6">'
         +(left? '<b style="color:var(--err)">'+left+'칸</b>이 비어 있습니다 — 왼쪽에서 채워주세요.'
               : '다 채워졌습니다. 실제로는 여기서 <b>서식 그대로 복사</b>해 결재 화면에 붙여넣습니다.')
         +'</div>';
+      fitPaperD();     // 표가 칸보다 넓으면 줄여 맞춘다 — 안 그러면 왼쪽을 덮는다
       paintFoot();
     }
 
@@ -6411,6 +6625,15 @@ const CenterDocs = (function () {
       const miss=fieldsOf(d).filter(f=>isBlank(vals[d.id][f.key]));
       if(miss.length && !confirm(miss.length+'칸이 비어 있습니다: '+miss.map(f=>f.label).join(' · ')
         +'\n\n그래도 저장할까요? (나중에 이어서 채울 수 있습니다)')) return;
+      // 제목에 «2026년 8월» 같은 회차가 박혀 있으면 이 회차에 맞게 고쳐 저장한다.
+      // 안 그러면 9월분을 저장해도 목록에 «8월 …» 로 남아 헷갈린다.
+      const titled=titleForYm(d.name,curYm);
+      if(titled!==d.name){
+        d.name=titled;
+        docPost('doc-update',{ id:d.id, name:titled }).catch(function(e){
+          console.warn('제목을 못 고쳤습니다: '+e.message); });
+        draw();   // 목록의 제목도 함께 — 안 그리면 목록엔 지난 회차 제목이 남는다
+      }
       docPost('doc-save',{
         document_id:d.id, ym:curYm,
         vals:Object.assign({},vals[d.id]), srcs:Object.assign({},srcs[d.id]),
@@ -6433,6 +6656,20 @@ const CenterDocs = (function () {
       if(!confirm('이 문서에 넣은 값을 비웁니다. 저장해 둔 것은 그대로 남습니다.')) return;
       vals[d.id]={}; autos[d.id]={}; srcs[d.id]={}; DIR[d.id]={}; drawDetail();
     }
+    /** 제목에 박힌 회차를 이 회차로 갈아끼운다.
+        «2026년 8월 …» · «('26.08)» · «(2026.8월)» 같은 꼴을 알아본다.
+        못 알아보면 **그대로 둔다** — 엉뚱하게 고치느니 안 고치는 편이 낫다. */
+    function titleForYm(name,ym){
+      const m=/^(\d{4})-(\d{2})$/.exec(String(ym||'')); if(!m) return name;
+      const Y=Number(m[1]), M=Number(m[2]), s=String(name||'');
+      let out=s.replace(/(\d{4})\s*년\s*(\d{1,2})\s*월/g, Y+'년 '+M+'월');
+      if(out!==s) return out;
+      out=s.replace(/'(\d{2})\.\s*(\d{1,2})\s*월?/g, "'"+String(Y).slice(2)+'.'+String(M).padStart(2,'0'));
+      if(out!==s) return out;
+      out=s.replace(/(\d{4})\.\s*(\d{1,2})\s*월/g, Y+'.'+M+'월');
+      return out;
+    }
+
     function stamp(){ const p=n=>String(n).padStart(2,'0'); const t=new Date();
       return t.getFullYear()+'-'+p(t.getMonth()+1)+'-'+p(t.getDate())+' '+p(t.getHours())+':'+p(t.getMinutes()); }
 
@@ -6564,6 +6801,8 @@ const CenterDocs = (function () {
         AUTO_OPS: AUTO_OPS, ROW_OPS: ROW_OPS,
         repeatRows: repeatRows, expandRepeat: expandRepeat, hasRepeat: hasRepeat,
         allWeekdays: allWeekdays, nthWeekday: nthWeekday, shiftOff: shiftOff,
+        titleForYm: titleForYm, parsePasted: parsePasted, normKey: normKey,
+        prevNeeded: prevNeeded, slotsFromTable: slotsFromTable, bodyRows: bodyRows,
         setYm: function(y){ curYm=y; },
         isBlank: isBlank, num: num, comma: comma, XE: XE,
         state: { DOCS: DOCS, saves: saves, OPTS: OPTS },

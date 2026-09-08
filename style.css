@@ -420,8 +420,11 @@
   .doc-root .prev .pa{display:flex;gap:9px;align-items:center;padding:12px 15px;border-top:1px solid var(--line)}
   .doc-root .prev .pa .btn.g#pvDrop{color:var(--err);border-color:var(--err)}
   /* ── 문서 상세 — 목록에서 문서를 누르면 여기가 열린다 ── */
+  /* ⚠ overflow:hidden 을 쓰면 안 된다 — 안에 있는 .ppane 의 position:sticky 가 죽는다.
+     («.mht 가져오기» 화면의 .prev 에서 났던 것과 **같은 사고**다.) */
   .doc-root .dt{background:var(--card);border:1px solid var(--line);border-radius:var(--r);
-    box-shadow:var(--shadow);overflow:hidden;margin-bottom:14px}
+    box-shadow:var(--shadow);margin-bottom:14px}
+  .doc-root .dt .dth{border-radius:calc(var(--r) - 1px) calc(var(--r) - 1px) 0 0}
   .doc-root .dth{padding:14px 16px;border-bottom:1px solid var(--line)}
   .doc-root .dtback{border:0;background:transparent;color:var(--accent);font:inherit;font-size:13px;
     font-weight:700;cursor:pointer;padding:0;margin-bottom:8px}
@@ -704,3 +707,37 @@
   .doc-root .pb2 .vr > * { min-width:0; }
   .doc-root .pb2 .vr .nmcell input { width:100%; min-width:0; }
   .doc-root .pb2 .vlist { overflow:hidden; }
+
+
+  /* ─ 값 넣는 화면 — 오른쪽 초안이 스크롤을 따라오고 늘 한 화면에 ────── */
+  @media (min-width:921px) {
+    .doc-root .ppane { position:sticky; top:14px; align-self:start;
+      max-height:calc(100vh - 28px); display:flex; flex-direction:column; }
+    .doc-root .ppane .paper { flex:1; min-height:180px; max-height:none;
+      overflow-y:auto; overflow-x:hidden; }
+    .doc-root .ppane .who { flex:none; }
+  }
+  .doc-root .paper .fitin { display:block; }
+
+  /* 첫 회차엔 전월값이 없다 — 손으로 넣는 자리 */
+  .doc-root .prevbox { border:1px dashed #4a4560; border-radius:11px; padding:10px 12px; margin-top:14px; }
+  .doc-root .prevbox .ttl { margin:0 0 4px; }
+  .doc-root .prevrow { display:grid; grid-template-columns:minmax(0,1fr) 128px; gap:8px;
+    align-items:center; margin-top:6px; }
+  .doc-root .prevrow label { font-size:12.5px; color:var(--dim); }
+  .doc-root .prevrow input { background:var(--bg); color:var(--ink); border:1px solid var(--line);
+    border-radius:8px; padding:6px 8px; font:inherit; font-size:13px; text-align:right; }
+
+
+  /* 붙여넣어 채우기 */
+  .doc-root .pastebox { width:100%; min-height:110px; background:var(--bg); color:var(--ink);
+    border:1px solid var(--line); border-radius:10px; padding:10px 11px; margin-top:8px;
+    font:inherit; font-size:13px; resize:vertical; }
+  .doc-root .pastebox:focus { outline:2px solid var(--accent); outline-offset:-1px; border-color:transparent; }
+  .doc-root .pastelist { margin-top:7px; display:flex; flex-direction:column; gap:4px; }
+  .doc-root .pastelist .pl { display:flex; gap:8px; align-items:baseline; font-size:12.5px;
+    background:var(--bg); border:1px solid var(--line); border-radius:7px; padding:5px 8px; }
+  .doc-root .pastelist .k { font-weight:700; min-width:96px; }
+  .doc-root .pastelist .was { color:var(--dim); text-decoration:line-through; }
+  .doc-root .pastelist .now { color:var(--ok); font-weight:700; }
+  .doc-root .pastelist .src { margin-left:auto; color:var(--dim); font-size:11.5px; }
