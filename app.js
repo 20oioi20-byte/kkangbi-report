@@ -3964,6 +3964,7 @@ const CenterDocs = (function () {
     +     '<div class="vhead"><b>매달 바뀌는 칸</b><span id="pvCount"></span>'
     +       '<button class="btn g sm" id="pvAddVar">+ 직접 더하기</button></div>'
     +     '<div class="vlist" id="pvVars"></div>'
+    +     '<div id="pvRepeat"></div>'
     +     '<div class="vhead"><b>문서 본문</b>'
     +       '<span id="pvBodyNote">값 자리는 노랗게 칠했습니다</span>'
     +       '<button class="btn g sm" id="pvEditBody">본문 고치기</button></div>'
@@ -4041,6 +4042,8 @@ const CenterDocs = (function () {
         body: r.body || null,
         fields: r.fields || [], autoFields: r.auto_fields || [],
         slot: r.slot || null, sort_order: r.sort_order || 0,
+        repeat: r.repeat || null,
+        holidays: r.holidays || null,   // 날짜 규칙이 «쉬는 날» 을 볼 때 쓴다
         state: 'none', stateTxt: '', hist: []
       };
       reslot(d);
@@ -4788,7 +4791,9 @@ const CenterDocs = (function () {
       });
       d.autoFields=on.filter(v=>(v.role||'cur')!=='cur').map(v=>{
         const a={ key:v.name.trim(), kind:v.role };
-        if(['prev','diff','vat'].indexOf(v.role)>=0) a.of=v.of;
+        // 규칙에 딸린 값을 그대로 옮긴다 — 이걸 빠뜨리면 «둘째 수요일» 이 «첫째 일요일» 이 된다
+        if(OF_NEEDED.indexOf(v.role)>=0) a.of=v.of;
+        for(const k of ARG_KEYS) if(v[k]!==undefined && v[k]!=='') a[k]=v[k];
         return a;
       });
       d.slots=d.fields.length;
@@ -4798,8 +4803,228 @@ const CenterDocs = (function () {
     function note(cls,html){ $('pvNote').className='pnote '+(cls||''); $('pvNote').innerHTML=html; }
 
     /** 값 자리 표 — 켜고 끄고, 이름을 고치고, 지우고, 더한다 */
+    /* ══════════════════════════════════════════════════════════════
+       값 자리 정하기 — 고르는 것은 **셋뿐**이다.
+
+         내가 채운다 · 저절로 나온다 · 안 바뀐다(고정)
+
+       예전에는 자리마다 일곱 갈래(당월값·전월값·차이·부가세·합계 셋)를 고르게 했다.
+       실제 문서 하나에 값 자리가 열예닐곱 개라, 자리마다 다섯 가지를 정하느라
+       아흔 번 가까이 판단해야 했다. 게다가 「고정값」은 이 표에 있지도 않고
+       체크를 끄면 되는 것이었는데, 화면이 그렇게 말해주지 않았다.
+
+       이제 셋 중 하나만 고르고, «저절로» 를 골랐을 때만 어떤 규칙인지 정한다.
+       규칙 종류는 AUTO_OPS 표에서 그대로 가져온다 — 규칙이 늘면 여기 목록도 저절로 는다.
+       ══════════════════════════════════════════════════════════════ */
+
+    const OF_NEEDED = ['prev','diff','vat','percent','if'];   // 기준 칸이 있어야 하는 규칙
+    const ARG_KEYS  = ['n','wd','avoid','pct','cmp','v','then','else','back'];
+    const R3 = [['cur','내가 채운다'],['auto','저절로 나온다'],['off','안 바뀐다 (고정)']];
+
+    const role3of = (v) => !v.on ? 'off' : ((v.role||'cur')==='cur' ? 'cur' : 'auto');
+
+    /** 규칙에 딸린 값을 «문장»으로 고르게 한다 */
+    function argBlocks(v,i,curNames){
+      const sel=(k,val,opts)=>'<select data-arg="'+i+'|'+k+'">'
+        + opts.map(([o,l])=>'<option value="'+esc(o)+'"'+(String(val)===String(o)?' selected':'')+'>'
+            +esc(l)+'</option>').join('')+'</select>';
+      const ofSel=()=>'<select data-arg="'+i+'|of" class="'+(v.of&&curNames.indexOf(v.of)>=0?'':'need')+'">'
+        + '<option value="">— 기준 칸 —</option>'
+        + curNames.map(n=>'<option'+(v.of===n?' selected':'')+'>'+esc(n)+'</option>').join('')+'</select>';
+      const numIn=(k,val,w)=>'<input type="number" data-arg="'+i+'|'+k+'" value="'+esc(val===undefined?'':val)
+        +'" style="width:'+(w||58)+'px">';
+      const txtIn=(k,val,ph)=>'<input type="text" data-arg="'+i+'|'+k+'" value="'+esc(val===undefined?'':val)
+        +'" placeholder="'+esc(ph||'')+'" style="min-width:120px">';
+      const AV=[['next','다음 평일로'],['prev','앞 평일로'],['none','그대로 둔다']];
+
+      switch(v.role){
+        case 'prev':  return '<span class="w">의 지난 회차 값</span>'.replace('<span','') && ofSel();
+        case 'diff':  return ofSel()+'<span class="bw">이번 − 지난</span>';
+        case 'vat':   return ofSel()+'<span class="bw">의</span>'+numIn('pct',v.pct===undefined?10:v.pct,48)+'<span class="bw">%</span>';
+        case 'percent': return ofSel()+'<span class="bw">의</span>'+numIn('pct',v.pct===undefined?10:v.pct,48)+'<span class="bw">%</span>';
+        case 'nth-wd': return '<span class="bw">매월</span>'
+          + sel('n',v.n===undefined?2:v.n,[[1,'첫'],[2,'둘'],[3,'셋'],[4,'넷']])
+          + '<span class="bw">번째</span>'
+          + sel('wd',v.wd===undefined?3:v.wd,[[1,'월'],[2,'화'],[3,'수'],[4,'목'],[5,'금']])
+          + '<span class="bw">요일 · 쉬는 날이면</span>' + sel('avoid',v.avoid||'next',AV);
+        case 'eom': return '<span class="bw">말일에서</span>'+numIn('back',v.back||0,48)
+          + '<span class="bw">일 전 · 쉬는 날이면</span>' + sel('avoid',v.avoid||'prev',AV);
+        case 'if': return '<span class="bw">만약</span>'+ofSel()
+          + sel('cmp',v.cmp||'=',[['=','가'],['>','보다 큼'],['<','보다 작음'],['!=','가 아님']])
+          + numIn('v',v.v===undefined?0:v.v,52)+'<span class="bw">이면</span>'
+          + txtIn('then',v.then,'예: 휴무자 없음')
+          + '<span class="bw">아니면</span>'
+          + txtIn('else',v.else,'예: 휴무자 {휴무자}명 추가 점검');
+        default: return '<span class="bw">'+esc((AUTO_OPS[v.role]||{}).ko||'')+' — 정할 것이 없습니다</span>';
+      }
+    }
+
+    /** 한 줄의 «역할» 칸 */
+    function roleCell(v,i,curNames){
+      const r3=role3of(v);
+      let h='<select data-r3="'+i+'" class="r3 '+r3+'">'
+        + R3.map(([id,ko])=>'<option value="'+id+'"'+(r3===id?' selected':'')+'>'+esc(ko)+'</option>').join('')
+        + '</select>';
+      if(r3==='auto'){
+        h+='<select data-role="'+i+'" class="opsel">'
+          + Object.keys(AUTO_OPS).map(k=>'<option value="'+k+'"'+(v.role===k?' selected':'')+'>'
+              +esc(AUTO_OPS[k].ko)+'</option>').join('')
+          + '</select>'
+          + '<div class="blk2">'+argBlocks(v,i,curNames)+'</div>';
+      }
+      if(r3!=='off') h+='<button class="exbtn" data-ex="'+i+'" title="지난 회차에 적혔던 값으로 규칙을 찾습니다">'
+        + '지난달 값으로 찾기</button>';
+      return h;
+    }
+
+    /* ── 안3 : 예시로 가르치기 ────────────────────────────────
+       «작년엔 뭐라고 썼는지» 는 아시니까, 그 답을 넣으면 규칙을 찾아준다.
+       ⚠ 한 회차만으로는 좁혀지지 않는 규칙이 있다(그달에 공휴일이 안 걸렸으면
+          «쉬는 날이면 밀기» 와 «그대로» 가 똑같이 맞는다). 그래서 찾은 것을
+          그대로 쓰지 않고 **사람이 고르게** 한다. */
+    function suggestRules(want,ym,curNames,allVars){
+      const out=[];
+      const mkDoc=(af)=>({ id:'_s', fields:[], autoFields:af, holidays:null });
+      const tryOp=(set,label)=>{
+        const af=[Object.assign({ key:'_x' },set)];
+        const V=computeAuto(mkDoc(af),{ __ym:ym },null);
+        if(String(V['_x']).trim()===want) out.push({ label, set });
+      };
+      // 날짜꼴이면 날짜 규칙을 훑는다
+      if(/^\d{4}-\d{2}-\d{2}$/.test(want)){
+        for(let n=1;n<=4;n++) for(let wd=1;wd<=5;wd++) for(const av of ['next','none'])
+          tryOp({ role:'nth-wd', kind:'nth-wd', n:n, wd:wd, avoid:av },
+            '매월 '+n+'번째 '+WDKO[wd]+'요일'+(av==='next'?' · 쉬는 날이면 다음 평일':' · 그대로'));
+        for(let b=0;b<=3;b++)
+          tryOp({ role:'eom', kind:'eom', back:b, avoid:'prev' },
+            '말일'+(b?' − '+b+'일':'')+' · 쉬는 날이면 앞으로');
+      }
+      // 숫자꼴이면 «어떤 칸의 몇 %» 를 훑는다 (전월값·차이는 지난 회차가 있어야 해서 여기선 뺀다)
+      const wn=num(want);
+      if(wn!==null){
+        for(const base of curNames){
+          const bv=num((allVars.find(x=>x.name.trim()===base)||{}).cur);
+          if(bv===null||bv===0) continue;
+          const pct=Math.round((wn/bv)*1000)/10;
+          if(pct>0&&pct<=100&&Math.abs(Math.round(bv*pct/100)-wn)<=1)
+            out.push({ label:'«'+base+'» 의 '+pct+'%', set:{ role:'vat', kind:'vat', of:base, pct:pct } });
+        }
+      }
+      return out.slice(0,8);
+    }
+
+    /* ══════════════════════════════════════════════════════════════
+       되풀이 줄 정하기 — 「.mht 가져오기」 화면에서 한다.
+
+       실제 공문을 보면 표의 한 줄이 «주마다 하나» 인 문서가 있다
+       (「이미지 파일 모니터링 점검」 — 7월 4줄 · 8월 5줄).
+       그 줄을 고르고 «그 달의 ○요일마다» 를 정해두면, 회차를 바꿀 때마다
+       줄이 저절로 늘고 준다. 사람이 줄을 더하거나 지우지 않는다.
+       ══════════════════════════════════════════════════════════════ */
+
+    /** 본문의 표 줄들을 훑는다 — [{a,b(조각 번호), cells:[{i,text}], head:bool}] */
+    function bodyRows(html){
+      const parts=String(html||'').split(/(<[^>]+>)/);
+      const rows=[]; let a=-1;
+      for(let i=1;i<parts.length;i+=2){
+        if(/^<tr\b/i.test(parts[i])) a=i;
+        else if(/^<\/tr>/i.test(parts[i]) && a>=0){
+          const cells=[]; let ci=-1;
+          for(let j=a;j<i;j++){
+            if(j%2===1 && /^<t[dh]\b/i.test(parts[j])) ci=j;
+            else if(j%2===1 && /^<\/t[dh]>/i.test(parts[j]) && ci>=0){
+              // 그 칸 안의 글자 조각을 다 모은다
+              let t='', first=-1;
+              for(let k=ci+1;k<j;k++) if(k%2===0){ t+=parts[k]; if(first<0&&parts[k].trim()) first=k; }
+              cells.push({ open:ci, close:j, first:first<0?ci+1:first, text:t.replace(/\s+/g,' ').trim() });
+              ci=-1;
+            }
+          }
+          rows.push({ a, b:i, cells, head:/^<th\b/i.test(parts[a+1]||'') });
+          a=-1;
+        }
+      }
+      return rows;
+    }
+
+    /** 고른 줄의 칸들을 {{#이름}} 으로 바꾸고, 그 이름 목록을 돌려준다.
+        ⚠ 글자 조각만 바꾼다 — 태그는 한 글자도 안 건드린다. */
+    function makeRepeatRow(html,rowIdx,headIdx){
+      const parts=String(html||'').split(/(<[^>]+>)/);
+      const rows=bodyRows(html);
+      const row=rows[rowIdx]; if(!row) return null;
+      const head=rows[headIdx]||null;
+      const cols=[];
+      row.cells.forEach((c,n)=>{
+        const hl=head && head.cells[n] ? head.cells[n].text : '';
+        const key=(hl||('칸'+(n+1))).replace(/\s+/g,'').slice(0,12) || ('칸'+(n+1));
+        // 같은 이름이 겹치면 뒤에 번호를 붙인다
+        let k=key, m=2; while(cols.some(x=>x.key===k)) k=key+m++;
+        cols.push({ key:k, label:hl||k, from: /일자|날짜|점검일|일시/.test(hl)?'date':'input',
+                    type: /인원|건수|수$|금액/.test(hl)?'number':'text' });
+        // 그 칸의 글자를 통째로 표식으로 바꾼다(첫 조각에 넣고 나머지는 비운다)
+        for(let k2=c.open+1;k2<c.close;k2++) if(k2%2===0) parts[k2]='';
+        parts[c.first]='{{#'+k+'}}';
+      });
+      return { body:parts.join(''), cols };
+    }
+
+    /** 「.mht 가져오기」 화면의 되풀이 줄 칸 */
+    function drawRepeatPick(){
+      const box=$('pvRepeat'); if(!box||!pending) return;
+      const rows=bodyRows(pending.bodyA);
+      const rep=pending.repeat||null;
+      const sel=(id,val,opts)=>'<select data-rp="'+id+'">'+opts.map(([v,l])=>
+        '<option value="'+esc(v)+'"'+(String(val)===String(v)?' selected':'')+'>'+esc(l)+'</option>').join('')+'</select>';
+      let h='<div class="vhead"><b>되풀이 줄</b>'
+        + '<span>표의 한 줄이 회차마다 늘었다 줄었다 하면 여기서 정합니다</span></div>'
+        + '<div class="blk2" style="margin:0 0 10px">'
+        + sel('kind', rep? rep.by.kind : '', [['','안 씀'],['weekdays','그 달의 ○요일마다'],['count','줄 수를 정해서'],['manual','내가 더하는 만큼']]);
+      if(rep){
+        if(rep.by.kind==='weekdays') h+='<span class="bw">그 달의</span>'
+          + sel('wd',rep.by.wd,[[1,'월'],[2,'화'],[3,'수'],[4,'목'],[5,'금'],[6,'토'],[0,'일']])
+          + '<span class="bw">요일마다 · 쉬는 날이면</span>'
+          + sel('avoid',rep.by.avoid||'next',[['next','다음 평일로'],['prev','앞 평일로'],['none','그대로']]);
+        if(rep.by.kind==='count') h+='<span class="bw">줄 수</span>'
+          + '<input type="number" data-rp="n" value="'+esc(rep.by.n||4)+'" style="width:60px">';
+        h+='<span class="bw">· 되풀이할 줄</span>'
+          + sel('row', rep.rowIdx===undefined?'':rep.rowIdx,
+              [['','— 고르세요 —']].concat(rows.map((r,i)=>[i,
+                (r.head?'[머리줄] ':'')+(r.cells.map(c=>c.text).filter(Boolean).join(' · ').slice(0,34)||'(빈 줄 '+(i+1)+')')])));
+      }
+      h+='</div>';
+      if(rep && rep.rowIdx!==undefined && rep.cols)
+        h+='<div class="hint" style="margin:-6px 0 10px">이 줄의 칸: <b>'
+          + rep.cols.map(c=>esc(c.label)+(c.from==='date'?'(날짜)':'')).join(' · ')
+          + '</b><br>회차를 바꾸면 줄 수가 저절로 달라집니다.</div>';
+      box.innerHTML=h;
+
+      box.querySelectorAll('[data-rp]').forEach(el=>el.addEventListener('change',()=>{
+        const k=el.dataset.rp;
+        if(k==='kind'){
+          if(!el.value){ pending.repeat=null; }
+          else pending.repeat=Object.assign({ by:{ kind:el.value, wd:1, avoid:'next', n:4 } },
+                 pending.repeat||{}, { by:Object.assign({ wd:1, avoid:'next', n:4 },
+                   (pending.repeat&&pending.repeat.by)||{}, { kind:el.value }) });
+        } else if(k==='row'){
+          if(el.value===''){ pending.repeat.rowIdx=undefined; pending.repeat.cols=null; }
+          else {
+            const i=+el.value;
+            const headIdx=rows.findIndex(r=>r.head);
+            const made=makeRepeatRow(pending.bodyA,i,headIdx<0?0:headIdx);
+            if(made){ pending.repeat.rowIdx=i; pending.repeat.cols=made.cols; pending.repeat.newBody=made.body; }
+          }
+        } else if(k==='n'){ pending.repeat.by.n=Number(el.value)||0; }
+        else { pending.repeat.by[k]= (k==='wd')? Number(el.value) : el.value; }
+        drawRepeatPick(); drawBody();
+      }));
+    }
+
     function drawVars(){
-      if(!pending){ $('pvVars').innerHTML=''; return; }
+      if(!pending){ $('pvVars').innerHTML=''; $('pvRepeat').innerHTML=''; return; }
+      // 되풀이 줄 칸은 **값 자리가 하나도 없어도** 그린다 —
+      // 오히려 그런 문서(주마다 한 줄 같은)에 되풀이 줄이 꼭 필요하다
+      drawRepeatPick();
       const on=pending.vars.filter(v=>v.on).length;
       $('pvCount').innerHTML=on+'개 씁니다'+(pending.vars.length>on?' (끈 것 '+(pending.vars.length-on)+')':'');
       if(!pending.vars.length){
@@ -4827,16 +5052,7 @@ const CenterDocs = (function () {
               +'</span></span>'
             +'<span class="val">'+(v.prev?'<span class="a">'+esc(cut(v.prev))+'</span><span class="arr">→</span>':'')
               +'<span class="b">'+esc(cut(v.cur))+'</span></span>'
-            +'<span class="role"><select data-role="'+i+'">'
-              + ROLES.map(([id,ko])=>'<option value="'+id+'"'+(role===id?' selected':'')+'>'+esc(ko)+'</option>').join('')
-              +'</select>'
-              + (needOf
-                  ? '<select data-of="'+i+'" class="'+(v.of&&curNames.indexOf(v.of)>=0?'':'need')+'">'
-                    +'<option value="">— 기준 칸 —</option>'
-                    + curNames.map(n=>'<option'+(v.of===n?' selected':'')+'>'+esc(n)+'</option>').join('')
-                    +'</select>'
-                  : '')
-            +'</span>'
+            +'<span class="role">'+roleCell(v,i,curNames)+'</span>'
             +'<span class="pos"><span class="pv'+(has?' set':'')+'" title="'+esc(has?v.cur:'아직 위치를 안 골랐습니다')+'">'
               +(has?'✓ 잡음':'없음')+'</span>'
               +'<button class="pick'+(picking===i?' on':'')+'" data-pick="'+i+'">'
@@ -4848,10 +5064,45 @@ const CenterDocs = (function () {
         + '<b>차이 · 부가세 · 합계</b>는 저절로 계산합니다 — 아무에게도 묻지 않습니다.<br>'
         + '합계는 <b>부가세를 매긴 칸</b>을 더합니다(청구인원 같은 칸이 섞이지 않게).'
         + '</div>';
+      // 3지선다 — 내가 채운다 / 저절로 / 안 바뀐다(고정)
+      $('pvVars').querySelectorAll('[data-r3]').forEach(el=>el.addEventListener('change',()=>{
+        const v=pending.vars[+el.dataset.r3];
+        if(el.value==='off'){ v.on=false; }
+        else { v.on=true; v.role = (el.value==='cur') ? 'cur'
+                 : (v.role&&v.role!=='cur' ? v.role : 'prev'); }
+        if(v.role==='cur') v.of='';
+        drawVars(); drawBody();
+      }));
+      // 어떤 규칙인지
       $('pvVars').querySelectorAll('[data-role]').forEach(el=>el.addEventListener('change',()=>{
         const v=pending.vars[+el.dataset.role];
         v.role=el.value;
-        if(v.role==='cur'||v.role==='sum'||v.role==='sumvat'||v.role==='total') v.of='';
+        if(OF_NEEDED.indexOf(v.role)<0) v.of='';
+        drawVars(); drawBody();
+      }));
+      // 규칙에 딸린 값
+      $('pvVars').querySelectorAll('[data-arg]').forEach(el=>el.addEventListener('input',()=>{
+        const [i,k]=el.dataset.arg.split('|');
+        pending.vars[+i][k]= (el.type==='number') ? Number(el.value) : el.value;
+        drawVars(); drawBody();
+      }));
+      // 안3 — 지난달 값으로 규칙 찾기
+      $('pvVars').querySelectorAll('[data-ex]').forEach(el=>el.addEventListener('click',()=>{
+        const i=+el.dataset.ex, v=pending.vars[i];
+        const ym=(prompt('어느 회차의 값인가요? (예: 2026-08)','2026-08')||'').trim();
+        if(!/^\d{4}-\d{2}$/.test(ym)) return;
+        const want=(prompt('그 회차에 이 자리에 적혔던 값을 그대로 적어주세요\n\n'
+          +'(날짜는 2026-08-12 처럼)','')||'').trim();
+        if(!want) return;
+        const list=suggestRules(want,ym,curNames,pending.vars);
+        if(!list.length){ alert('맞아떨어지는 규칙을 못 찾았습니다.\n\n'
+          +'옆에서 직접 골라 만들어 주세요.'); return; }
+        const pick=prompt('찾은 규칙입니다. 번호를 골라주세요.\n\n'
+          + list.map((c,n)=>'  '+(n+1)+') '+c.label).join('\n')
+          + '\n\n(취소하면 아무것도 안 바뀝니다)','1');
+        const n=Number(pick)-1;
+        if(!(n>=0&&n<list.length)) return;
+        Object.assign(v,{ on:true }, list[n].set);
         drawVars(); drawBody();
       }));
       $('pvVars').querySelectorAll('[data-of]').forEach(el=>el.addEventListener('change',()=>{
@@ -4975,6 +5226,7 @@ const CenterDocs = (function () {
 
     const closePrev=()=>{
       $('docPrev').hidden=true; pending=null; slotFiles.a=null; slotFiles.b=null;
+      const rpBox=$('pvRepeat'); if(rpBox) rpBox.innerHTML='';
       $('pvFiles').hidden=false; $('pvEditNote').hidden=true;
       $('docMht').hidden = view!=='list';
       $('pvAdd').textContent='이대로 문서 만들기'; $('pvDrop').hidden=true;
@@ -5049,15 +5301,26 @@ const CenterDocs = (function () {
           from:'', unit:'' }));
       const autoFields=on.filter(v=>(v.role||'cur')!=='cur'&&v.name.trim()).map(v=>{
         const a={ key:v.name.trim(), kind:v.role };
-        if(['prev','diff','vat'].indexOf(v.role)>=0) a.of=v.of;
+        // 규칙에 딸린 값을 그대로 옮긴다 — 이걸 빠뜨리면 «둘째 수요일» 이 «첫째 일요일» 이 된다
+        if(OF_NEEDED.indexOf(v.role)>=0) a.of=v.of;
+        for(const k of ARG_KEYS) if(v[k]!==undefined && v[k]!=='') a[k]=v[k];
         return a;
       });
       const nAuto=autoFields.length;
       // 서버에 넣고, 서버가 준 id 로 목록에 올린다. 임시 id 를 쓰면 저장할 때 문서를 못 찾는다.
+      // 되풀이 줄을 골랐으면 그 줄을 {{#키}} 로 바꾼 본문을 쓴다
+      const rp = pending.repeat && pending.repeat.cols ? pending.repeat : null;
+      let bodyOut = parts.join('');
+      if(rp && rp.newBody){
+        // 값 자리 표식({{키}})은 이미 parts 에 들어갔으므로, 되풀이 줄만 다시 만든다
+        const made = makeRepeatRow(bodyOut, rp.rowIdx, bodyRows(bodyOut).findIndex(function(x){return x.head;}));
+        if(made) bodyOut = made.body;
+      }
       docPost('doc-create',{
         center_code:CENTER_CODE, name:$('pvName').value.trim()||'이름 없는 문서',
-        kind:$('pvKind').value, body:parts.join(''),
-        fields:fields, auto_fields:autoFields, slot:null, sort_order:DOCS.length
+        kind:$('pvKind').value, body:bodyOut,
+        fields:fields, auto_fields:autoFields, slot:null, sort_order:DOCS.length,
+        repeat: rp ? { by:rp.by, cols:rp.cols } : null
       }).then(function(r){
         const d=rowToDoc(r.document); restamp(d); DOCS.unshift(d);
         closePrev(); q=''; $('docQ').value=''; kind='all'; draw();
@@ -5186,6 +5449,8 @@ const CenterDocs = (function () {
       $('dtBack').addEventListener('click',closeDoc);
       $('dtYm').addEventListener('change',e=>{
         curYm=e.target.value||curYm;
+        // 회차가 바뀌면 되풀이 줄 수도 달라진다(그 달의 요일 수가 다르다) — 표를 다시 그린다
+        drawRows();
         paintPaper();     // 회차가 바뀌면 «전월» 도 바뀐다 — 전월값·차이를 다시 낸다
         paintFoot();
       });
@@ -5202,7 +5467,9 @@ const CenterDocs = (function () {
     /* ── ① 작성 — 왼쪽 값, 오른쪽 초안 ────────────────────────────── */
     function drawEdit(){
       const d=cur;
-      if(!fieldsOf(d).length){
+      // 되풀이 줄만 있고 낱개 값 자리는 없는 문서가 실제로 있다
+      // (「이미지 파일 모니터링 점검」 — 주마다 한 줄이 전부다). 그것도 열려야 한다.
+      if(!fieldsOf(d).length && !hasRepeat(d)){
         $('tpEdit').innerHTML='<div class="empty">아직 값 자리가 없습니다.<br>'
           +'<b>← 문서 목록</b> 으로 가서 <b>.mht 가져오기</b> 로 양식을 넣어주세요.</div>';
         return;
@@ -5218,6 +5485,7 @@ const CenterDocs = (function () {
             : '<div class="ttl">파일</div><div class="drop3" style="cursor:default">'
               +'<b>이 문서는 파일에서 값을 읽지 않습니다</b>아래에 직접 넣어주세요</div>')
           + '<div class="ttl" style="margin-top:14px">값</div><div id="dtFields"></div>'
+          + '<div id="dtRows"></div>'
           + '<div id="dtAuto"></div>'
           + '<div class="savebar" id="dtFoot"></div>'
         + '</div>'
@@ -5227,7 +5495,7 @@ const CenterDocs = (function () {
           + '<div class="who" id="dtWho"></div>'
         + '</div>'
         + '</div>';
-      drawFields(); paintPaper(); drawWho();   // paintPaper 가 저절로 채우는 칸도 함께 그린다
+      drawFields(); drawRows(); paintPaper(); drawWho();   // paintPaper 가 저절로 채우는 칸도 함께 그린다
       if(d.slot){
         const el=$('dtDrop');
         el.addEventListener('click',()=>{ pick3.click(); });
@@ -5318,6 +5586,50 @@ const CenterDocs = (function () {
       }).join('');
       bindFields();
     }
+    /* 되풀이 줄 넣기 — 줄 수는 규칙이 정하고, 줄 안의 값은 사람이 넣는다.
+       회차를 바꾸면 줄 수가 저절로 달라진다(그 달의 요일 수가 다르니까). */
+    function drawRows(){
+      const d=cur, box=$('dtRows'); if(!box) return;
+      if(!hasRepeat(d)){ box.innerHTML=''; return; }
+      const V=vals[d.id];
+      // ⚠ 규칙이 만든 값을 V.__rows 에 도로 넣으면 안 된다 — 다음 회차에서 그것이
+      //    «사람이 넣은 값» 으로 취급돼, 달을 바꿔도 지난달 날짜가 그대로 남는다.
+      //    V.__rows 에는 **사람이 손댄 것만** 담고, 나머지는 그때그때 규칙이 만든다.
+      V.__rows = V.__rows || [];
+      const rows=repeatRows(d,curYm,V.__rows);
+      const cols=repCols(d);
+      const by=d.repeat.by, opko=(ROW_OPS[by.kind]||{}).ko||by.kind;
+      const made=by.kind==='weekdays'
+        ? '그 달의 '+WDKO[Number(by.wd||1)]+'요일마다 한 줄'+(by.avoid==='next'?' · 쉬는 날이면 다음 평일':'')
+        : opko;
+      box.innerHTML='<div class="ttl" style="margin-top:16px">되풀이 줄 — '
+          +esc(made)+' <b>('+rows.length+'줄)</b></div>'
+        + '<div class="hint" style="margin:0 0 8px">이 회차는 '+rows.length+'줄입니다. '
+        + '달이 바뀌면 줄 수도 <b>저절로</b> 달라집니다 — 손으로 줄을 더하거나 지우지 않아도 됩니다.</div>'
+        + '<table class="rowtbl"><tr><th>#</th>'
+        + cols.map(c=>'<th>'+esc(c.label||c.key)+'</th>').join('')+'</tr>'
+        + rows.map((r,i)=>'<tr><td class="n">'+(i+1)+'</td>'
+            + cols.map(c=>{
+                const v=isBlank(r[c.key])?'':String(r[c.key]);
+                const ro=(c.from==='date');
+                return '<td>'+(ro
+                  ? '<input type="date" data-row="'+i+'" data-rk="'+esc(c.key)+'" value="'+esc(v)+'">'
+                  : '<input type="text" data-row="'+i+'" data-rk="'+esc(c.key)+'" value="'+esc(v)+'"'
+                    + (c.type==='number'?' inputmode="numeric"':'')+'>')+'</td>';
+              }).join('')+'</tr>').join('')
+        + '</table>'
+        + (by.kind==='manual'
+            ? '<button class="btn g sm" id="rowAdd" style="margin-top:8px">+ 줄 더하기</button>' : '');
+      box.querySelectorAll('[data-row]').forEach(el=>el.addEventListener('input',()=>{
+        const i=+el.dataset.row;
+        V.__rows[i]=V.__rows[i]||{};
+        V.__rows[i][el.dataset.rk]=el.value;
+        paintPaper(); paintFoot();
+      }));
+      const add=$('rowAdd');
+      if(add) add.addEventListener('click',()=>{ V.__rows.push({}); drawRows(); paintPaper(); });
+    }
+
     function optEditor(d,f,opts){
       const rec=optRec(d,f), mine=!!rec.mine;
       return '<div class="oed">'
@@ -5462,53 +5774,253 @@ const CenterDocs = (function () {
         .sort((a,b)=>b.ym.localeCompare(a.ym))[0]||null;
     }
     /** 합계에 넣을 칸들 */
+    /* ══════════════════════════════════════════════════════════════
+       값 규칙 — «저절로 채우는 칸» 을 만드는 표.
+
+       예전에는 kind 가 prev·diff·vat·sum·sumvat·total 여섯으로 **코드에 박혀**
+       있어서(if / else if 사슬), 새 상황이 생길 때마다 계산과 화면을 같이 고쳐야 했다.
+       실제 공문을 읽어보니 «매월 둘째 수요일, 공휴일이면 다음 평일» 같은 규칙이
+       들어갈 자리가 아예 없었다.
+
+       이제 규칙은 { kind(=op 이름), of, ... } 한 덩어리이고, 새 상황이 생기면
+       **아래 표에 한 줄** 더한다. 화면은 안 건드린다.
+         · pass 1 : 혼자 낼 수 있는 것
+         · pass 2 : 다른 칸이 다 끝나야 낼 수 있는 것(합계)
+       옛 문서의 kind 여섯 개가 그대로 op 이름이라 **되돌릴 것이 없다.**
+       ══════════════════════════════════════════════════════════════ */
+
+    /* 쉬는 날 — 토·일 + 공휴일. 공휴일표는 문서에 딸려 있고(doc.holidays),
+       없으면 주말만 본다. 조용히 틀린 날짜를 내느니 «주말만 봤다» 고 밝히는 편이 낫다. */
+    function offDays(d){ return (d && d.holidays) || {}; }
+    const isWeekend=(dt)=>dt.getDay()===0||dt.getDay()===6;
+    function isOffDay(dt,doc){ return isWeekend(dt) || !!offDays(doc)[ymd(dt)]; }
+    function ymd(dt){ return dt.getFullYear()+'-'+String(dt.getMonth()+1).padStart(2,'0')
+      +'-'+String(dt.getDate()).padStart(2,'0'); }
+    const WDKO=['일','월','화','수','목','금','토'];
+    function koD(dt){ return dt.getFullYear()+'년 '+(dt.getMonth()+1)+'월 '+dt.getDate()+'일 ('+WDKO[dt.getDay()]+')'; }
+
+    /** 쉬는 날이면 밀거나 당긴다. avoid: 'next' 뒤로 · 'prev' 앞으로 · 그 밖은 그대로 */
+    function shiftOff(dt,avoid,doc){
+      if(avoid!=='next'&&avoid!=='prev') return { d:dt, moved:0 };
+      let n=0, x=new Date(dt);
+      while(isOffDay(x,doc) && n<20){ x.setDate(x.getDate()+(avoid==='prev'?-1:1)); n++; }
+      return { d:x, moved:n };
+    }
+    /** 그 달의 n번째 ○요일 (없으면 null) */
+    function nthWeekday(ym,n,wd){
+      const [Y,M]=String(ym).split('-').map(Number);
+      let dt=new Date(Y,M-1,1), c=0;
+      while(dt.getMonth()===M-1){ if(dt.getDay()===wd && ++c===n) return dt; dt.setDate(dt.getDate()+1); }
+      return null;
+    }
+    /** 그 달의 ○요일 **전부** — 되풀이 줄이 여기서 나온다 */
+    function allWeekdays(ym,wd){
+      const [Y,M]=String(ym).split('-').map(Number);
+      const out=[]; let dt=new Date(Y,M-1,1);
+      while(dt.getMonth()===M-1){ if(dt.getDay()===wd) out.push(new Date(dt)); dt.setDate(dt.getDate()+1); }
+      return out;
+    }
+
+    /* op 표. ctx = { d(문서), V(당월값), P(전월값), ym(회차) }
+       돌려주는 것은 { v: 화면에 찍을 글자, why: 왜 그런지 한 줄 } */
+    const AUTO_OPS = {
+      prev: { pass:1, ko:'전월값', run:(a,c)=>{
+        const raw=c.P? c.P[a.of] : undefined;
+        if(isBlank(raw)) return { v:'', why:'지난 회차가 없어 비어 있습니다 (0으로 채우지 않습니다)' };
+        const n=num(raw);
+        return { v: n===null? String(raw) : fmtLike(c.d,a.of,n), why:'지난 회차의 «'+a.of+'»' };
+      }},
+      diff: { pass:1, ko:'차이', run:(a,c)=>{
+        const n=num(c.V[a.of]), q=num(c.P&&c.P[a.of]);
+        if(n===null||q===null) return { v:'', why:'전월이 없어 낼 수 없습니다' };
+        return { v:(n-q>=0?'▲':'▼')+comma(Math.abs(Math.round((n-q)*10)/10)),
+                 why:'이번 «'+a.of+'» − 지난 «'+a.of+'»' };
+      }},
+      vat: { pass:1, ko:'부가세', run:(a,c)=>{
+        const n=num(c.V[a.of]); const pct=(a.pct===undefined?10:Number(a.pct));
+        if(n===null) return { v:'', why:'«'+a.of+'» 이 비어 있습니다' };
+        return { v:comma(Math.round(n*pct/100)), why:'«'+a.of+'» 의 '+pct+'%' };
+      }},
+      // 부가세와 같은 계산이지만 «합계에 안 든다» — 요율이 다른 칸에 쓴다
+      percent: { pass:1, ko:'비율 계산', run:(a,c)=>{
+        const n=num(c.V[a.of]); const pct=Number(a.pct||0);
+        if(n===null) return { v:'', why:'«'+a.of+'» 이 비어 있습니다' };
+        return { v:comma(Math.round(n*pct/100)), why:'«'+a.of+'» 의 '+pct+'%' };
+      }},
+      // 매월 n번째 ○요일 — 쉬는 날이면 밀거나 당긴다
+      'nth-wd': { pass:1, ko:'날짜(매월 n번째 요일)', run:(a,c)=>{
+        const base=nthWeekday(c.ym,Number(a.n||1),Number(a.wd||0));
+        if(!base) return { v:'', why:'그 달에 '+a.n+'번째 '+WDKO[a.wd]+'요일이 없습니다' };
+        const { d:dt, moved }=shiftOff(base,a.avoid,c.d);
+        return { v:ymd(dt),
+          why:'매월 '+a.n+'번째 '+WDKO[a.wd]+'요일 = '+koD(base)
+            + (moved? ' → 쉬는 날이라 '+(a.avoid==='prev'?'앞으로':'뒤로')+' 밀어 '+koD(dt) : '')
+            + (Object.keys(offDays(c.d)).length? '' : ' · 공휴일표가 없어 주말만 봤습니다') };
+      }},
+      // 그 달 말일에서 k일 전
+      eom: { pass:1, ko:'날짜(말일 기준)', run:(a,c)=>{
+        const [Y,M]=String(c.ym).split('-').map(Number);
+        const base=new Date(Y,M,0); base.setDate(base.getDate()-Number(a.back||0));
+        const { d:dt, moved }=shiftOff(base,a.avoid,c.d);
+        return { v:ymd(dt), why:'말일'+(a.back?' − '+a.back+'일':'')+' = '+koD(base)
+          + (moved? ' → 쉬는 날이라 옮겨 '+koD(dt) : '') };
+      }},
+      // 값에 따라 문장이 통째로 바뀐다
+      if: { pass:1, ko:'조건 문장', run:(a,c)=>{
+        // 보는 칸은 a.of 다. a.key 는 **결과가 들어갈 칸 이름**이라 그걸 보면
+        // 자기 자신을 보게 된다(옮길 때 실제로 이렇게 틀렸고 시험이 잡았다).
+        const L=c.V[a.of], l=num(L), r=num(a.v);
+        let hit;
+        if(a.cmp==='>')       hit = l!==null&&r!==null&&l>r;
+        else if(a.cmp==='<')  hit = l!==null&&r!==null&&l<r;
+        else if(a.cmp==='!=') hit = String(L)!==String(a.v);
+        else                  hit = (l!==null&&r!==null)? l===r : String(L)===String(a.v);
+        const tpl=String(hit? (a.then||'') : (a.else||''));
+        const out=tpl.replace(/\{([^}]+)\}/g,(_,k)=>{
+          const v=c.V[k]; return isBlank(v)? '' : (num(v)!==null? comma(v) : v); });
+        return { v:out, why:'«'+a.of+'»('+(isBlank(L)?'빈칸':L)+') '+(a.cmp||'=')+' '+a.v
+          +' → '+(hit?'맞음':'아님')+' 쪽 문장' };
+      }},
+      // ── pass 2 : 다른 칸이 다 끝나야 낼 수 있다 ──
+      sum:    { pass:2, ko:'공급가 합계', run:(a,c)=>({ v:c.__sumTxt,    why:sumKeys(c.d).join(' + ') }) },
+      sumvat: { pass:2, ko:'부가세 합계', run:(a,c)=>({ v:c.__sumvatTxt, why:'부가세를 매긴 칸의 부가세를 다 더함' }) },
+      total:  { pass:2, ko:'총 합계',     run:(a,c)=>({ v:c.__totalTxt,  why:'공급가 합계 + 부가세 합계' }) },
+    };
+    const KIND_KO = Object.fromEntries(Object.entries(AUTO_OPS).map(([k,o])=>[k,o.ko]));
+
+    /** 숫자칸이면 쉼표를, 아니면 글자 그대로 */
+    function fmtLike(d,key,n){
+      const f=fieldsOf(d).find(x=>x.key===key);
+      return (f&&f.type!=='number')? String(n) : comma(n);
+    }
+
     function sumKeys(d){
       const auto=d.autoFields||[];
       const vats=auto.filter(a=>a.kind==='vat').map(a=>a.of);
       if(vats.length) return vats;
       return fieldsOf(d).filter(f=>f.type==='number').map(f=>f.key);
     }
-    /** V 에 저절로 채우는 칸을 채워 넣는다. prevV 는 지난 회차 값(없으면 null). */
-    function computeAuto(d,V,prevV){
+
+    /** V 에 저절로 채우는 칸을 채워 넣는다. prevV 는 지난 회차 값(없으면 null).
+        why 를 같이 받고 싶으면 whyOut 객체를 넘긴다. */
+    function computeAuto(d,V,prevV,whyOut){
       const auto=d.autoFields||[];
-      const fmt=(n,key)=>{
-        const f=fieldsOf(d).find(x=>x.key===key);
-        return (f&&f.type!=='number')? String(n) : comma(n);
-      };
+      const ctx={ d:d, V:V, P:prevV, ym:(V&&V.__ym)||curYm };
+      // pass 1
       for(const a of auto){
-        if(a.kind==='prev'){
-          const raw=prevV? prevV[a.of] : undefined;
-          V[a.key]= isBlank(raw)? '' : (num(raw)===null? String(raw) : fmt(num(raw),a.of));
-        }
-        else if(a.kind==='diff'){
-          const n=num(V[a.of]), q=num(prevV&&prevV[a.of]);
-          V[a.key]= (n===null||q===null)? ''
-            : (n-q>=0?'▲':'▼')+comma(Math.abs(Math.round((n-q)*10)/10));
-        }
-        else if(a.kind==='vat'){
-          const n=num(V[a.of]);
-          V[a.key]= n===null? '' : comma(Math.round(n*0.1));
-        }
+        const op=AUTO_OPS[a.kind]; if(!op||op.pass!==1) continue;
+        const r=op.run(a,ctx);
+        V[a.key]=r.v; if(whyOut) whyOut[a.key]=r.why;
       }
-      // 합계는 다른 칸이 다 끝난 뒤에 낸다 — 부가세를 먼저 알아야 한다
+      // 합계는 부가세를 매긴 칸만 더한다 — 안 그러면 청구인원이 금액에 섞인다
       const keys=sumKeys(d);
       const sum=keys.reduce((t,k)=>{ const n=num(V[k]); return n===null? t : t+n; },0);
       const anySum=keys.some(k=>num(V[k])!==null);
       const vat=auto.filter(a=>a.kind==='vat')
-        .reduce((t,a)=>{ const n=num(V[a.of]); return n===null? t : t+Math.round(n*0.1); },0);
+        .reduce((t,a)=>{ const n=num(V[a.of]); const p=(a.pct===undefined?10:Number(a.pct));
+          return n===null? t : t+Math.round(n*p/100); },0);
+      ctx.__sumTxt    = anySum? comma(sum) : '';
+      ctx.__sumvatTxt = anySum? comma(vat) : '';
+      ctx.__totalTxt  = anySum? comma(sum+vat) : '';
+      // pass 2
       for(const a of auto){
-        if(a.kind==='sum')    V[a.key]= anySum? comma(sum) : '';
-        if(a.kind==='sumvat') V[a.key]= anySum? comma(vat) : '';
-        if(a.kind==='total')  V[a.key]= anySum? comma(sum+vat) : '';
+        const op=AUTO_OPS[a.kind]; if(!op||op.pass!==2) continue;
+        const r=op.run(a,ctx);
+        V[a.key]=r.v; if(whyOut) whyOut[a.key]=r.why;
       }
       return V;
+    }
+
+
+    /* ══════════════════════════════════════════════════════════════
+       되풀이 줄 — 표의 한 줄이 «틀» 이고, 회차마다 줄 수가 달라진다.
+
+       실제 공문 31장을 읽어보고 넣었다. 두 달치 짝 10쌍 가운데 **4쌍이
+       달마다 줄 수가 바뀐다**(예: 「이미지 파일 모니터링 점검」 은 그 달의
+       월요일마다 한 줄이라 7월 4줄 · 8월 5줄). 값 자리만 갈아끼우는 방식으로는
+       이 문서들을 **아예 만들 수 없었다.**
+
+       본문 표시:  되풀이할 <tr> 안에 {{#키}} 를 하나라도 두면 그 줄이 틀이 된다.
+                   {{#날짜}} 처럼 # 로 시작하면 «이 줄의 값», 그냥 {{키}} 면 문서 전체 값.
+       줄 만들기:  doc.repeat = { by:{ kind, ... }, cols:[{key,label,type,from}] }
+                   by.kind — 'weekdays'(그 달의 ○요일 전부) · 'count'(몇 줄) · 'manual'(사람이 더한 만큼)
+       값 저장:    vals[문서id].__rows = [ { 날짜:'2026-08-03', 점검인원:11 }, … ]
+
+       ⚠ 태그는 여전히 한 글자도 안 건드린다. <tr> 을 통째로 복제할 뿐,
+          줄 안의 글자만 갈아끼운다.
+       ══════════════════════════════════════════════════════════════ */
+
+    const ROW_OPS = {
+      // 그 달의 ○요일 전부 — 쉬는 날이면 밀거나 당긴다
+      weekdays: { ko:'그 달의 요일마다', make:(a,ym,doc)=>
+        allWeekdays(ym, Number(a.wd||1)).map(dt=>{
+          const { d:x, moved }=shiftOff(dt,a.avoid,doc);
+          return { __date:ymd(x), __why:koD(dt)+(moved?' → 쉬는 날이라 '+koD(x):'') };
+        }) },
+      // 몇 줄인지 사람이 정한다
+      count: { ko:'정한 줄 수만큼', make:(a)=>
+        Array.from({length:Math.max(0,Number(a.n||0))},()=>({})) },
+      // 사람이 더하는 만큼 (틀만 두고 비워 둔다)
+      manual: { ko:'내가 더하는 만큼', make:()=>[] },
+    };
+
+    const repCols = (d)=>((d.repeat&&d.repeat.cols)||[]);
+    const hasRepeat = (d)=>!!(d.repeat && d.repeat.by && repCols(d).length);
+
+    /** 이 회차에 줄이 몇 개이고 어떤 값이 미리 들어가는지 */
+    function repeatRows(d,ym,saved){
+      if(!hasRepeat(d)) return [];
+      const op=ROW_OPS[d.repeat.by.kind];
+      const base=op? op.make(d.repeat.by, ym, d) : [];
+      const mine=Array.isArray(saved)? saved : [];
+      // 규칙이 만든 줄 수를 기준으로 하되, 사람이 더한 줄은 잃지 않는다
+      const n=Math.max(base.length, d.repeat.by.kind==='manual'? mine.length : base.length, mine.length);
+      const out=[];
+      for(let i=0;i<n;i++){
+        const row=Object.assign({}, base[i]||{}, mine[i]||{});
+        // 날짜 칸이 규칙에서 나오는 것이면 규칙 값을 이긴다(사람이 고친 적 없을 때만)
+        const dateCol=repCols(d).find(c=>c.from==='date');
+        if(dateCol && base[i] && isBlank((mine[i]||{})[dateCol.key])) row[dateCol.key]=base[i].__date;
+        out.push(row);
+      }
+      return out;
+    }
+
+    /** 본문에서 되풀이 줄(<tr>)을 찾아, 회차의 줄 수만큼 늘려 그린다.
+        태그를 건드리지 않으려고 조각(/(<[^>]+>)/)으로 쪼개 <tr> 경계를 찾는다. */
+    function expandRepeat(body,d,rows){
+      if(!hasRepeat(d)||!body) return body;
+      const parts=body.split(/(<[^>]+>)/);
+      // {{# 가 든 글자 조각을 찾는다
+      let hit=-1;
+      for(let i=0;i<parts.length;i+=2) if(/\{\{#/.test(parts[i]||'')){ hit=i; break; }
+      if(hit<0) return body;
+      // 그 조각을 감싸는 <tr> … </tr> 을 찾는다
+      let a=-1,b=-1;
+      for(let i=hit;i>=0;i--) if(i%2===1 && /^<tr\b/i.test(parts[i])){ a=i; break; }
+      for(let i=hit;i<parts.length;i++) if(i%2===1 && /^<\/tr>/i.test(parts[i])){ b=i; break; }
+      if(a<0||b<0) return body;
+      const tpl=parts.slice(a,b+1).join('');
+      const made=rows.map((r,idx)=>tpl.replace(/\{\{#([^}]+)\}\}/g,(m,k)=>{
+        const key=String(k).trim();
+        if(key==='번호') return String(idx+1);
+        const v=r[key];
+        return isBlank(v)? '<span class="hole">'+esc(key)+'</span>'
+                         : '<span class="fill">'+esc(num(v)!==null&&/인원|건수|수$/.test(key)? comma(v) : v)+'</span>';
+      })).join('');
+      return parts.slice(0,a).join('') + (made || tpl.replace(/\{\{#([^}]+)\}\}/g,
+        (m,k)=>'<span class="hole">'+esc(String(k).trim())+'</span>')) + parts.slice(b+1).join('');
     }
 
     /* ── 초안 그리기 — 지금 넣는 값과 저장 기록이 같은 함수를 쓴다 ──── */
     function paperHtml(d,raw,prevV){
       if(!d.body) return null;
       const V=computeAuto(d, Object.assign({},raw||{}), prevV===undefined? prevSave(d,curYm) && prevSave(d,curYm).vals : prevV);
-      return d.body.replace(/\{\{([^}]+)\}\}/g,function(m,key){
+      // 되풀이 줄을 먼저 펼친다 — 회차마다 줄 수가 달라진다
+      const rows=repeatRows(d,curYm,(raw||{}).__rows);
+      const body=expandRepeat(d.body,d,rows);
+      return body.replace(/\{\{([^}]+)\}\}/g,function(m,key){
+        if(String(key).charAt(0)==='#') return m;   // 되풀이 줄 것은 위에서 이미 처리했다
         const v=V[key];
         if(isBlank(v)) return '<span class="hole">'+esc(key)+'</span>';
         const f=fieldsOf(d).find(x=>x.key===key);
@@ -5520,23 +6032,16 @@ const CenterDocs = (function () {
     }
     /** 저절로 채우는 칸을 보여준다 — 넣는 칸이 아니라 **결과를 확인하는** 칸이다.
         무엇에서 나온 값인지 한 줄로 밝힌다. 합계는 틀려도 티가 안 나서 위험하다. */
-    const KIND_KO={ prev:'전월값', diff:'차이', vat:'부가세',
-                    sum:'공급가 합계', sumvat:'부가세 합계', total:'총 합계' };
     function paintAuto(){
       const d=cur, box=$('dtAuto'); if(!box) return;
       const auto=d.autoFields||[];
       if(!auto.length){ box.innerHTML=''; return; }
       const pv=prevSave(d,curYm);
-      const V=computeAuto(d, Object.assign({},vals[d.id]||{}), pv? pv.vals : null);
-      const how=(a)=>{
-        if(a.kind==='prev')   return pv? '지난 회차 '+pv.ym+' 의 «'+a.of+'»' : '지난 회차가 없어 비어 있습니다';
-        if(a.kind==='diff')   return pv? '이번 «'+a.of+'» − '+pv.ym+' 의 «'+a.of+'»' : '전월이 없어 낼 수 없습니다';
-        if(a.kind==='vat')    return '«'+a.of+'» 의 10%';
-        if(a.kind==='sum')    return sumKeys(d).join(' + ');
-        if(a.kind==='sumvat') return '부가세를 매긴 칸의 10% 를 다 더함';
-        if(a.kind==='total')  return '공급가 합계 + 부가세 합계';
-        return '';
-      };
+      const WHY={};
+      const V=computeAuto(d, Object.assign({},vals[d.id]||{}), pv? pv.vals : null, WHY);
+      // 왜 그 값이 나왔는지는 **규칙이 직접 말해준다**(computeAuto 가 whyOut 에 담아준다).
+      // 예전에는 여기에 if 사슬을 또 두어, 계산을 고치면 설명이 따로 놀았다.
+      const how=(a)=>WHY[a.key]||'';
       box.innerHTML='<div class="ttl" style="margin-top:16px">저절로 채우는 칸 — 묻지 않습니다</div>'
         + '<div class="autolist">'+auto.map(a=>{
             const v=V[a.key], has=!isBlank(v);
@@ -5589,7 +6094,8 @@ const CenterDocs = (function () {
     /* ── ② 저장 ─────────────────────────────────────────────────── */
     function saveNow(){
       const d=cur;
-      if(!fieldsOf(d).length){ alert('넣을 값 자리가 없습니다.'); return; }
+      // 되풀이 줄만 있는 문서도 저장할 수 있어야 한다
+      if(!fieldsOf(d).length && !hasRepeat(d)){ alert('넣을 값 자리가 없습니다.'); return; }
       const miss=fieldsOf(d).filter(f=>isBlank(vals[d.id][f.key]));
       if(miss.length && !confirm(miss.length+'칸이 비어 있습니다: '+miss.map(f=>f.label).join(' · ')
         +'\n\n그래도 저장할까요? (나중에 이어서 채울 수 있습니다)')) return;
@@ -5743,6 +6249,10 @@ const CenterDocs = (function () {
         findVars: findVars, diffVars: diffVars, trimCommon: trimCommon,
         widen: widen, coreOf: coreOf, textParts: textParts,
         computeAuto: computeAuto, sumKeys: sumKeys, prevSave: prevSave,
+        AUTO_OPS: AUTO_OPS, ROW_OPS: ROW_OPS,
+        repeatRows: repeatRows, expandRepeat: expandRepeat, hasRepeat: hasRepeat,
+        allWeekdays: allWeekdays, nthWeekday: nthWeekday, shiftOff: shiftOff,
+        setYm: function(y){ curYm=y; },
         isBlank: isBlank, num: num, comma: comma, XE: XE,
         state: { DOCS: DOCS, saves: saves, OPTS: OPTS },
         setCenter: function (cc, nm) { pickedCenter = cc; CENTER_CODE = cc; CENTER_NAME = nm; }

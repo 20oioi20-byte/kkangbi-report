@@ -275,6 +275,117 @@ console.log('7. 엑셀 — 응대율은 합계끼리 나눈다');
   eq(z['k'], '5', '파일에서 읽은 0 도 값으로 센다');
 }
 
+// ─────────────── 8. 되풀이 줄 ───────────────
+console.log('8. 되풀이 줄 — 회차마다 줄 수가 달라진다');
+{
+  const { repeatRows, expandRepeat, hasRepeat, allWeekdays, setYm } = T;
+  const countTr = (h) => (h.match(/<tr[\s>]/g) || []).length;
+
+  // 실제 공문(「이미지 파일 모니터링 점검」)과 같은 모양: 그 달의 월요일마다 한 줄.
+  // 2026-07 은 월요일이 4번(6·13·20·27), 2026-08 은 5번(3·10·17·24·31).
+  eq(allWeekdays('2026-07', 1).length, 4, '2026년 7월의 월요일은 4번이다');
+  eq(allWeekdays('2026-08', 1).length, 5, '2026년 8월의 월요일은 5번이다');
+
+  const doc = {
+    id: 'r1',
+    body: '<table><tr><th>점검일</th><th>인원</th></tr>'
+        + '<tr><td>{{#점검일}}</td><td>{{#인원}}</td></tr></table>',
+    fields: [], autoFields: [],
+    repeat: { by: { kind: 'weekdays', wd: 1, avoid: 'next' },
+              cols: [ { key: '점검일', label: '점검일', from: 'date' },
+                      { key: '인원',   label: '인원',   type: 'number' } ] }
+  };
+  ok(hasRepeat(doc), '되풀이 줄이 있는 문서로 알아본다');
+
+  setYm('2026-07'); const r7 = repeatRows(doc, '2026-07', null);
+  setYm('2026-08'); const r8 = repeatRows(doc, '2026-08', null);
+  eq(r7.length, 4, '7월은 4줄');
+  eq(r8.length, 5, '8월은 5줄 — 줄 수가 저절로 달라진다');
+  eq(r7[0]['점검일'], '2026-07-06', '첫 줄 날짜가 규칙에서 나온다');
+  eq(r8[4]['점검일'], '2026-08-31', '마지막 줄 날짜도 규칙에서 나온다');
+
+  // 본문이 실제로 늘어나는가
+  setYm('2026-07'); const h7 = expandRepeat(doc.body, doc, r7);
+  setYm('2026-08'); const h8 = expandRepeat(doc.body, doc, r8);
+  eq(countTr(doc.body), 2, '틀은 머리줄 + 되풀이줄 = 2줄');
+  eq(countTr(h7), 1 + 4, '7월 초안은 머리줄 + 4줄');
+  eq(countTr(h8), 1 + 5, '8월 초안은 머리줄 + 5줄');
+
+  // ⚠ 서식 보존 — 줄을 늘려도 태그는 복제될 뿐 바뀌지 않는다
+  ok(h8.indexOf('<th>점검일</th>') >= 0, '머리줄 태그가 그대로다');
+  ok(h8.indexOf('</table>') >= 0, '표 닫는 태그가 살아 있다');
+  ok(!/\{\{#/.test(h8), '되풀이 표식이 초안에 남지 않는다');
+
+  // 사람이 넣은 값은 규칙이 만든 줄에 얹힌다
+  setYm('2026-08');
+  const r8b = repeatRows(doc, '2026-08', [ {}, { '인원': 11 } ]);
+  eq(r8b.length, 5, '사람이 2줄만 채워도 줄 수는 규칙대로 5줄');
+  eq(r8b[1]['인원'], 11, '넣은 값이 그 줄에 남는다');
+  eq(r8b[1]['점검일'], '2026-08-10', '안 건드린 날짜는 규칙 값 그대로');
+
+  // 쉬는 날이면 민다
+  const withHol = Object.assign({}, doc, { holidays: { '2026-08-10': '임시공휴일' } });
+  eq(repeatRows(withHol, '2026-08', null)[1]['점검일'], '2026-08-11',
+     '쉬는 날이면 다음 평일로 민다');
+
+  // ⚠ 옮길 때 실제로 났던 사고 — 규칙이 만든 날짜를 «사람이 넣은 값» 으로 저장해 버리면,
+  //    달을 바꿔도 지난달 날짜가 그대로 남고 줄 수도 안 바뀐다.
+  //    저장에는 **사람이 손댄 것만** 담아야 한다.
+  setYm('2026-07');
+  const july = repeatRows(doc, '2026-07', null);          // 7월 줄(날짜가 채워져 있다)
+  setYm('2026-08');
+  const wrong = repeatRows(doc, '2026-08', july);         // 그것을 그대로 «사람 입력» 으로 넘기면
+  ok(wrong[0]['점검일'] === '2026-07-06',
+     '규칙이 만든 값을 그대로 넘기면 지난달 날짜가 남는다 — 그래서 넘기면 안 된다');
+  const right = repeatRows(doc, '2026-08', [ {}, { '점검인원': 11 } ]);   // 손댄 것만 넘기면
+  eq(right[0]['점검일'], '2026-08-03', '손댄 것만 넘기면 날짜는 그 달 것으로 다시 만들어진다');
+  eq(right.length, 5, '줄 수도 그 달 기준으로 다시 센다');
+  eq(right[1]['점검인원'], 11, '손댄 값은 그대로 남는다');
+  // 되풀이 줄이 없는 문서는 본문이 한 글자도 안 바뀐다
+  const plain = { id: 'p', body: '<table><tr><td>{{인입호}}</td></tr></table>', fields: [], autoFields: [] };
+  eq(expandRepeat(plain.body, plain, []), plain.body, '되풀이 줄이 없으면 본문을 안 건드린다');
+}
+
+// ─────────────── 9. 새 규칙(op) ───────────────
+console.log('9. 새 규칙 — 날짜 · 조건');
+{
+  const { computeAuto, setYm } = T;
+  const mk = (autoFields, holidays) => ({ id: 'x', holidays: holidays || null,
+    fields: [ { key: '휴무자', type: 'number' } ], autoFields: autoFields });
+
+  setYm('2026-09');
+  const A = computeAuto(mk([ { key: '점검일', kind: 'nth-wd', n: 2, wd: 3, avoid: 'next' } ]),
+                        { __ym: '2026-09' }, null);
+  eq(A['점검일'], '2026-09-09', '2026년 9월 둘째 수요일 = 9월 9일');
+
+  const B = computeAuto(mk([ { key: '점검일', kind: 'nth-wd', n: 2, wd: 3, avoid: 'next' } ],
+                           { '2026-09-09': '임시공휴일' }), { __ym: '2026-09' }, null);
+  eq(B['점검일'], '2026-09-10', '그날이 공휴일이면 다음 평일(9월 10일)로 민다');
+
+  const C = computeAuto(mk([ { key: '점검일', kind: 'nth-wd', n: 2, wd: 3, avoid: 'none' } ],
+                           { '2026-09-09': '임시공휴일' }), { __ym: '2026-09' }, null);
+  eq(C['점검일'], '2026-09-09', '«그대로» 를 고르면 안 민다');
+
+  // 조건 문장 — 값에 따라 문장이 통째로 바뀐다
+  const IF = { key: '휴무문구', kind: 'if', of: '휴무자', cmp: '=', v: 0,
+               then: '휴무자 없음', else: '휴무자 {휴무자}명은 복귀 후 추가 점검' };
+  eq(computeAuto(mk([IF]), { __ym: '2026-09', '휴무자': 0 }, null)['휴무문구'],
+     '휴무자 없음', '0명이면 «휴무자 없음»');
+  eq(computeAuto(mk([IF]), { __ym: '2026-09', '휴무자': 2 }, null)['휴무문구'],
+     '휴무자 2명은 복귀 후 추가 점검', '0명이 아니면 문장이 통째로 바뀌고 값이 끼워진다');
+
+  // 말일 기준
+  const E = computeAuto(mk([ { key: '마감', kind: 'eom', back: 0, avoid: 'prev' } ]),
+                        { __ym: '2026-08' }, null);
+  eq(E['마감'], '2026-08-31', '2026년 8월 말일 = 8월 31일 (월요일이라 안 밀림)');
+
+  // 옛 문서(kind 여섯 개)가 그대로 도는지 — 되돌릴 것이 없어야 한다
+  const old = { id: 'o', fields: [ { key: '교육비', type: 'number' } ],
+    autoFields: [ { key: '부가세', kind: 'vat', of: '교육비' }, { key: '합계', kind: 'total' } ] };
+  const O = computeAuto(old, { __ym: '2026-09', '교육비': 1000000 }, null);
+  eq(O['부가세'], '100,000', '옛 kind(vat)가 그대로 돈다');
+  eq(O['합계'], '1,100,000', '옛 kind(total)도 그대로 돈다');
+}
 console.log('='.repeat(52));
 if (fail) {
   console.log('');

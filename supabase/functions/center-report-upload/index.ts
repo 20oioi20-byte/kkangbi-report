@@ -1162,6 +1162,8 @@ Deno.serve(async (req) => {
         opts: body.opts ?? {},
         contact_ids: body.contact_ids ?? [],
         sort_order: body.sort_order ?? 0,
+        repeat: body.repeat ?? null,          // 되풀이 줄 규칙 (addendum_16)
+        holidays: body.holidays ?? null,      // 공휴일표 (addendum_16)
       }).select().single();
       if (error) return json({ success: false, error: '등록 실패: ' + error.message }, 500);
       return json({ success: true, document: data }, 200);
@@ -1180,7 +1182,7 @@ Deno.serve(async (req) => {
       }
       // 보내온 것만 고친다 — 안 보낸 칸을 기본값으로 밀어버리면 값이 조용히 사라진다
       const patch: Record<string, unknown> = {};
-      for (const k of ['name', 'kind', 'body', 'fields', 'auto_fields', 'slot', 'opts', 'contact_ids', 'sort_order']) {
+      for (const k of ['name', 'kind', 'body', 'fields', 'auto_fields', 'slot', 'opts', 'contact_ids', 'sort_order', 'repeat', 'holidays']) {
         if (body[k] !== undefined) patch[k] = body[k];
       }
       if (!Object.keys(patch).length) return json({ success: false, error: '고칠 내용이 없습니다.' }, 400);
