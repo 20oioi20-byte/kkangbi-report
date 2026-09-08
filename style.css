@@ -657,20 +657,28 @@
     .doc-root .pb2 .pstick { position:static; }
     .doc-root .pb2 .pdoc { max-height:300px; }
   }
-  /* 왼쪽이 좁아졌으니 값 자리 표를 세 줄로 접는다.
-     ⚠ «고르기»(위치)는 자리를 정하는 핵심 단추라 절대 숨기지 않는다. */
+  /* 왼쪽 값 자리 표 — **한 줄에 하나**. 세 줄로 늘어지면 일곱 줄이 826px 가 되어
+     오른쪽 본문이 허공에 뜬다(실제로 그랬다). 이름·역할만 남기고 나머지는 접는다. */
   @media (min-width:1081px) {
-    .doc-root .pb2 .vr { grid-template-columns:24px minmax(0,1fr) 108px 24px;
-      grid-template-areas:'c n r x' '. v r x' '. p r x'; row-gap:4px; }
-    .doc-root .pb2 .vr > input[type=checkbox] { grid-area:c; align-self:start; margin-top:8px; }
-    .doc-root .pb2 .vr .nmcell { grid-area:n; }
-    .doc-root .pb2 .vr .val    { grid-area:v; font-size:12px; }
-    .doc-root .pb2 .vr .role   { grid-area:r; align-self:start; }
-    .doc-root .pb2 .vr .pos    { grid-area:p; justify-content:flex-start; }
-    .doc-root .pb2 .vr .del    { grid-area:x; align-self:start; }
-    .doc-root .pb2 .vr.h { grid-template-areas:'c n r x'; }
-    .doc-root .pb2 .vr.h > span:nth-child(3),
-    .doc-root .pb2 .vr.h > span:nth-child(5) { display:none; }
+    .doc-root .pb2 .vr { grid-template-columns:22px minmax(0,1fr) 120px 66px 22px;
+      gap:6px; align-items:center; padding:5px 8px; }
+    .doc-root .pb2 .vr .nmcell { flex-direction:row; align-items:center; gap:6px; }
+    .doc-root .pb2 .vr .nmcell input { font-size:12.5px; padding:5px 7px; }
+    .doc-root .pb2 .vr .who2 { display:none; }        /* 견줌/짐작 딱지는 머리에 한 번만 */
+    .doc-root .pb2 .vr .val  { display:none; }        /* 값은 오른쪽 본문에서 본다 */
+    .doc-root .pb2 .vr .role { flex-direction:column; gap:3px; }
+    .doc-root .pb2 .vr .role select { font-size:11px; padding:3px 5px; }
+    .doc-root .pb2 .vr .role .blk2 { display:none; }  /* 블록은 아래 펼침에서 */
+    .doc-root .pb2 .vr .exbtn { display:none; }
+    .doc-root .pb2 .vr .pos { justify-content:flex-end; }
+    .doc-root .pb2 .vr .pos .pv { display:none; }
+    .doc-root .pb2 .vr.h > span:nth-child(3) { display:none; }
   }
   /* 왼쪽에서 고친 자리를 오른쪽에서 짚어준다 */
   .doc-root .pdoc mark.hot { background:#ffd54a; outline:2px solid #f0a500; outline-offset:1px; }
+
+  /* 왼쪽 줄 ↔ 오른쪽 칸 — 손을 올리면 서로 짚어준다 */
+  .doc-root .pdoc mark { cursor:pointer; }
+  .doc-root .pdoc mark.hot { background:#ffd54a; outline:2px solid #f0a500; outline-offset:1px; }
+  .doc-root .vr.hot { background:var(--warn-bg); }
+  .doc-root .vr[data-i] { cursor:default; }

@@ -4591,9 +4591,28 @@ const CenterDocs = (function () {
             ({ on:true, name:'', kind:v.kind, cur:v.t, prev:'', src:'guess' }));
           extra=' 한 장만 보고 <b>모양으로 짐작</b>했습니다. 지난 달 문서를 더 넣으면 정확해집니다.';
         }
-        // 이름은 나중에 사람이 붙인다. 우선 비슷한 것끼리 번호를 매겨 알아보게.
+        /* 문서가 표면 «칸» 을 값 자리로 삼는다 — 이름도 역할도 표가 말해준다.
+           글자 토막으로 잡으면 «여러 값 2» 같은 이름이 되고 숫자가 토막 난다
+           (실제 공문에서 79.6→80.6 이 «6» 으로 잡혔다). */
+        const cells = slotsFromTable(bodyA, slotFiles.b ? guessBody(mhtToHtml(await slotFiles.b.file.text())) : null);
+        if(cells && cells.length>=2){
+          // 표 밖(문단)에서 잡힌 것만 남기고, 표 안은 칸 단위로 바꾼다
+          // ⚠ 겹치면 버린다 — **양쪽 방향을 다 본다.** 한 방향만 보면 두 칸에 걸친
+          //    토막(«28,204건 ▼ 3,181»)이 어느 칸보다 길어서 안 걸러진다.
+          const inCell=(x)=>cells.some(c=>c.cur && (x.indexOf(c.cur)>=0 || c.cur.indexOf(x)>=0));
+          const outside=vars.filter(v=>!inCell(v.cur));
+          vars = cells.map(c=>({ on:true, name:c.name, kind:c.kind, cur:c.cur, prev:c.prev,
+                                 src: slotFiles.b?'cmp':'guess', role:c.role, of:c.of }))
+                      .concat(outside);
+          extra += ' 표의 <b>칸</b> 을 값 자리로 잡았습니다 — 이름과 역할은 표에서 읽었습니다.';
+        }
+        // 이름이 없는 것(표 밖)만 번호를 매겨 알아보게 한다
         const seen={};
-        vars.forEach(v=>{ const k=v.kind; seen[k]=(seen[k]||0)+1; v.name=v.name||(k+(seen[k]>1?' '+seen[k]:'')); });
+        vars.forEach(v=>{ if(v.name) return; const k=v.kind; seen[k]=(seen[k]||0)+1;
+          v.name=k+(seen[k]>1?' '+seen[k]:''); });
+        // 같은 이름이 겹치면 뒤에 번호 — 이름은 본문의 {{키}} 가 되므로 겹치면 안 된다
+        const used={};
+        vars.forEach(v=>{ let n=v.name; if(used[n]){ n=v.name+' '+(++used[v.name]); } else used[v.name]=1; v.name=n; });
 
         const title=guessTitle(stripTags(htmlA));
         $('pvName').value=title;
@@ -4954,6 +4973,74 @@ const CenterDocs = (function () {
       return rows;
     }
 
+    /* ══════════════════════════════════════════════════════════════
+       표의 «칸» 을 값 자리로 삼는다.
+
+       예전에는 글자 토막을 잡았다. 그래서 실제 공문에서 이런 일이 났다:
+         · 이름이 「월」 「여러 값」 「인원·건수 2」 — 오른쪽 어느 칸인지 알 수가 없다
+         · 두 달을 견주다 «79.6 → 80.6» 에서 «6» 만 잡혔다 — 숫자가 토막 난다
+         · 「전월 실적」 열과 「증감」 열이 당월값과 구별되지 않았다
+
+       문서는 표다. **한 칸이 한 값**이고, 그 칸이 무엇인지는 표가 이미 말해준다:
+         줄 이름(첫 칸) = 무슨 값인가        머리글 = 어느 달 것인가 · 증감인가
+       그래서 이름도 역할도 표에서 그대로 읽어낸다.
+
+         인입호 · 전월 실적  →  {{인입호_전월}}   역할: 전월값 (기준 칸 = 인입호)
+         인입호 · 8월 실적   →  {{인입호}}        역할: 내가 채운다
+         인입호 · 증감       →  {{인입호_증감}}   역할: 차이  (기준 칸 = 인입호)
+
+       표가 아닌 곳(문단의 «2026년 8월» 같은)은 예전 방식대로 글자로 잡는다.
+       ══════════════════════════════════════════════════════════════ */
+
+    /** 머리글로 그 열이 무엇인지 알아본다 */
+    function colRole(head){
+      const h=String(head||'').replace(/\s/g,'');
+      if(/전월|전달|지난달|前月/.test(h))      return { role:'prev', suffix:'_전월' };
+      if(/증감|대비|차이|증감율|증감률/.test(h)) return { role:'diff', suffix:'_증감' };
+      return { role:'cur', suffix:'' };
+    }
+
+    /** 칸 이름을 짧고 알아보게 — «1일 평균 상담건수» 는 그대로 두되 공백만 줄인다 */
+    const tidy=(s)=>String(s||'').replace(/\s+/g,' ').trim().slice(0,20);
+
+    /** 표에서 값 자리를 뽑는다. B(지난달)가 있으면 **달라진 칸만** 잡는다. */
+    function slotsFromTable(htmlA, htmlB){
+      const rowsA=bodyRows(htmlA);
+      if(rowsA.length<2) return null;
+      const headIdx=rowsA.findIndex(r=>r.head);
+      const head=rowsA[headIdx>=0?headIdx:0];
+      const rowsB=htmlB? bodyRows(htmlB) : null;
+      const sameShape = !rowsB || (rowsB.length===rowsA.length
+        && rowsA.every((r,i)=>rowsB[i].cells.length===r.cells.length));
+      const out=[];
+
+      rowsA.forEach((row,ri)=>{
+        const isHead = (ri===(headIdx>=0?headIdx:0));
+        const label  = tidy((row.cells[0]||{}).text);
+        row.cells.forEach((c,ci)=>{
+          if(!isHead && ci===0) return;                 // 줄 이름 칸은 값이 아니다
+          const a=tidy(c.text); if(!a) return;
+          const b = (rowsB && sameShape && rowsB[ri] && rowsB[ri].cells[ci])
+                    ? tidy(rowsB[ri].cells[ci].text) : '';
+          if(rowsB && sameShape && a===b) return;       // 두 달 다 같으면 고정값이다
+          if(!rowsB && !findVars(a).length) return;     // 한 장이면 «값처럼 생긴 것» 만
+
+          if(isHead){
+            // 머리글이 달라졌다면 회차 표기다 (예: «8월 실적» → «7월 실적»)
+            out.push({ name:'회차', cur:a, prev:b, role:'cur', of:'', kind:'회차',
+                       ri:ri, ci:ci, cell:c });
+            return;
+          }
+          const cr=colRole((head.cells[ci]||{}).text);
+          out.push({ name: label + cr.suffix, cur:a, prev:b,
+                     role: cr.role, of: cr.role==='cur' ? '' : label,
+                     kind: tidy((head.cells[ci]||{}).text) || '값',
+                     ri:ri, ci:ci, cell:c });
+        });
+      });
+      return out.length? out : null;
+    }
+
     /** 고른 줄의 칸들을 {{#이름}} 으로 바꾸고, 그 이름 목록을 돌려준다.
         ⚠ 글자 조각만 바꾼다 — 태그는 한 글자도 안 건드린다. */
     function makeRepeatRow(html,rowIdx,headIdx){
@@ -5159,7 +5246,18 @@ const CenterDocs = (function () {
       // 오히려 그런 문서(주마다 한 줄 같은)에 되풀이 줄이 꼭 필요하다
       drawRepeatPick();
       const on=pending.vars.filter(v=>v.on).length;
-      $('pvCount').innerHTML=on+'개 씁니다'+(pending.vars.length>on?' (끈 것 '+(pending.vars.length-on)+')':'');
+      /* «무엇을 설정해야 하나» 를 숫자로 먼저 말해준다.
+         그냥 «19개 씁니다» 라고만 하면, 그중 내가 손댈 것이 몇 개인지 알 수가 없다. */
+      const nCur = pending.vars.filter(v=>v.on&&(v.role||'cur')==='cur').length;
+      const nAuto= pending.vars.filter(v=>v.on&&(v.role||'cur')!=='cur').length;
+      const nOff = pending.vars.length-on;
+      const needOfBad = pending.vars.filter(v=>v.on&&OF_NEEDED.indexOf(v.role)>=0
+        && !pending.vars.some(x=>x.on&&(x.role||'cur')==='cur'&&x.name.trim()===v.of)).length;
+      $('pvCount').innerHTML=
+          '<b style="color:var(--ink)">내가 채울 칸 '+nCur+'개</b>'
+        + (nAuto? ' · <span style="color:var(--ok)">저절로 '+nAuto+'개</span>':'')
+        + (nOff ? ' · <span style="opacity:.6">안 씀 '+nOff+'개</span>':'')
+        + (needOfBad? ' · <b style="color:var(--err)">기준 칸 못 정한 것 '+needOfBad+'개</b>':'');
       if(!pending.vars.length){
         $('pvVars').innerHTML='<div class="vempty">잡힌 자리가 없습니다. <b>+ 직접 더하기</b> 로 넣어주세요.</div>';
         return;
@@ -5198,6 +5296,11 @@ const CenterDocs = (function () {
         + '합계는 <b>부가세를 매긴 칸</b>을 더합니다(청구인원 같은 칸이 섞이지 않게).'
         + '</div>';
       // 3지선다 — 내가 채운다 / 저절로 / 안 바뀐다(고정)
+      // 손을 올리면 오른쪽 그 칸이 빛난다 — «내가 고르는 게 문서 어디인지» 가 보인다
+      $('pvVars').querySelectorAll('.vr[data-i]').forEach(r=>{
+        r.addEventListener('mouseenter',()=>linkOn(+r.dataset.i,false));
+        r.addEventListener('mouseleave',linkOff);
+      });
       $('pvVars').querySelectorAll('[data-r3]').forEach(el=>el.addEventListener('change',()=>{
         const v=pending.vars[+el.dataset.r3];
         if(el.value==='off'){ v.on=false; }
@@ -5327,15 +5430,31 @@ const CenterDocs = (function () {
 
     /* 왼쪽에서 고친 자리를 오른쪽 본문에서 눈에 띄게 하고, 안 보이면 데려온다.
        좌우로 놔도 본문이 길면 그 자리가 화면 밖일 수 있다. */
-    function flashSlot(i){
+    function flashSlot(i){ linkOn(i,true); }
+
+    /** 왼쪽 줄과 오른쪽 칸을 서로 짚어준다 (손을 올리거나 눌렀을 때) */
+    function linkOn(i,scroll){
       const box=$('pvBody'); if(!box) return;
+      box.querySelectorAll('mark.hot').forEach(x=>x.classList.remove('hot'));
+      $('pvVars').querySelectorAll('.vr.hot').forEach(x=>x.classList.remove('hot'));
       const m=box.querySelector('[data-v="'+i+'"]');
-      if(!m) return;
-      box.querySelectorAll('.hot').forEach(x=>x.classList.remove('hot'));
-      m.classList.add('hot');
-      const br=box.getBoundingClientRect(), mr=m.getBoundingClientRect();
-      if(mr.top<br.top+6||mr.bottom>br.bottom-6)
-        box.scrollTop += (mr.top-br.top) - box.clientHeight/2 + mr.height/2;
+      const r=$('pvVars').querySelector('.vr[data-i="'+i+'"]');
+      if(m) m.classList.add('hot');
+      if(r) r.classList.add('hot');
+      if(scroll&&m){
+        const br=box.getBoundingClientRect(), mr=m.getBoundingClientRect();
+        if(mr.top<br.top+6||mr.bottom>br.bottom-6)
+          box.scrollTop += (mr.top-br.top) - box.clientHeight/2 + mr.height/2;
+      }
+      if(scroll&&r){
+        const rr=r.getBoundingClientRect();
+        if(rr.top<0||rr.bottom>innerHeight) r.scrollIntoView({block:'center'});
+      }
+    }
+    function linkOff(){
+      const box=$('pvBody');
+      if(box) box.querySelectorAll('mark.hot').forEach(x=>x.classList.remove('hot'));
+      $('pvVars').querySelectorAll('.vr.hot').forEach(x=>x.classList.remove('hot'));
     }
 
     function drawBody(){
@@ -5366,6 +5485,18 @@ const CenterDocs = (function () {
       $('pvBody').innerHTML=parts.join('')
         .replace(/\u0001(\d+)\u0003([^\u0002]*)\u0002/g,
           function(m,n,txt){ return '<mark data-v="'+n+'">'+txt+'</mark>'; });
+      // ⚠ 연결은 **본문을 그린 바로 뒤에** 건다. drawVars 에서 걸면 그 뒤에 본문을
+      //    다시 그리면서 노드가 갈려 손잡이가 떨어진다(실제로 그래서 엉뚱한 줄이 짚였다).
+      $('pvBody').querySelectorAll('mark[data-v]').forEach(m=>{
+        m.addEventListener('click',()=>{
+          const i=+m.dataset.v;
+          linkOn(i,true);
+          const el=$('pvVars').querySelector('.vr[data-i="'+i+'"] [data-nm]');
+          if(el){ el.focus(); el.select(); }
+        });
+        m.addEventListener('mouseenter',()=>linkOn(+m.dataset.v,false));
+        m.addEventListener('mouseleave',linkOff);
+      });
     }
 
     $('pvAddVar').addEventListener('click',()=>{
