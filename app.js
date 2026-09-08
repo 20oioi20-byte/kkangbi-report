@@ -3955,22 +3955,26 @@ const CenterDocs = (function () {
     + '</div>'
     + '<div class="prev" id="docPrev" hidden>'
     +   '<div class="ph"><b id="pvTitle"></b><button class="x" id="pvClose">×</button></div>'
-    +   '<div class="pb">'
-    +     '<div class="files2" id="pvFiles"></div>'
-    +     '<div class="hint" id="pvEditNote" hidden></div>'
-    +     '<div class="pnote" id="pvNote"></div>'
-    +     '<div class="pf"><span class="k">문서 이름</span><input id="pvName"></div>'
-    +     '<div class="pf"><span class="k">센터</span><select id="pvCenter"></select></div>'
-    +     '<div class="pf"><span class="k">종류</span><select id="pvKind"></select></div>'
-    +     '<div class="vhead"><b>매달 바뀌는 칸</b><span id="pvCount"></span>'
-    +       '<button class="btn g sm" id="pvAddVar">+ 직접 더하기</button></div>'
-    +     '<div class="vlist" id="pvVars"></div>'
-    +     '<div id="pvRepeat"></div>'
-    +     '<div class="vhead"><b>문서 본문</b>'
-    +       '<span id="pvBodyNote">값 자리는 노랗게 칠했습니다</span>'
-    +       '<button class="btn g sm" id="pvEditBody">본문 고치기</button></div>'
-    +     '<div class="pdoc" id="pvBody"></div>'
-    +     '<div class="bedit" id="pvBodyEdit" hidden></div>'
+    +   '<div class="pb pb2">'
+    +     '<div class="pcol">'                       // ← 왼쪽: 정하는 곳
+    +       '<div class="files2" id="pvFiles"></div>'
+    +       '<div class="hint" id="pvEditNote" hidden></div>'
+    +       '<div class="pnote" id="pvNote"></div>'
+    +       '<div class="pf"><span class="k">문서 이름</span><input id="pvName"></div>'
+    +       '<div class="pf"><span class="k">센터</span><select id="pvCenter"></select></div>'
+    +       '<div class="pf"><span class="k">종류</span><select id="pvKind"></select></div>'
+    +       '<div class="vhead"><b>매달 바뀌는 칸</b><span id="pvCount"></span>'
+    +         '<button class="btn g sm" id="pvAddVar">+ 직접 더하기</button></div>'
+    +       '<div class="vlist" id="pvVars"></div>'
+    +       '<div id="pvRepeat"></div>'
+    +     '</div>'
+    +     '<div class="pcol pstick">'                // ← 오른쪽: 고치는 즉시 보이는 곳
+    +       '<div class="vhead"><b>문서 본문</b>'
+    +         '<span id="pvBodyNote">값 자리는 노랗게 칠했습니다</span>'
+    +         '<button class="btn g sm" id="pvEditBody">본문 고치기</button></div>'
+    +       '<div class="pdoc" id="pvBody"></div>'
+    +       '<div class="bedit" id="pvBodyEdit" hidden></div>'
+    +     '</div>'
     +   '</div>'
     +   '<div class="pa"><button class="btn g" id="pvDrop" hidden>이 문서 지우기</button>'
     +     '<span style="flex:1"></span>'
@@ -5200,7 +5204,7 @@ const CenterDocs = (function () {
         else { v.on=true; v.role = (el.value==='cur') ? 'cur'
                  : (v.role&&v.role!=='cur' ? v.role : 'prev'); }
         if(v.role==='cur') v.of='';
-        drawVars(); drawBody();
+        drawVars(); drawBody(); flashSlot(+el.dataset.r3);
       }));
       // 어떤 규칙인지
       $('pvVars').querySelectorAll('[data-role]').forEach(el=>el.addEventListener('change',()=>{
@@ -5243,11 +5247,12 @@ const CenterDocs = (function () {
         drawVars(); drawBody(); drawPickNote();
       }));
       $('pvVars').querySelectorAll('[data-on]').forEach(el=>el.addEventListener('change',()=>{
-        pending.vars[+el.dataset.on].on=el.checked; drawVars(); drawBody(); }));
+        const i=+el.dataset.on; pending.vars[i].on=el.checked; drawVars(); drawBody(); flashSlot(i); }));
       $('pvVars').querySelectorAll('[data-nm]').forEach(el=>{
         el.addEventListener('input',()=>{
           pending.vars[+el.dataset.nm].name=el.value;
           if(picking===+el.dataset.nm) drawPickNote();   // 안내 문구의 이름도 따라간다
+          flashSlot(+el.dataset.nm);                     // 오른쪽 본문의 그 자리를 짚어준다
         });
         // 편집 모드에서는 칸을 떠날 때 본문의 {{키}} 와 다른 칸의 «기준 칸» 도 함께 고친다
         el.addEventListener('change',()=>{
@@ -5320,29 +5325,47 @@ const CenterDocs = (function () {
       drawVars(); drawBody(); drawPickNote();
     });
 
+    /* 왼쪽에서 고친 자리를 오른쪽 본문에서 눈에 띄게 하고, 안 보이면 데려온다.
+       좌우로 놔도 본문이 길면 그 자리가 화면 밖일 수 있다. */
+    function flashSlot(i){
+      const box=$('pvBody'); if(!box) return;
+      const m=box.querySelector('[data-v="'+i+'"]');
+      if(!m) return;
+      box.querySelectorAll('.hot').forEach(x=>x.classList.remove('hot'));
+      m.classList.add('hot');
+      const br=box.getBoundingClientRect(), mr=m.getBoundingClientRect();
+      if(mr.top<br.top+6||mr.bottom>br.bottom-6)
+        box.scrollTop += (mr.top-br.top) - box.clientHeight/2 + mr.height/2;
+    }
+
     function drawBody(){
       if(!pending){ $('pvBody').innerHTML=''; return; }
       if(bodyEditing){ drawBodyEdit(); return; }
-      const want=new Set(pending.vars.filter(v=>v.on).map(v=>v.cur));
+      // 어느 줄에서 온 자리인지 번호를 달아둔다 — 왼쪽에서 고치면 오른쪽의 그 자리로 데려간다
+      const idxOf=new Map();
+      pending.vars.forEach((v,i)=>{ if(v.on && v.cur && !idxOf.has(v.cur)) idxOf.set(v.cur,i); });
+      const want=new Set(idxOf.keys());
       const parts=pending.bodyA.split(/(<[^>]+>)/);
       for(let i=0;i<parts.length;i+=2){
         const t=parts[i]; if(!t) continue;
         let o='', at=0;
         for(const v of findVars(t)){
           if(!want.has(v.t)) continue;
-          o+=t.slice(at,v.i)+'\u0001'+v.t+'\u0002'; at=v.i+v.t.length;
+          o+=t.slice(at,v.i)+'\u0001'+idxOf.get(v.t)+'\u0003'+v.t+'\u0002'; at=v.i+v.t.length;
         }
         // 견주기로 잡은 값은 findVars 로 안 잡히는 것도 있다(▲ · 4월 · 97.6%).
         // 긴 것부터 찾아 칠한다 — 짧은 것을 먼저 칠하면 긴 값이 토막 난다.
         if(!o){
           for(const w of [...want].filter(x=>x.length>=2).sort((x,y)=>y.length-x.length)){
             const at2=t.indexOf(w);
-            if(at2>=0){ o=t.slice(0,at2)+'\u0001'+w+'\u0002'; at=at2+w.length; break; }
+            if(at2>=0){ o=t.slice(0,at2)+'\u0001'+idxOf.get(w)+'\u0003'+w+'\u0002'; at=at2+w.length; break; }
           }
         }
         parts[i]=o+t.slice(at);
       }
-      $('pvBody').innerHTML=parts.join('').split('\u0001').join('<mark>').split('\u0002').join('</mark>');
+      $('pvBody').innerHTML=parts.join('')
+        .replace(/\u0001(\d+)\u0003([^\u0002]*)\u0002/g,
+          function(m,n,txt){ return '<mark data-v="'+n+'">'+txt+'</mark>'; });
     }
 
     $('pvAddVar').addEventListener('click',()=>{

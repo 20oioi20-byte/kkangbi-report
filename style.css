@@ -639,3 +639,38 @@
   .doc-root .holchip button { border:0; background:transparent; color:var(--dim); cursor:pointer;
     font-size:14px; line-height:1; padding:0 4px; }
   .doc-root .holchip button:hover { color:var(--err); }
+
+  /* ─ .mht 미리보기를 좌우로 — 문서 상세와 같은 짜임 ──────────────
+     세로로 쌓여 있으면 값 자리를 고칠 때마다 아래로 스크롤해야 본문이 어떻게
+     바뀌었는지 볼 수 있었다. 좌우로 두면 고치는 즉시 오른쪽에서 보인다. */
+  .doc-root .pb2 { display:grid; grid-template-columns:minmax(0,1fr) minmax(0,1fr);
+    gap:16px; align-items:start; }
+  .doc-root .pb2 .pcol { min-width:0; }
+  .doc-root .pb2 .pstick { position:sticky; top:12px; }
+  .doc-root .pb2 .pstick .vhead { margin-top:0; }
+  /* 오른쪽이 늘 보이도록 본문을 화면 높이에 맞춘다 */
+  .doc-root .pb2 .pdoc { max-height:min(62vh, 560px); }
+  .doc-root .pb2 .bedit { max-height:min(62vh, 560px); overflow:auto; }
+  /* 좁아지면 다시 위아래로 — 억지로 좌우를 유지하면 둘 다 못 쓴다 */
+  @media (max-width:1080px) {
+    .doc-root .pb2 { grid-template-columns:1fr; }
+    .doc-root .pb2 .pstick { position:static; }
+    .doc-root .pb2 .pdoc { max-height:300px; }
+  }
+  /* 왼쪽이 좁아졌으니 값 자리 표를 세 줄로 접는다.
+     ⚠ «고르기»(위치)는 자리를 정하는 핵심 단추라 절대 숨기지 않는다. */
+  @media (min-width:1081px) {
+    .doc-root .pb2 .vr { grid-template-columns:24px minmax(0,1fr) 108px 24px;
+      grid-template-areas:'c n r x' '. v r x' '. p r x'; row-gap:4px; }
+    .doc-root .pb2 .vr > input[type=checkbox] { grid-area:c; align-self:start; margin-top:8px; }
+    .doc-root .pb2 .vr .nmcell { grid-area:n; }
+    .doc-root .pb2 .vr .val    { grid-area:v; font-size:12px; }
+    .doc-root .pb2 .vr .role   { grid-area:r; align-self:start; }
+    .doc-root .pb2 .vr .pos    { grid-area:p; justify-content:flex-start; }
+    .doc-root .pb2 .vr .del    { grid-area:x; align-self:start; }
+    .doc-root .pb2 .vr.h { grid-template-areas:'c n r x'; }
+    .doc-root .pb2 .vr.h > span:nth-child(3),
+    .doc-root .pb2 .vr.h > span:nth-child(5) { display:none; }
+  }
+  /* 왼쪽에서 고친 자리를 오른쪽에서 짚어준다 */
+  .doc-root .pdoc mark.hot { background:#ffd54a; outline:2px solid #f0a500; outline-offset:1px; }
