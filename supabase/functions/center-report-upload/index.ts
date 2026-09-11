@@ -121,6 +121,9 @@ async function callSogangMOT(systemPrompt: string, userPrompt: string): Promise<
     const body = await res.text().catch(() => '');
     const isCredit = res.status === 402 || res.status === 403 || /credit|quota|insufficient/i.test(body);
     const reason = isCredit ? '크레딧 소진(또는 권한 부족)' : 'HTTP ' + res.status;
+    // 임시 진단용: MOT_GATEWAY_URL 자체가 Supabase 대시보드에서 마스킹되어 원본을 볼 수 없으므로,
+    // 실제 요청 URL을 Supabase Function 로그(관리자만 열람 가능)에만 남긴다 — 화면(사용자 노출)에는 절대 안 찍음.
+    console.error('[callSogangMOT] 요청 실패 - URL:', apiUrl, '- status:', res.status);
     throw new AiUnavailableError(reason + ' - ' + body.slice(0, 200));
   }
 
