@@ -572,13 +572,15 @@ function renderTopbarAuth() {
       + '<button onclick="closeAccountMenu();lockWorkspace()" class="danger">🔒 잠그기</button>'
       + '</div></div>';
   } else {
+    // 2026-09-22: 센터가 입력하는 화면에서 "관리자화면 로그인" 버튼 제거 — 관리자 화면은
+    // 앞으로 kkangbi-calendar(로컬 전용)의 실적관리자 탭으로만 들어간다. 여기서 지워도
+    // promptWorkspaceLogin() 자체는 남아있으니 그쪽에서 필요하면 콘솔로 직접 호출 가능.
     el.innerHTML = '<div class="account-menu-wrap">'
       + '<button class="btn-ghost" onclick="toggleAccountMenu(event)">⚙ 계정 ▾</button>'
       + '<div class="account-menu" id="accountMenu">'
       + centerPwItem
       + '<button onclick="closeAccountMenu();toggleBackupPanel()">💾 백업/복원</button>'
-      + '</div></div>'
-      + '<button class="btn-primary" onclick="promptWorkspaceLogin()">관리자화면 로그인</button>';
+      + '</div></div>';
   }
 }
 
