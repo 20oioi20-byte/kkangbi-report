@@ -450,27 +450,25 @@ function isWeekendOrHoliday(dateStr) {
 // 인증 / 세션 (워크스페이스·센터별 비밀번호)
 // 주의: 정적 파일 + anon key 구조라 완벽한 서버 인증은 아니며,
 // 비밀번호를 모르는 일반 사용자를 막는 수준의 보호입니다.
-// 2026-07-22: 브라우저를 완전히 껐다 켜도 로그인이 유지되도록 sessionStorage(탭을 닫으면 즉시 소멸)
-// 대신 localStorage(직접 "잠그기"를 누르거나 브라우저 데이터를 지우기 전까지 유지)를 사용한다.
-// 매 접속마다(init()) 캐시된 비밀번호를 서버에 실제로 재검증하는 로직(tryWorkspaceLogin)은 그대로라
-// 저장 방식만 바뀌는 것 — 이전에 제거한 "URL만 알면 누구나 우회 가능"했던 자동인증과는 성격이 다르고,
-// 이 값을 읽을 수 있는 건 그 브라우저/기기에 접근 가능한 사람으로 한정된다.
+// 2026-09-22: 이전엔(2026-07-22) localStorage에 로그인 상태를 영구 저장해 브라우저를 껐다 켜도
+// 로그인이 유지됐으나, 사이트를 다시 열 때마다 항상 비밀번호를 다시 묻도록 되돌린다.
+// 로그인 상태를 아예 저장하지 않고(매 로드마다 초기화), 이전 버전이 localStorage에 남겨뒀을 수
+// 있는 값(워크스페이스 비밀번호 평문 포함)도 여기서 정리한다.
 // ============================================
 function restoreSession() {
   try {
-    workspacePasswordCache = localStorage.getItem(SS_WORKSPACE_PW) || '';
-    workspaceUnlocked = !!workspacePasswordCache;
-    const uc = localStorage.getItem(SS_UNLOCKED_CENTERS);
-    unlockedCenters = new Set(uc ? JSON.parse(uc) : []);
-    const ct = localStorage.getItem(SS_CENTER_TOKENS);
-    centerTokenMap = ct ? JSON.parse(ct) : {};
+    localStorage.removeItem(SS_WORKSPACE_PW);
+    localStorage.removeItem(SS_UNLOCKED_CENTERS);
+    localStorage.removeItem(SS_CENTER_TOKENS);
   } catch (e) { /* ignore */ }
+  workspacePasswordCache = '';
+  workspaceUnlocked = false;
+  unlockedCenters = new Set();
+  centerTokenMap = {};
 }
 
 function persistSession() {
-  localStorage.setItem(SS_WORKSPACE_PW, workspaceUnlocked ? workspacePasswordCache : '');
-  localStorage.setItem(SS_UNLOCKED_CENTERS, JSON.stringify(Array.from(unlockedCenters)));
-  localStorage.setItem(SS_CENTER_TOKENS, JSON.stringify(centerTokenMap));
+  // 더 이상 로그인 상태를 저장하지 않는다(재접속 시 항상 재인증) — restoreSession() 참고.
 }
 
 async function loadCentersMeta() {
@@ -875,52 +873,9 @@ let kpiSettingsCache = {};
 let kpiMonthlyTargetsCache = {};
 let settingsYear = new Date().getFullYear();
 
-function renderSidebarCustom() {
-  const area = document.getElementById('sidebarCustomArea');
-  if (!area) return;
-  if (!workspaceUnlocked) {
-    area.innerHTML = '<div class="sidebar-custom">'
-      + '<button class="sidebar-custom-locked" onclick="unlockCustomPanel()">🔒 커스터마이징 (관리자화면 비밀번호 필요)</button>'
-      + '</div>';
-    return;
-  }
-  area.innerHTML = '<details class="sidebar-custom">'
-    + '<summary>⚙ 커스터마이징</summary>'
-    + '<div class="sidebar-custom-body">'
-    + '<a href="https://claude.ai/chat/3f1eb3bd-7071-41f6-9bb4-6f3c95c65ca1" target="_blank" rel="noopener">💬 이 채팅방 (Claude 대화)</a>'
-    + '<a href="https://github.com/20oioi20-byte/kkangbi-report/blob/main/admin.html" target="_blank" rel="noopener">🐙 GitHub 저장소 (admin.html)</a>'
-    + '<a href="https://supabase.com/dashboard/project/zbiwyqwjehnogxkzlhxx/sql/92974b5d-555f-48c7-957f-d666b743fd3b" target="_blank" rel="noopener">🗄 Supabase 대시보드</a>'
-    + '<a href="https://vercel.com/kangseongho-s-projects/kkangbi-report" target="_blank" rel="noopener">▲ Vercel 대시보드</a>'
-    + '<div class="sidebar-custom-key">'
-    + '<div style="font-size:11px;color:#86868b;margin-bottom:4px;">Supabase Anon Key (공개용)</div>'
-    + '<div class="key-row">'
-    + '<input type="text" readonly id="sidebarAnonKeyDisplay" value="' + SB_ANON_KEY + '">'
-    + '<button onclick="copySidebarAnonKey()" title="복사">복사</button>'
-    + '</div></div></div></details>';
-}
-
-async function unlockCustomPanel() {
-  if (workspaceUnlocked) { renderSidebarCustom(); return; }
-  const pw = (prompt('관리자화면 비밀번호를 입력하세요:') || '').trim();
-  if (!pw) return;
-  const ok = await tryWorkspaceLogin(pw, false);
-  if (ok) {
-    renderTopbarAuth();
-    renderSidebar();
-    if (!currentCenter && !viewingWorkspaceOverview) { await selectWorkspaceOverview(); } else { renderSidebarCustom(); }
-  }
-}
-
-function copySidebarAnonKey() {
-  const input = document.getElementById('sidebarAnonKeyDisplay');
-  if (!input) return;
-  navigator.clipboard.writeText(input.value).then(function() {
-    const btn = event.target;
-    const old = btn.textContent;
-    btn.textContent = '복사됨';
-    setTimeout(function() { btn.textContent = old; }, 1500);
-  }).catch(function() { alert('복사에 실패했습니다. 직접 선택해 복사해 주세요.'); });
-}
+// 2026-09-22: "커스터마이징" 패널(Claude 대화방/GitHub/Supabase·Vercel 대시보드 링크 + anon key
+// 노출) 전체 제거. 관리자화면 진입로가 하나 더 있었던 셈이라, 관리자 접근을 로컬 전용 통합
+// 사이트로 완전히 옮기는 이번 작업과 맞지 않아 기능 자체를 없앴다.
 
 // 상단 고정 탭이 사라진 대신, 사이드바에서 현재 선택된 센터 바로 아래에만 노출된다.
 const MAIN_TABS = [
@@ -953,7 +908,6 @@ function filterCenterList(query) {
 function visibleCentersMeta() { return allCentersMeta.filter(function(c) { return c.is_active !== false; }); }
 
 function renderSidebar() {
-  renderSidebarCustom();
   const listLabel = document.getElementById('centerListLabel');
   if (listLabel) listLabel.textContent = '센터 (' + visibleCentersMeta().length + ')';
   const list = document.getElementById('centerList');
