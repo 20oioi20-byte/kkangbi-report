@@ -1,0 +1,13 @@
+# 2026-09-22: 이 저장소는 빌드 단계 없는 정적 배포라, .vercelignore가 없으면
+# 저장소 안의 모든 파일(백엔드 소스코드 index.ts, docs/의 운영 문서, SQL 마이그레이션 등)이
+# 그대로 공개 URL로 서빙된다는 걸 뒤늦게 발견해서 추가함(실제로 노출 확인 후 즉시 조치).
+# 공개돼야 하는 건 admin.html/app.js/style.css/upload.html/m.html 5개뿐이고, 나머지는 전부 차단.
+
+docs/
+skills/
+tests/
+supabase/
+local-only/
+schema_addendum_*.sql
+.claude/
+*.md
