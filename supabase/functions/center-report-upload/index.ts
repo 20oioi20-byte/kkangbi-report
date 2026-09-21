@@ -749,8 +749,12 @@ Deno.serve(async (req) => {
     if (action === 'verify-center-password' && req.method === 'POST') {
       const body = await req.json();
       const { center_code, password } = body;
-      const { data: center } = await supabase.from('center_config').select('center_name, password_hash, upload_token').eq('center_code', center_code).maybeSingle();
+      const { data: center } = await supabase.from('center_config').select('center_name, password_hash, upload_token, is_active').eq('center_code', center_code).maybeSingle();
       if (!center) return json({ success: false, error: '존재하지 않는 센터입니다.' }, 404);
+      // 2026-09-22: is_active=false(숨긴 센터)는 비밀번호가 맞아도 로그인 자체를 막는다.
+      // 다른 액션들(history/upload/schema 등)은 이미 is_active를 확인하고 있었는데 이 지점만
+      // 빠져 있었음 — 여기서 막아야 "로그인 성공" 화면이 아예 안 뜬다.
+      if (!center.is_active) return json({ success: true, valid: false }, 200);
       const valid = (await hashPassword(password || '')) === center.password_hash;
       if (!valid) return json({ success: true, valid: false }, 200);
       return json({ success: true, valid: true, center_name: center.center_name, upload_token: center.upload_token }, 200);
