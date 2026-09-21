@@ -778,8 +778,10 @@ Deno.serve(async (req) => {
     if (action === 'change-center-password' && req.method === 'POST') {
       const body = await req.json();
       const { center_code, current_password, new_password, workspace_password } = body;
-      if (!new_password || !/^\d{6}$/.test(new_password)) {
-        return json({ success: false, error: '새 비밀번호는 숫자 6자리여야 합니다.' }, 400);
+      // 2026-09-21: 기존엔 "숫자 6자리"로 고정돼 있었으나, 센터 비밀번호에 문자/특수문자도
+      // 섞어 쓸 수 있게 요청받아 길이만 검증하도록 완화(숫자 전용 제약 제거).
+      if (!new_password || new_password.length < 4 || new_password.length > 40) {
+        return json({ success: false, error: '새 비밀번호는 4~40자여야 합니다.' }, 400);
       }
       let authorized = false;
       if (workspace_password) authorized = await isWorkspaceAuthorized(req, workspace_password);

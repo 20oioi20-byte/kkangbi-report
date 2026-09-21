@@ -621,7 +621,7 @@ function showChangeCenterPw() {
     if (!cur) return;
     payload.current_password = cur;
   }
-  const next = (prompt('새 비밀번호(숫자 6자리):') || '').trim();
+  const next = (prompt('새 비밀번호(4자 이상, 영문/숫자/특수문자 조합 가능):') || '').trim();
   if (!next) return;
   payload.new_password = next;
   fetch(SB_FUNCTION_URL + '?action=change-center-password', {
