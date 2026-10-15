@@ -8,6 +8,7 @@ skills/
 tests/
 supabase/
 local-only/
+copilot/
 schema_addendum_*.sql
 .claude/
 *.md
